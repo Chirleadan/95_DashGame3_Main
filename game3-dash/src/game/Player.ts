@@ -50,6 +50,12 @@ export class Player {
   /** Length & trail width scale for the current main dash (e.g. on-beat ×2). */
   private activeDashLenWidthMult = 1;
 
+  /**
+   * Increments on each new main dash start. Dash kills use it so each enemy
+   * takes at most one dash-hit per dash (not once per animation frame).
+   */
+  private dashHitSerial = 0;
+
   constructor(scene: THREE.Scene) {
     this.mesh = new THREE.Group();
     this.mesh.position.y = CONFIG.floorY + CONFIG.playerRadius;
@@ -154,6 +160,52 @@ export class Player {
     return this.microDashTimeLeft > 0;
   }
 
+  getDashHitSerial(): number {
+    return this.dashHitSerial;
+  }
+
+  /**
+   * Called when dash damage connects with a tank: place the player just past the
+   * tank along the current dash vector and extend the main dash by a fixed fraction
+   * of full dash duration (see CONFIG.dashPastTankRemainingFraction).
+   */
+  clipDashPastTank(tankX: number, tankZ: number, tankBodyRadius: number): void {
+    if (!this.dash.isDashingForMovement()) return;
+    const behind =
+      tankBodyRadius + CONFIG.playerRadius + CONFIG.dashPastTankBehindOffset;
+    const nx = tankX + this.dash.dirX * behind;
+    const nz = tankZ + this.dash.dirZ * behind;
+    const c = clampToArena(nx, nz);
+    this.mesh.position.x = c.x;
+    this.mesh.position.z = c.z;
+    const mult = this.activeDashLenWidthMult;
+    this.dash.timeLeft =
+      CONFIG.dashDuration * mult * CONFIG.dashPastTankRemainingFraction;
+  }
+
+  /** Full reset for a new run (menu / after death). */
+  resetForNewRun(): void {
+    this.hp = CONFIG.playerMaxHp;
+    this.mesh.position.set(0, CONFIG.floorY + CONFIG.playerRadius, 0);
+    this.dash.reset();
+    this.postDashInvulnLeft = 0;
+    this.microDashTimeLeft = 0;
+    this.microDashSpeed = 0;
+    this.mainDashTravel = 0;
+    this.dashEnemyFreezeLeft = 0;
+    this.dashSweep = null;
+    this.dashTrailBuilding = false;
+    this.mainDashStartedThisFrame = false;
+    this.activeDashLenWidthMult = 1;
+    this.dashHitSerial = 0;
+    this.trailPoints.length = 0;
+    this.trailRibbonGeo.setDrawRange(0, 0);
+    this.trailRibbon.visible = false;
+    this.lastAimDirX = 0;
+    this.lastAimDirZ = -1;
+    this.applyNormalColors();
+  }
+
   /** Sweep segment for dash kills this frame; consumed by Game after reading. */
   consumeDashSweep(): DashSweepSegment | null {
     const s = this.dashSweep;
@@ -220,6 +272,7 @@ export class Player {
       this.dashEnemyFreezeLeft = CONFIG.dashEnemyFreezeDuration * mult;
       this.mainDashStartedThisFrame = true;
       this.activeDashLenWidthMult = mult;
+      this.dashHitSerial += 1;
     }
 
     let vx = 0;

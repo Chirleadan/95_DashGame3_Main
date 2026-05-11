@@ -3,10 +3,18 @@ const DASH_DURATION_SEC = 0.140595;
 
 /** Tunable gameplay and presentation constants. */
 export const CONFIG = {
-  arenaHalfSize: 26,
+  arenaHalfSize: 52,
+  /** Orthographic camera half-height (world); frustum top/bottom ±this, sides × aspect. */
+  cameraViewHalfExtent: 18,
   floorY: 0,
 
-  playerMaxHp: 100,
+  playerMaxHp: 3,
+  /** Contact damage pulse hit radius = playerRadius × this (XZ). */
+  playerDamagePulseRadiusMult: 25,
+  /** White ring max outer radius ≈ playerRadius × this (XZ, visual only). */
+  playerDamagePulseVisualRadiusMult: 15,
+  /** HP subtracted from each enemy inside the pulse radius when the hero takes damage. */
+  playerDamagePulseEnemyDamage: 3,
   playerSpeed: 14,
   playerRadius: 0.45,
 
@@ -51,13 +59,57 @@ export const CONFIG = {
   /** When starting a dash that will newly register an on-beat hit, dash length & trail width × this. */
   dashOnBeatLengthWidthMult: 2,
 
+  /** After death, show death screen this long (seconds) then return to main menu. */
+  deathScreenToMenuDelaySec: 2.5,
+
   enemySpeed: 4.2,
   enemyRadius: 1.14,
   spawnInterval: 0.44,
-  spawnMinDist: 11,
-  spawnMaxDist: 19,
+  spawnMinDist: 22,
+  spawnMaxDist: 38,
   maxEnemies: 48,
+  /** Difficulty multiplier grows as `1 + runSeconds / this` (at 60s run → ×2). */
+  difficultyRampTimeSec: 60,
+  /** Cap on difficulty multiplier (speed / spawn / max count scale). */
+  difficultyMaxMultiplier: 8,
+  /** Hard cap on scaled max enemy count (performance). */
+  difficultyMaxEnemyCountCap: 160,
+  /** Do not scale spawn interval below this (seconds). */
+  difficultyMinSpawnIntervalSec: 0.08,
   /** Flat HP lost each game tick per overlapping enemy (not scaled by deltaTime). */
-  contactDamagePerTick: 100,
+  contactDamagePerTick: 1,
   initialEnemyCount: 4,
+
+  /** Every N-th spawn is a vault / «Хранилище» (unless same tick is also a tank spawn). */
+  vaultEveryNthSpawn: 5,
+  /** Max «Хранилище» on the field at once (extra cadence spawns become normal). */
+  vaultMaxSimultaneous: 2,
+  /** Хранилище: flat hex prism; circumradius in XZ (matches cylinder radial extent). */
+  vaultHexCircumradius: 6.15,
+  vaultBodyThickness: 0.33,
+  vaultBodyColor: 0x2a3044,
+  vaultBodyEmissive: 0x0a0c12,
+  vaultStripColor: 0x7ecbff,
+  vaultShieldStripHeight: 0.33,
+  vaultShieldStripDepth: 0.24,
+  vaultShieldStripY: 0.285,
+  /** Dash sweep vs shield segment join distance (XZ, world units). */
+  vaultShieldDashJoinRadius: 2.46,
+
+  /** Every N-th enemy spawn is a tank ("здоровяк"). */
+  tankEveryNthSpawn: 10,
+  /** Tank body radius = `enemyRadius * this`. */
+  tankRadiusScale: 3,
+  tankHitsToKill: 2,
+  /** Clear ring between tank body (radius r) and red outline (world units). */
+  tankOutlineGap: 0.14,
+  /** Radial thickness of the red outline ring (world units). */
+  tankOutlineStroke: 0.16,
+  /**
+   * After dash damage hits a tank: snap past him along dash dir and set remaining
+   * main-dash time to this fraction of full dash (scaled by on-beat mult).
+   */
+  dashPastTankRemainingFraction: 0.35,
+  /** Gap behind tank center along dash dir when snapping past (world units). */
+  dashPastTankBehindOffset: 0.18,
 } as const;

@@ -51,4 +51,12 @@ export class Dash {
       this.cooldownLeft = Math.max(0, this.cooldownLeft - dt);
     }
   }
+
+  /** Clear dash state (e.g. new run from menu). */
+  reset(): void {
+    this.timeLeft = 0;
+    this.cooldownLeft = 0;
+    this.dirX = 0;
+    this.dirZ = -1;
+  }
 }

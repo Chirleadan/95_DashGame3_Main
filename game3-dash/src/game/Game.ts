@@ -17,6 +17,9 @@ import { BeatEffects } from './BeatEffects.ts';
 import { LensDistortionPass } from './render/LensDistortionPass.ts';
 
 export class Game {
+  /** Outer radius of `RingGeometry` used for damage pulse (local units). */
+  private static readonly DAMAGE_PULSE_RING_OUTER_LOCAL = 0.36;
+
   private readonly mount: HTMLElement;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly composer: EffectComposer;
@@ -42,6 +45,17 @@ export class Game {
   private cameraShake = 0;
   private readonly groundHit = new THREE.Vector3();
   private fpsSmoothed = 0;
+  private runPhase: 'menu' | 'playing' | 'death' = 'menu';
+  private deathScreenTimer = 0;
+  /** Active run time (seconds), only while `playing`; resets each new run. */
+  private runElapsedSec = 0;
+
+  private readonly damagePulseRings: {
+    mesh: THREE.Mesh;
+    mat: THREE.MeshBasicMaterial;
+    age: number;
+    baseOpacity: number;
+  }[] = [];
 
   constructor(mount: HTMLElement) {
     this.mount = mount;
@@ -51,7 +65,7 @@ export class Game {
     const w = mount.clientWidth || window.innerWidth;
     const h = mount.clientHeight || window.innerHeight;
     const aspect = w / Math.max(1, h);
-    const view = 18;
+    const view = CONFIG.cameraViewHalfExtent;
     this.camera = new THREE.OrthographicCamera(
       (-view * aspect) / 2,
       (view * aspect) / 2,
@@ -96,13 +110,16 @@ export class Game {
     this.ui.onLensDistortionChange((v) => {
       this.lensPass.setAmount(v);
     });
+    this.ui.onMainMenuPlay(() => {
+      this.startGameFromMenu();
+    });
+    this.ui.onDeathMenuClick(() => {
+      if (this.runPhase === 'death') {
+        this.goToMainMenuAfterDeath();
+      }
+    });
+    this.ui.showMainMenu();
     void this.initBeatmap();
-
-    this.spawner.spawnBurstAround(
-      this.player.x,
-      this.player.z,
-      CONFIG.initialEnemyCount,
-    );
 
     window.addEventListener('resize', this.onResize);
     this.onResize();
@@ -118,11 +135,12 @@ export class Game {
     dir.castShadow = true;
     dir.shadow.mapSize.set(2048, 2048);
     dir.shadow.camera.near = 1;
-    dir.shadow.camera.far = 80;
-    dir.shadow.camera.left = -30;
-    dir.shadow.camera.right = 30;
-    dir.shadow.camera.top = 30;
-    dir.shadow.camera.bottom = -30;
+    dir.shadow.camera.far = 160;
+    const sh = CONFIG.arenaHalfSize + 8;
+    dir.shadow.camera.left = -sh;
+    dir.shadow.camera.right = sh;
+    dir.shadow.camera.top = sh;
+    dir.shadow.camera.bottom = -sh;
     this.scene.add(dir);
   }
 
@@ -150,7 +168,7 @@ export class Game {
 
     const grid = new THREE.GridHelper(
       CONFIG.arenaHalfSize * 2,
-      16,
+      32,
       0x1e2433,
       0x141822,
     );
@@ -193,7 +211,7 @@ export class Game {
     const w = this.mount.clientWidth || window.innerWidth;
     const h = this.mount.clientHeight || window.innerHeight;
     const aspect = w / Math.max(1, h);
-    const view = 18;
+    const view = CONFIG.cameraViewHalfExtent;
     this.camera.left = (-view * aspect) / 2;
     this.camera.right = (view * aspect) / 2;
     this.camera.top = view / 2;
@@ -213,6 +231,47 @@ export class Game {
 
   private update(dt: number): void {
     this.input.beginFrame();
+    this.updateDamagePulseRings(dt);
+
+    if (this.runPhase === 'death') {
+      this.deathScreenTimer += dt;
+      this.beatEffects.update(dt);
+      this.updateCamera(dt);
+      const instFpsD = dt > 1e-6 ? 1 / dt : 0;
+      this.fpsSmoothed =
+        this.fpsSmoothed <= 0
+          ? instFpsD
+          : this.fpsSmoothed * 0.92 + instFpsD * 0.08;
+      this.ui.update(
+        this.player.hp,
+        CONFIG.playerMaxHp,
+        this.enemies.length,
+        this.player.dashCooldownRemaining,
+      );
+      this.ui.setFps(this.fpsSmoothed);
+      if (this.deathScreenTimer >= CONFIG.deathScreenToMenuDelaySec) {
+        this.goToMainMenuAfterDeath();
+      }
+      return;
+    }
+
+    if (this.runPhase === 'menu') {
+      this.beatEffects.update(dt);
+      this.updateCamera(dt);
+      const instFpsM = dt > 1e-6 ? 1 / dt : 0;
+      this.fpsSmoothed =
+        this.fpsSmoothed <= 0
+          ? instFpsM
+          : this.fpsSmoothed * 0.92 + instFpsM * 0.08;
+      this.ui.update(
+        this.player.hp,
+        CONFIG.playerMaxHp,
+        this.enemies.length,
+        this.player.dashCooldownRemaining,
+      );
+      this.ui.setFps(this.fpsSmoothed);
+      return;
+    }
 
     const aimOk = screenToGroundXZ(
       this.input.lastPointerClientX,
@@ -222,6 +281,10 @@ export class Game {
       CONFIG.floorY,
       this.groundHit,
     );
+
+    this.runElapsedSec += dt;
+    const diffMult = this.getDifficultyMultiplier();
+    const maxSlots = this.getMaxEnemySlots();
 
     this.player.update(
       dt,
@@ -247,14 +310,17 @@ export class Game {
 
     if (!this.player.areEnemiesFrozenByDash()) {
       for (const e of this.enemies) {
-        e.update(dt, this.player.x, this.player.z);
+        e.update(dt, this.player.x, this.player.z, diffMult);
       }
     }
 
-    this.spawner.update(dt, this.player.x, this.player.z);
+    this.spawner.update(dt, this.player.x, this.player.z, diffMult, maxSlots);
 
     let touching = 0;
     for (const e of this.enemies) {
+      if (e.isVault() && e.getActiveShieldCount() > 0) {
+        continue;
+      }
       if (
         circlesOverlap(
           this.player.x,
@@ -262,14 +328,20 @@ export class Game {
           CONFIG.playerRadius,
           e.mesh.position.x,
           e.mesh.position.z,
-          CONFIG.enemyRadius,
+          e.bodyRadius,
         )
       ) {
         touching += 1;
       }
     }
     if (touching > 0 && this.player.hp > 0 && !this.player.isInvulnerable()) {
+      const hpBefore = this.player.hp;
       this.player.takeDamage(CONFIG.contactDamagePerTick * touching);
+      if (this.player.hp < hpBefore) {
+        this.ui.triggerDamageScreenFlash();
+        this.spawnDamagePulseRing();
+        this.applyPlayerDamagePulseToEnemies();
+      }
     }
 
     this.updateCamera(dt);
@@ -280,9 +352,94 @@ export class Game {
         ? instFps
         : this.fpsSmoothed * 0.92 + instFps * 0.08;
 
-    this.ui.update(this.player.hp, this.enemies.length, this.player.dashCooldownRemaining);
+    this.ui.update(
+      this.player.hp,
+      CONFIG.playerMaxHp,
+      this.enemies.length,
+      this.player.dashCooldownRemaining,
+    );
     this.ui.setFps(this.fpsSmoothed);
     this.ui.setBeatHitCount(this.beatHitCount);
+
+    if (this.player.hp <= 0) {
+      this.runPhase = 'death';
+      this.deathScreenTimer = 0;
+      this.ui.showDeathScreen();
+      this.audio.pause();
+    }
+  }
+
+  /** `1` at run start, `2` after `difficultyRampTimeSec`, capped by `difficultyMaxMultiplier`. */
+  private getDifficultyMultiplier(): number {
+    return Math.min(
+      CONFIG.difficultyMaxMultiplier,
+      1 + this.runElapsedSec / CONFIG.difficultyRampTimeSec,
+    );
+  }
+
+  private getMaxEnemySlots(): number {
+    const m = this.getDifficultyMultiplier();
+    return Math.min(
+      CONFIG.difficultyMaxEnemyCountCap,
+      Math.max(1, Math.floor(CONFIG.maxEnemies * m)),
+    );
+  }
+
+  private clearDamagePulseRings(): void {
+    for (const p of this.damagePulseRings) {
+      this.scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mat.dispose();
+    }
+    this.damagePulseRings.length = 0;
+  }
+
+  private clearAllEnemies(): void {
+    for (const e of this.enemies) {
+      e.dispose(this.scene);
+    }
+    this.enemies.length = 0;
+  }
+
+  private startGameFromMenu(): void {
+    if (this.runPhase === 'playing') {
+      return;
+    }
+    this.runElapsedSec = 0;
+    this.clearDamagePulseRings();
+    this.clearAllEnemies();
+    this.player.resetForNewRun();
+    this.spawner.reset();
+    this.spawner.spawnBurstAround(
+      this.player.x,
+      this.player.z,
+      CONFIG.initialEnemyCount,
+      this.getMaxEnemySlots(),
+    );
+    this.resetBeatHitTracking();
+    this.nextBeatIndex = 0;
+    this.audio.reset();
+    this.cameraShake = 0;
+    this.runPhase = 'playing';
+    this.ui.hideMainMenu();
+    this.ui.hideDeathScreen();
+  }
+
+  private goToMainMenuAfterDeath(): void {
+    this.runElapsedSec = 0;
+    this.clearDamagePulseRings();
+    this.clearAllEnemies();
+    this.player.resetForNewRun();
+    this.spawner.reset();
+    this.resetBeatHitTracking();
+    this.nextBeatIndex = 0;
+    this.audio.pause();
+    this.audio.reset();
+    this.cameraShake = 0;
+    this.deathScreenTimer = 0;
+    this.runPhase = 'menu';
+    this.ui.hideDeathScreen();
+    this.ui.showMainMenu();
   }
 
   private resetBeatHitTracking(): void {
@@ -364,12 +521,23 @@ export class Game {
   private resolveDashKills(): number {
     const seg = this.player.consumeDashSweep();
     if (!seg) return 0;
-    const hitR =
-      CONFIG.playerRadius * CONFIG.dashKillPlayerRadiusScale +
-      CONFIG.enemyRadius;
+    const dashSerial = this.player.getDashHitSerial();
+    const scaledPlayer = CONFIG.playerRadius * CONFIG.dashKillPlayerRadiusScale;
     let kills = 0;
+    const vaultShieldJoin = CONFIG.vaultShieldDashJoinRadius;
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
+      if (e.isVault() && e.getActiveShieldCount() > 0) {
+        if (e.tryBreakVaultShieldWithDash(seg, vaultShieldJoin)) {
+          const tx = e.mesh.position.x;
+          const tz = e.mesh.position.z;
+          const tr = e.bodyRadius;
+          this.player.clipDashPastTank(tx, tz, tr);
+        }
+        continue;
+      }
+
+      const hitR = scaledPlayer + e.bodyRadius;
       if (
         segmentHitsCircle(
           seg.ax,
@@ -381,12 +549,87 @@ export class Game {
           hitR,
         )
       ) {
-        e.dispose(this.scene);
-        this.enemies.splice(i, 1);
-        kills += 1;
+        if (e.damagedInDashHitSerial === dashSerial) continue;
+        e.damagedInDashHitSerial = dashSerial;
+        const isTank = e.isTank();
+        const tx = e.mesh.position.x;
+        const tz = e.mesh.position.z;
+        const tr = e.bodyRadius;
+        const died = e.takeDashHit();
+        if (isTank || e.isVault()) {
+          this.player.clipDashPastTank(tx, tz, tr);
+        }
+        if (died) {
+          e.dispose(this.scene);
+          this.enemies.splice(i, 1);
+          kills += 1;
+        }
       }
     }
     return kills;
+  }
+
+  private spawnDamagePulseRing(): void {
+    const inner = 0.1;
+    const outer = Game.DAMAGE_PULSE_RING_OUTER_LOCAL;
+    const geo = new THREE.RingGeometry(inner, outer, 56);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(this.player.x, CONFIG.floorY + 0.06, this.player.z);
+    mesh.renderOrder = 8;
+    const scaleMax =
+      (CONFIG.playerRadius * CONFIG.playerDamagePulseVisualRadiusMult) /
+      Game.DAMAGE_PULSE_RING_OUTER_LOCAL;
+    mesh.scale.setScalar(0.2 * scaleMax);
+    this.scene.add(mesh);
+    this.damagePulseRings.push({ mesh, mat, age: 0, baseOpacity: 0.92 });
+  }
+
+  private updateDamagePulseRings(dt: number): void {
+    const dur = 0.24;
+    const ringOuterLocal = Game.DAMAGE_PULSE_RING_OUTER_LOCAL;
+    const targetWorldOuter =
+      CONFIG.playerRadius * CONFIG.playerDamagePulseVisualRadiusMult;
+    const scaleMax = targetWorldOuter / ringOuterLocal;
+    for (let i = this.damagePulseRings.length - 1; i >= 0; i--) {
+      const p = this.damagePulseRings[i]!;
+      p.age += dt;
+      const t = Math.min(1, p.age / dur);
+      const scale = (0.2 + 0.8 * t) * scaleMax;
+      p.mesh.scale.setScalar(scale);
+      p.mat.opacity = p.baseOpacity * (1 - t);
+      if (p.age >= dur) {
+        this.scene.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        p.mat.dispose();
+        this.damagePulseRings.splice(i, 1);
+      }
+    }
+  }
+
+  private applyPlayerDamagePulseToEnemies(): void {
+    const r = CONFIG.playerRadius * CONFIG.playerDamagePulseRadiusMult;
+    const r2 = r * r;
+    const dmg = CONFIG.playerDamagePulseEnemyDamage;
+    const px = this.player.x;
+    const pz = this.player.z;
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      const e = this.enemies[i]!;
+      const dx = e.mesh.position.x - px;
+      const dz = e.mesh.position.z - pz;
+      if (dx * dx + dz * dz > r2) continue;
+      if (e.applyDamage(dmg)) {
+        e.dispose(this.scene);
+        this.enemies.splice(i, 1);
+      }
+    }
   }
 
   private updateCamera(dt: number): void {
@@ -411,8 +654,10 @@ export class Game {
     cancelAnimationFrame(this.raf);
     this.audio.pause();
     window.removeEventListener('resize', this.onResize);
+    this.clearDamagePulseRings();
     for (const e of this.enemies) e.dispose(this.scene);
     this.enemies.length = 0;
+    this.ui.disposeMenuOverlays();
     this.mount.removeChild(this.renderer.domElement);
     this.composer.dispose();
     this.lensPass.dispose();

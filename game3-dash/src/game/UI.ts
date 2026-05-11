@@ -17,7 +17,8 @@ function lowerBeatIndex(beats: readonly BeatEvent[], minTime: number): number {
 
 export class UI {
   private readonly mount: HTMLElement;
-  private readonly hpEl: HTMLElement;
+  private readonly hpBarsBottom: HTMLElement;
+  private readonly hpBarSegments: HTMLElement[] = [];
   private readonly enemiesEl: HTMLElement;
   private readonly dashEl: HTMLElement;
   private readonly fpsEl: HTMLElement;
@@ -32,20 +33,32 @@ export class UI {
   private readonly lensSlider: HTMLInputElement;
   private readonly lensValEl: HTMLElement;
   private lensDistortionHandler: ((amount: number) => void) | null = null;
+  private readonly mainMenuEl: HTMLElement;
+  private readonly deathScreenEl: HTMLElement;
+  /** Full-viewport white flash on player damage (covers canvas + HUD). */
+  private readonly damageFlashEl: HTMLElement;
 
   constructor(container: HTMLElement) {
     this.mount = container;
     const hud = document.createElement('div');
     hud.className = 'hud';
     hud.innerHTML = `
-      <div class="hud-row"><span class="label">HP</span> <span id="hud-hp">100</span></div>
       <div class="hud-row"><span class="label">Enemies</span> <span id="hud-enemies">0</span></div>
       <div class="hud-row"><span class="label">Dash CD</span> <span id="hud-dash">Ready</span></div>
     `;
     container.appendChild(hud);
-    this.hpEl = hud.querySelector('#hud-hp')!;
     this.enemiesEl = hud.querySelector('#hud-enemies')!;
     this.dashEl = hud.querySelector('#hud-dash')!;
+
+    this.hpBarsBottom = document.createElement('div');
+    this.hpBarsBottom.className = 'hp-bars-bottom';
+    for (let i = 0; i < CONFIG.playerMaxHp; i++) {
+      const seg = document.createElement('div');
+      seg.className = 'hp-bar-segment';
+      this.hpBarsBottom.appendChild(seg);
+      this.hpBarSegments.push(seg);
+    }
+    container.appendChild(this.hpBarsBottom);
 
     const fps = document.createElement('div');
     fps.className = 'fps-meter';
@@ -56,7 +69,7 @@ export class UI {
     const beatUi = document.createElement('div');
     beatUi.className = 'beat-ui';
     beatUi.innerHTML = `
-      <button id="beat-play-btn" type="button">Play</button>
+      <button id="beat-play-btn" type="button">Play track</button>
       <div class="beat-debug-row"><span class="label">Audio</span> <span id="beat-audio-time">0.00s</span></div>
       <div class="beat-debug-row"><span class="label">Next</span> <span id="beat-next-time">-</span></div>
       <div class="beat-debug-row"><span class="label">On-beat</span> <span id="beat-hit-count">0</span></div>
@@ -89,6 +102,62 @@ export class UI {
     this.resizeBeatLane();
 
     this.lensSlider.addEventListener('input', () => this.emitLensDistortion());
+
+    this.mainMenuEl = document.createElement('div');
+    this.mainMenuEl.className = 'game-overlay game-overlay--menu';
+    this.mainMenuEl.setAttribute('role', 'dialog');
+    this.mainMenuEl.setAttribute('aria-modal', 'true');
+    this.mainMenuEl.innerHTML = `
+      <div class="game-overlay__panel">
+        <h1 class="game-overlay__title">Arena</h1>
+        <button id="main-menu-play" type="button" class="game-overlay__btn">Play</button>
+      </div>
+    `;
+    this.mainMenuEl.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+    });
+    document.body.appendChild(this.mainMenuEl);
+
+    this.deathScreenEl = document.createElement('div');
+    this.deathScreenEl.className = 'game-overlay game-overlay--death';
+    this.deathScreenEl.hidden = true;
+    this.deathScreenEl.setAttribute('role', 'dialog');
+    this.deathScreenEl.setAttribute('aria-modal', 'true');
+    this.deathScreenEl.innerHTML = `
+      <div class="game-overlay__panel game-overlay__panel--death">
+        <p class="game-overlay__death-title">You died</p>
+        <p class="game-overlay__death-hint">Returning to the menu shortly, or press:</p>
+        <button id="death-to-menu" type="button" class="game-overlay__btn game-overlay__btn--death">Main menu</button>
+      </div>
+    `;
+    this.deathScreenEl.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+    });
+    document.body.appendChild(this.deathScreenEl);
+
+    this.damageFlashEl = document.createElement('div');
+    this.damageFlashEl.className = 'damage-screen-flash';
+    this.damageFlashEl.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(this.damageFlashEl);
+  }
+
+  /** Brief white fullscreen flash when the hero loses HP. */
+  triggerDamageScreenFlash(): void {
+    const el = this.damageFlashEl;
+    el.style.transition = 'none';
+    el.style.opacity = '0.36';
+    requestAnimationFrame(() => {
+      void el.offsetHeight;
+      el.style.transition = 'opacity 0.2s ease-out';
+      el.style.opacity = '0';
+    });
+  }
+
+  /** Remove fullscreen menu overlays from the document (call from Game.dispose). */
+  disposeMenuOverlays(): void {
+    this.mainMenuEl.remove();
+    this.deathScreenEl.remove();
+    this.damageFlashEl.remove();
   }
 
   private emitLensDistortion(): void {
@@ -204,8 +273,17 @@ export class UI {
     }
   }
 
-  update(hp: number, enemyCount: number, dashCooldownLeft: number): void {
-    this.hpEl.textContent = String(Math.max(0, Math.ceil(hp)));
+  update(
+    hp: number,
+    maxHp: number,
+    enemyCount: number,
+    dashCooldownLeft: number,
+  ): void {
+    const cur = Math.max(0, Math.min(maxHp, Math.ceil(hp)));
+    const n = Math.min(this.hpBarSegments.length, maxHp);
+    for (let i = 0; i < n; i++) {
+      this.hpBarSegments[i]!.classList.toggle('hp-bar-segment--filled', cur > i);
+    }
     this.enemiesEl.textContent = String(enemyCount);
     if (dashCooldownLeft > 0) {
       this.dashEl.textContent =
@@ -223,6 +301,38 @@ export class UI {
 
   onPlayRequested(handler: () => void): void {
     this.playBtn.addEventListener('click', handler);
+  }
+
+  onMainMenuPlay(handler: () => void): void {
+    const btn = this.mainMenuEl.querySelector('#main-menu-play')!;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handler();
+    });
+  }
+
+  onDeathMenuClick(handler: () => void): void {
+    const btn = this.deathScreenEl.querySelector('#death-to-menu')!;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handler();
+    });
+  }
+
+  showMainMenu(): void {
+    this.mainMenuEl.hidden = false;
+  }
+
+  hideMainMenu(): void {
+    this.mainMenuEl.hidden = true;
+  }
+
+  showDeathScreen(): void {
+    this.deathScreenEl.hidden = false;
+  }
+
+  hideDeathScreen(): void {
+    this.deathScreenEl.hidden = true;
   }
 
   setPlayEnabled(enabled: boolean): void {
