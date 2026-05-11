@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { CONFIG } from './config.ts';
 import { Input } from './Input.ts';
 import { Player } from './Player.ts';
@@ -11,10 +14,13 @@ import { screenToGroundXZ } from './screenToGround.ts';
 import { loadBeatmap, type Beatmap } from './Beatmap.ts';
 import { AudioManager } from './AudioManager.ts';
 import { BeatEffects } from './BeatEffects.ts';
+import { LensDistortionPass } from './render/LensDistortionPass.ts';
 
 export class Game {
   private readonly mount: HTMLElement;
   private readonly renderer: THREE.WebGLRenderer;
+  private readonly composer: EffectComposer;
+  private readonly lensPass: LensDistortionPass;
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.OrthographicCamera;
   private readonly cameraController = new CameraController();
@@ -65,6 +71,13 @@ export class Game {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     mount.appendChild(this.renderer.domElement);
 
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.lensPass = new LensDistortionPass();
+    this.composer.addPass(this.lensPass);
+    this.composer.addPass(new OutputPass());
+    this.composer.setSize(w, h);
+
     this.addLights();
     this.addArena();
 
@@ -80,6 +93,9 @@ export class Game {
     this.ui.setPlayEnabled(false);
     this.ui.setBeatmapState('Loading...');
     this.ui.setBeatDebug(0, null);
+    this.ui.onLensDistortionChange((v) => {
+      this.lensPass.setAmount(v);
+    });
     void this.initBeatmap();
 
     this.spawner.spawnBurstAround(
@@ -184,6 +200,7 @@ export class Game {
     this.camera.bottom = -view / 2;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h, false);
+    this.composer.setSize(w, h);
     this.ui.resizeBeatLane();
   };
 
@@ -191,7 +208,7 @@ export class Game {
     this.raf = requestAnimationFrame(this.loop);
     const dt = Math.min(this.clock.getDelta(), 0.05);
     this.update(dt);
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
   }
 
   private update(dt: number): void {
@@ -397,6 +414,8 @@ export class Game {
     for (const e of this.enemies) e.dispose(this.scene);
     this.enemies.length = 0;
     this.mount.removeChild(this.renderer.domElement);
+    this.composer.dispose();
+    this.lensPass.dispose();
     this.renderer.dispose();
   }
 }

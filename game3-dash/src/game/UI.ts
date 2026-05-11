@@ -29,6 +29,9 @@ export class UI {
   private readonly beatLaneHost: HTMLElement;
   private readonly beatLaneCanvas: HTMLCanvasElement;
   private beatLaneCtx: CanvasRenderingContext2D | null;
+  private readonly lensSlider: HTMLInputElement;
+  private readonly lensValEl: HTMLElement;
+  private lensDistortionHandler: ((amount: number) => void) | null = null;
 
   constructor(container: HTMLElement) {
     this.mount = container;
@@ -57,6 +60,13 @@ export class UI {
       <div class="beat-debug-row"><span class="label">Audio</span> <span id="beat-audio-time">0.00s</span></div>
       <div class="beat-debug-row"><span class="label">Next</span> <span id="beat-next-time">-</span></div>
       <div class="beat-debug-row"><span class="label">On-beat</span> <span id="beat-hit-count">0</span></div>
+      <div class="beat-lens-row">
+        <div class="beat-lens-head">
+          <span class="label">Lens Distortion</span>
+          <span id="lens-distortion-val" class="beat-lens-val">0.15</span>
+        </div>
+        <input id="lens-distortion" type="range" min="0" max="0.5" step="0.01" value="0.15" />
+      </div>
       <div class="beat-debug-row"><span class="label">State</span> <span id="beat-state">Loading...</span></div>
     `;
     container.appendChild(beatUi);
@@ -65,6 +75,8 @@ export class UI {
     this.nextBeatEl = beatUi.querySelector('#beat-next-time')!;
     this.beatmapStateEl = beatUi.querySelector('#beat-state')!;
     this.beatHitCountEl = beatUi.querySelector('#beat-hit-count')!;
+    this.lensSlider = beatUi.querySelector('#lens-distortion') as HTMLInputElement;
+    this.lensValEl = beatUi.querySelector('#lens-distortion-val')!;
 
     this.beatLaneHost = document.createElement('div');
     this.beatLaneHost.className = 'beat-lane-host';
@@ -75,6 +87,19 @@ export class UI {
     this.beatLaneHost.appendChild(this.beatLaneCanvas);
     container.insertBefore(this.beatLaneHost, container.firstChild);
     this.resizeBeatLane();
+
+    this.lensSlider.addEventListener('input', () => this.emitLensDistortion());
+  }
+
+  private emitLensDistortion(): void {
+    const v = parseFloat(this.lensSlider.value);
+    this.lensValEl.textContent = v.toFixed(2);
+    this.lensDistortionHandler?.(v);
+  }
+
+  onLensDistortionChange(handler: (amount: number) => void): void {
+    this.lensDistortionHandler = handler;
+    this.emitLensDistortion();
   }
 
   /** Call on window/mount resize so the lane matches width. */
