@@ -84,6 +84,12 @@ export const CONFIG = {
   vaultEveryNthSpawn: 5,
   /** Max «Хранилище» on the field at once (extra cadence spawns become normal). */
   vaultMaxSimultaneous: 2,
+  /** Navigation: base disk radius around each Storage (XZ, world units). */
+  storageObstacleRadius: 6.55,
+  /** Extra margin added to `storageObstacleRadius` for enemy pathing (enemy centers stay outside). */
+  storageObstaclePadding: 0.5,
+  /** How far ahead (world units) to test seek segment vs Storage disks. */
+  enemyAvoidanceLookahead: 5.5,
   /** Хранилище: flat hex prism; circumradius in XZ (matches cylinder radial extent). */
   vaultHexCircumradius: 6.15,
   vaultBodyThickness: 0.33,

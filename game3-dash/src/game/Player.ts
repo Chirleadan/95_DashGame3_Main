@@ -168,11 +168,27 @@ export class Player {
    * Called when dash damage connects with a tank: place the player just past the
    * tank along the current dash vector and extend the main dash by a fixed fraction
    * of full dash duration (see CONFIG.dashPastTankRemainingFraction).
+   *
+   * `minAlongDashFromObstacleCenter` — optional: push at least this far from obstacle
+   * center along dash (used for large vault so the next-frame dash sweep no longer
+   * hits the same obstacle and re-clips every tick).
    */
-  clipDashPastTank(tankX: number, tankZ: number, tankBodyRadius: number): void {
+  clipDashPastTank(
+    tankX: number,
+    tankZ: number,
+    tankBodyRadius: number,
+    minAlongDashFromObstacleCenter?: number,
+  ): void {
     if (!this.dash.isDashingForMovement()) return;
-    const behind =
+    let behind =
       tankBodyRadius + CONFIG.playerRadius + CONFIG.dashPastTankBehindOffset;
+    if (
+      minAlongDashFromObstacleCenter !== undefined &&
+      Number.isFinite(minAlongDashFromObstacleCenter) &&
+      minAlongDashFromObstacleCenter > behind
+    ) {
+      behind = minAlongDashFromObstacleCenter;
+    }
     const nx = tankX + this.dash.dirX * behind;
     const nz = tankZ + this.dash.dirZ * behind;
     const c = clampToArena(nx, nz);

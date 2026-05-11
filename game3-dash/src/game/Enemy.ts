@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.ts';
 import { clampToArena, segmentHitsThickSegment } from './Collision.ts';
+import {
+  computeEnemyMoveDirectionAvoidingStorages,
+  type StorageObstacleCircle,
+} from './ObstacleAvoidance.ts';
 
 /** `vault` = игровое «Хранилище» (шестигранник с щитами на рёбрах). */
 export type EnemyKind = 'normal' | 'tank' | 'vault';
@@ -37,7 +41,7 @@ export type DashSweepSeg = { ax: number; az: number; bx: number; bz: number };
 export class Enemy {
   readonly mesh: THREE.Group;
   readonly kind: EnemyKind;
-  /** Remaining HP (body); Хранилище also needs all shields broken first. */
+  /** Remaining HP (body). Хранилище: 1 после снятия всех щитов; щиты отдельно. */
   hitsRemaining: number;
   /** Last `player.getDashHitSerial()` that already applied a dash hit to this enemy. */
   damagedInDashHitSerial = 0;
@@ -227,19 +231,39 @@ export class Enemy {
     return this.applyDamage(1);
   }
 
-  update(dt: number, targetX: number, targetZ: number, speedMultiplier = 1): void {
+  update(
+    dt: number,
+    targetX: number,
+    targetZ: number,
+    speedMultiplier = 1,
+    storageObstacles: readonly StorageObstacleCircle[] | null = null,
+  ): void {
     if (this.kind === 'vault') {
       return;
     }
-    const dx = targetX - this.mesh.position.x;
-    const dz = targetZ - this.mesh.position.z;
-    const len = Math.hypot(dx, dz);
+    let mx = targetX - this.mesh.position.x;
+    let mz = targetZ - this.mesh.position.z;
+    let len = Math.hypot(mx, mz);
+    if (len > 1e-4 && storageObstacles && storageObstacles.length > 0) {
+      const dir = computeEnemyMoveDirectionAvoidingStorages(
+        this.mesh.position.x,
+        this.mesh.position.z,
+        targetX,
+        targetZ,
+        storageObstacles,
+        CONFIG.enemyAvoidanceLookahead,
+        this.bodyRadius,
+      );
+      mx = dir.dx;
+      mz = dir.dz;
+      len = Math.hypot(mx, mz);
+    }
     if (len > 1e-4) {
       const sm =
         Number.isFinite(speedMultiplier) && speedMultiplier > 0 ? speedMultiplier : 1;
       const s = (CONFIG.enemySpeed * sm * dt) / len;
-      this.mesh.position.x += dx * s;
-      this.mesh.position.z += dz * s;
+      this.mesh.position.x += mx * s;
+      this.mesh.position.z += mz * s;
     }
     const c = clampToArena(this.mesh.position.x, this.mesh.position.z);
     this.mesh.position.x = c.x;

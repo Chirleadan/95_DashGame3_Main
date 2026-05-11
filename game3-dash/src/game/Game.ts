@@ -15,6 +15,7 @@ import { loadBeatmap, type Beatmap } from './Beatmap.ts';
 import { AudioManager } from './AudioManager.ts';
 import { BeatEffects } from './BeatEffects.ts';
 import { LensDistortionPass } from './render/LensDistortionPass.ts';
+import { getConfiguredStorageObstacleDisk } from './ObstacleAvoidance.ts';
 
 export class Game {
   /** Outer radius of `RingGeometry` used for damage pulse (local units). */
@@ -26,6 +27,8 @@ export class Game {
   private readonly lensPass: LensDistortionPass;
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.OrthographicCamera;
+  /** Wider frustum for off-screen RT; gameplay + raycast still use `camera`. */
+  private readonly renderCamera: THREE.OrthographicCamera;
   private readonly cameraController = new CameraController();
   private readonly clock = new THREE.Clock();
   private readonly input: Input;
@@ -49,6 +52,8 @@ export class Game {
   private deathScreenTimer = 0;
   /** Active run time (seconds), only while `playing`; resets each new run. */
   private runElapsedSec = 0;
+  /** Post-process: render frustum scale vs gameplay ortho (lens overscan). */
+  private lensOverscan = 1.35;
 
   private readonly damagePulseRings: {
     mesh: THREE.Mesh;
@@ -78,6 +83,19 @@ export class Game {
     this.camera.up.set(0, 0, -1);
     this.camera.lookAt(0, 0, 0);
 
+    const os = this.lensOverscan;
+    this.renderCamera = new THREE.OrthographicCamera(
+      this.camera.left * os,
+      this.camera.right * os,
+      this.camera.top * os,
+      this.camera.bottom * os,
+      this.camera.near,
+      this.camera.far,
+    );
+    this.renderCamera.position.copy(this.camera.position);
+    this.renderCamera.quaternion.copy(this.camera.quaternion);
+    this.renderCamera.up.copy(this.camera.up);
+
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(w, h, false);
@@ -86,7 +104,7 @@ export class Game {
     mount.appendChild(this.renderer.domElement);
 
     this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.composer.addPass(new RenderPass(this.scene, this.renderCamera));
     this.lensPass = new LensDistortionPass();
     this.composer.addPass(this.lensPass);
     this.composer.addPass(new OutputPass());
@@ -109,6 +127,10 @@ export class Game {
     this.ui.setBeatDebug(0, null);
     this.ui.onLensDistortionChange((v) => {
       this.lensPass.setAmount(v);
+    });
+    this.ui.onLensOverscanChange((v) => {
+      this.lensOverscan = v;
+      this.lensPass.setOverscan(v);
     });
     this.ui.onMainMenuPlay(() => {
       this.startGameFromMenu();
@@ -207,6 +229,20 @@ export class Game {
     }
   }
 
+  private syncRenderCamera(): void {
+    const os = this.lensOverscan;
+    this.renderCamera.position.copy(this.camera.position);
+    this.renderCamera.quaternion.copy(this.camera.quaternion);
+    this.renderCamera.up.copy(this.camera.up);
+    this.renderCamera.left = this.camera.left * os;
+    this.renderCamera.right = this.camera.right * os;
+    this.renderCamera.top = this.camera.top * os;
+    this.renderCamera.bottom = this.camera.bottom * os;
+    this.renderCamera.near = this.camera.near;
+    this.renderCamera.far = this.camera.far;
+    this.renderCamera.updateProjectionMatrix();
+  }
+
   private onResize = (): void => {
     const w = this.mount.clientWidth || window.innerWidth;
     const h = this.mount.clientHeight || window.innerHeight;
@@ -217,6 +253,7 @@ export class Game {
     this.camera.top = view / 2;
     this.camera.bottom = -view / 2;
     this.camera.updateProjectionMatrix();
+    this.syncRenderCamera();
     this.renderer.setSize(w, h, false);
     this.composer.setSize(w, h);
     this.ui.resizeBeatLane();
@@ -226,6 +263,7 @@ export class Game {
     this.raf = requestAnimationFrame(this.loop);
     const dt = Math.min(this.clock.getDelta(), 0.05);
     this.update(dt);
+    this.syncRenderCamera();
     this.composer.render();
   }
 
@@ -309,8 +347,13 @@ export class Game {
     }
 
     if (!this.player.areEnemiesFrozenByDash()) {
+      const storageNav = this.enemies
+        .filter((e) => e.isVault())
+        .map((e) =>
+          getConfiguredStorageObstacleDisk(e.mesh.position.x, e.mesh.position.z),
+        );
       for (const e of this.enemies) {
-        e.update(dt, this.player.x, this.player.z, diffMult);
+        e.update(dt, this.player.x, this.player.z, diffMult, storageNav);
       }
     }
 
@@ -527,12 +570,37 @@ export class Game {
     const vaultShieldJoin = CONFIG.vaultShieldDashJoinRadius;
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
-      if (e.isVault() && e.getActiveShieldCount() > 0) {
-        if (e.tryBreakVaultShieldWithDash(seg, vaultShieldJoin)) {
-          const tx = e.mesh.position.x;
-          const tz = e.mesh.position.z;
-          const tr = e.bodyRadius;
-          this.player.clipDashPastTank(tx, tz, tr);
+      if (e.isVault()) {
+        const hitR = scaledPlayer + e.bodyRadius;
+        const bodyHit = segmentHitsCircle(
+          seg.ax,
+          seg.az,
+          seg.bx,
+          seg.bz,
+          e.mesh.position.x,
+          e.mesh.position.z,
+          hitR,
+        );
+        if (!bodyHit) continue;
+
+        const tx = e.mesh.position.x;
+        const tz = e.mesh.position.z;
+        const tr = e.bodyRadius;
+
+        if (e.getActiveShieldCount() > 0) {
+          e.tryBreakVaultShieldWithDash(seg, vaultShieldJoin);
+          this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
+          continue;
+        }
+
+        if (e.damagedInDashHitSerial === dashSerial) continue;
+        e.damagedInDashHitSerial = dashSerial;
+        const died = e.takeDashHit();
+        this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
+        if (died) {
+          e.dispose(this.scene);
+          this.enemies.splice(i, 1);
+          kills += 1;
         }
         continue;
       }
@@ -556,7 +624,7 @@ export class Game {
         const tz = e.mesh.position.z;
         const tr = e.bodyRadius;
         const died = e.takeDashHit();
-        if (isTank || e.isVault()) {
+        if (isTank) {
           this.player.clipDashPastTank(tx, tz, tr);
         }
         if (died) {
@@ -617,7 +685,7 @@ export class Game {
   private applyPlayerDamagePulseToEnemies(): void {
     const r = CONFIG.playerRadius * CONFIG.playerDamagePulseRadiusMult;
     const r2 = r * r;
-    const dmg = CONFIG.playerDamagePulseEnemyDamage;
+    const pulseDmg = CONFIG.playerDamagePulseEnemyDamage;
     const px = this.player.x;
     const pz = this.player.z;
     for (let i = this.enemies.length - 1; i >= 0; i--) {
@@ -625,7 +693,7 @@ export class Game {
       const dx = e.mesh.position.x - px;
       const dz = e.mesh.position.z - pz;
       if (dx * dx + dz * dz > r2) continue;
-      if (e.applyDamage(dmg)) {
+      if (e.applyDamage(pulseDmg)) {
         e.dispose(this.scene);
         this.enemies.splice(i, 1);
       }

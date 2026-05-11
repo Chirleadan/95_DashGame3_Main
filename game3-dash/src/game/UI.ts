@@ -33,6 +33,9 @@ export class UI {
   private readonly lensSlider: HTMLInputElement;
   private readonly lensValEl: HTMLElement;
   private lensDistortionHandler: ((amount: number) => void) | null = null;
+  private readonly overscanSlider: HTMLInputElement;
+  private readonly overscanValEl: HTMLElement;
+  private lensOverscanHandler: ((overscan: number) => void) | null = null;
   private readonly mainMenuEl: HTMLElement;
   private readonly deathScreenEl: HTMLElement;
   /** Full-viewport white flash on player damage (covers canvas + HUD). */
@@ -80,6 +83,13 @@ export class UI {
         </div>
         <input id="lens-distortion" type="range" min="0" max="0.5" step="0.01" value="0.15" />
       </div>
+      <div class="beat-lens-row">
+        <div class="beat-lens-head">
+          <span class="label">Lens Overscan</span>
+          <span id="lens-overscan-val" class="beat-lens-val">1.35</span>
+        </div>
+        <input id="lens-overscan" type="range" min="1" max="2" step="0.01" value="1.35" />
+      </div>
       <div class="beat-debug-row"><span class="label">State</span> <span id="beat-state">Loading...</span></div>
     `;
     container.appendChild(beatUi);
@@ -90,6 +100,8 @@ export class UI {
     this.beatHitCountEl = beatUi.querySelector('#beat-hit-count')!;
     this.lensSlider = beatUi.querySelector('#lens-distortion') as HTMLInputElement;
     this.lensValEl = beatUi.querySelector('#lens-distortion-val')!;
+    this.overscanSlider = beatUi.querySelector('#lens-overscan') as HTMLInputElement;
+    this.overscanValEl = beatUi.querySelector('#lens-overscan-val')!;
 
     this.beatLaneHost = document.createElement('div');
     this.beatLaneHost.className = 'beat-lane-host';
@@ -102,6 +114,7 @@ export class UI {
     this.resizeBeatLane();
 
     this.lensSlider.addEventListener('input', () => this.emitLensDistortion());
+    this.overscanSlider.addEventListener('input', () => this.emitLensOverscan());
 
     this.mainMenuEl = document.createElement('div');
     this.mainMenuEl.className = 'game-overlay game-overlay--menu';
@@ -166,9 +179,20 @@ export class UI {
     this.lensDistortionHandler?.(v);
   }
 
+  private emitLensOverscan(): void {
+    const v = parseFloat(this.overscanSlider.value);
+    this.overscanValEl.textContent = v.toFixed(2);
+    this.lensOverscanHandler?.(v);
+  }
+
   onLensDistortionChange(handler: (amount: number) => void): void {
     this.lensDistortionHandler = handler;
     this.emitLensDistortion();
+  }
+
+  onLensOverscanChange(handler: (overscan: number) => void): void {
+    this.lensOverscanHandler = handler;
+    this.emitLensOverscan();
   }
 
   /** Call on window/mount resize so the lane matches width. */
