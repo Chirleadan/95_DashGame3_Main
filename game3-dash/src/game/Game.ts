@@ -211,6 +211,7 @@ export class Game {
       this.input,
       aimOk ? this.groundHit : null,
       aimOk,
+      this.getDashLengthWidthMultForThisFrame(),
     );
     this.tryRegisterDashBeatHit();
     this.updateBeatPlayback(dt);
@@ -272,11 +273,9 @@ export class Game {
     this.beatHitCount = 0;
   }
 
-  /** If the player just started a main dash, maybe count an on-beat hit vs audio time. */
-  private tryRegisterDashBeatHit(): void {
-    if (!this.player.consumeMainDashStarted()) return;
-    if (!this.beatmap) return;
-    const t = this.audio.currentTime;
+  /** Closest beat index whose dash timing window contains `t`, or -1. */
+  private findBestBeatInDashWindowAtTime(t: number): number {
+    if (!this.beatmap) return -1;
     const beats = this.beatmap.beats;
     const before = CONFIG.dashBeatWindowBeforeSec;
     const after = CONFIG.dashBeatWindowAfterSec;
@@ -291,9 +290,33 @@ export class Game {
         bestI = i;
       }
     }
+    return bestI;
+  }
+
+  /**
+   * If the player is about to start a main dash this frame and it will newly hit a beat,
+   * scale dash length & trail width (see `CONFIG.dashOnBeatLengthWidthMult`).
+   */
+  private getDashLengthWidthMultForThisFrame(): number {
+    if (!this.input.wouldDashTriggerThisFrame()) return 1;
+    if (!this.beatmap || this.player.hp <= 0) return 1;
+    if (this.player.isMicroDashing) return 1;
+    if (this.player.dash.cooldownLeft > 0 || this.player.dash.timeLeft > 0) return 1;
+    const i = this.findBestBeatInDashWindowAtTime(this.audio.currentTime);
+    if (i < 0 || this.beatHitIndices.has(i)) return 1;
+    return CONFIG.dashOnBeatLengthWidthMult;
+  }
+
+  /** If the player just started a main dash, maybe count an on-beat hit vs audio time. */
+  private tryRegisterDashBeatHit(): void {
+    if (!this.player.consumeMainDashStarted()) return;
+    if (!this.beatmap) return;
+    const t = this.audio.currentTime;
+    const bestI = this.findBestBeatInDashWindowAtTime(t);
     if (bestI >= 0 && !this.beatHitIndices.has(bestI)) {
       this.beatHitIndices.add(bestI);
       this.beatHitCount += 1;
+      this.beatEffects.triggerOnBeatHitFlash();
     }
   }
 
@@ -307,7 +330,6 @@ export class Game {
     const now = this.audio.currentTime;
     const beats = this.beatmap.beats;
     while (this.nextBeatIndex < beats.length && now >= beats[this.nextBeatIndex]!.time) {
-      this.beatEffects.triggerBeat(beats[this.nextBeatIndex]!);
       this.nextBeatIndex += 1;
     }
 

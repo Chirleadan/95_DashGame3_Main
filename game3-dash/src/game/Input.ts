@@ -75,6 +75,11 @@ export class Input {
     return k || p;
   }
 
+  /** True if `consumeDashTrigger()` would return true this frame (does not consume). */
+  wouldDashTriggerThisFrame(): boolean {
+    return this.keyDashEdge || this.pointerDashEdge;
+  }
+
   private keysDashDown(): boolean {
     return (
       this.down.has('Space') ||

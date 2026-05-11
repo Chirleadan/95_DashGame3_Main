@@ -12,7 +12,12 @@ export class Dash {
    * Starts dash on trigger edge when cooldown allows.
    * `aimDirX/Z` should be a non-zero world aim direction in XZ (normalized by caller).
    */
-  tryStart(trigger: boolean, aimDirX: number, aimDirZ: number): void {
+  tryStart(
+    trigger: boolean,
+    aimDirX: number,
+    aimDirZ: number,
+    durationMult: number = 1,
+  ): void {
     if (!trigger || this.cooldownLeft > 0 || this.timeLeft > 0) {
       return;
     }
@@ -28,7 +33,8 @@ export class Dash {
     }
     this.dirX = nx;
     this.dirZ = nz;
-    this.timeLeft = CONFIG.dashDuration;
+    const m = Number.isFinite(durationMult) && durationMult > 0 ? durationMult : 1;
+    this.timeLeft = CONFIG.dashDuration * m;
     this.cooldownLeft = CONFIG.dashCooldown;
   }
 

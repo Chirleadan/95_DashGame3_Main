@@ -12,12 +12,12 @@ export class BeatEffects {
     this.flashEl = document.createElement('div');
     this.flashEl.className = 'beat-flash';
     container.appendChild(this.flashEl);
+  }
 
-    // Default visual effect for any beat.
-    this.listeners.push(() => {
-      this.flashTimer = 0.085;
-      this.flashEl.style.opacity = '0.35';
-    });
+  /** White screen pulse when the player scores an on-beat dash hit. */
+  triggerOnBeatHitFlash(): void {
+    this.flashTimer = 0.085;
+    this.flashEl.style.opacity = '0.35';
   }
 
   onBeat(listener: BeatListener): void {

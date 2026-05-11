@@ -47,6 +47,9 @@ export class Player {
   /** Set on the frame main dash begins; consumed by Game for beat timing. */
   private mainDashStartedThisFrame = false;
 
+  /** Length & trail width scale for the current main dash (e.g. on-beat ×2). */
+  private activeDashLenWidthMult = 1;
+
   constructor(scene: THREE.Scene) {
     this.mesh = new THREE.Group();
     this.mesh.position.y = CONFIG.floorY + CONFIG.playerRadius;
@@ -147,6 +150,10 @@ export class Player {
     return this.dashEnemyFreezeLeft > 0;
   }
 
+  get isMicroDashing(): boolean {
+    return this.microDashTimeLeft > 0;
+  }
+
   /** Sweep segment for dash kills this frame; consumed by Game after reading. */
   consumeDashSweep(): DashSweepSegment | null {
     const s = this.dashSweep;
@@ -166,10 +173,12 @@ export class Player {
     input: Input,
     aimGroundWorld: THREE.Vector3 | null,
     aimGroundValid: boolean,
+    dashLenWidthMult: number,
   ): void {
     if (this.hp <= 0) {
       this.microDashTimeLeft = 0;
       this.mainDashStartedThisFrame = false;
+      this.activeDashLenWidthMult = 1;
       this.applyNormalColors();
       return;
     }
@@ -200,14 +209,17 @@ export class Player {
     this.aimPivot.rotation.y = Math.atan2(aimX, aimZ);
 
     const dashTrigger = input.consumeDashTrigger();
+    const mult =
+      Number.isFinite(dashLenWidthMult) && dashLenWidthMult > 0 ? dashLenWidthMult : 1;
     if (this.microDashTimeLeft <= 0) {
-      this.dash.tryStart(dashTrigger, aimX, aimZ);
+      this.dash.tryStart(dashTrigger, aimX, aimZ, mult);
     }
 
     const useDash = this.dash.isDashingForMovement();
     if (prevDashTimeLeft <= 0 && useDash) {
-      this.dashEnemyFreezeLeft = CONFIG.dashEnemyFreezeDuration;
+      this.dashEnemyFreezeLeft = CONFIG.dashEnemyFreezeDuration * mult;
       this.mainDashStartedThisFrame = true;
+      this.activeDashLenWidthMult = mult;
     }
 
     let vx = 0;
@@ -230,7 +242,8 @@ export class Player {
     this.mesh.position.z = c.z;
 
     if (useDash) {
-      const nominalDashLen = CONFIG.dashSpeed * CONFIG.dashDuration;
+      const nominalDashLen =
+        CONFIG.dashSpeed * CONFIG.dashDuration * this.activeDashLenWidthMult;
       const beyond =
         CONFIG.dashBeyondNominalLengthFraction * nominalDashLen;
       const extX = this.dash.dirX * beyond;
@@ -259,6 +272,7 @@ export class Player {
       this.trailRibbon.visible = true;
     } else {
       this.dashTrailBuilding = false;
+      this.activeDashLenWidthMult = 1;
       this.dashSweep = null;
       if (this.trailPoints.length > 0) {
         this.trailPoints.length = 0;
@@ -320,8 +334,9 @@ export class Player {
   /** World XZ on floor, shifted slightly behind dash direction (trail “behind” the hero). */
   private pushDashTrailPoint(x: number, z: number): void {
     const y = CONFIG.floorY + 0.22;
-    const bx = x - this.dash.dirX * CONFIG.dashTrailBehind;
-    const bz = z - this.dash.dirZ * CONFIG.dashTrailBehind;
+    const behind = CONFIG.dashTrailBehind * this.activeDashLenWidthMult;
+    const bx = x - this.dash.dirX * behind;
+    const bz = z - this.dash.dirZ * behind;
     this.trailPoints.push(new THREE.Vector3(bx, y, bz));
     const max = CONFIG.dashTrailMaxPoints;
     while (this.trailPoints.length > max) {
@@ -340,7 +355,7 @@ export class Player {
       this.trailRibbonGeo.setDrawRange(0, 0);
       return;
     }
-    const halfW = CONFIG.dashTrailWidth * 0.5;
+    const halfW = CONFIG.dashTrailWidth * 0.5 * this.activeDashLenWidthMult;
     const arr = this.trailPositions;
     let o = 0;
     for (let i = 0; i < n - 1; i++) {

@@ -48,6 +48,8 @@ export const CONFIG = {
   /** Main dash start counts as on-beat if audio time is within [beat - before, beat + after]. */
   dashBeatWindowBeforeSec: 0.3,
   dashBeatWindowAfterSec: 0.1,
+  /** When starting a dash that will newly register an on-beat hit, dash length & trail width × this. */
+  dashOnBeatLengthWidthMult: 2,
 
   enemySpeed: 4.2,
   enemyRadius: 1.14,
