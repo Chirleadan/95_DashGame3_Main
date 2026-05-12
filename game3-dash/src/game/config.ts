@@ -62,13 +62,9 @@ export const CONFIG = {
   beatLaneWidthFraction: 0.5,
   /** Main dash start counts as on-beat if audio time is within [beat - before, beat + after]. */
   dashBeatWindowBeforeSec: 0.3,
-  dashBeatWindowAfterSec: 0.1,
+  dashBeatWindowAfterSec: 0.25,
   /** When starting a dash that will newly register an on-beat hit, dash length & trail width × this. */
   dashOnBeatLengthWidthMult: 2,
-  /** Beat `tp` with explicit `x`/`z`: wall-clock travel time (2000 ms). */
-  teleportDurationSec: 2000 / 1000,
-  /** Beat `tp` without coords (mirror «за спину»): wall-clock travel time (2000 ms). */
-  teleportBehindDurationSec: 2000 / 1000,
 
   /** After death, show death screen this long (seconds) then return to main menu. */
   deathScreenToMenuDelaySec: 2.5,
@@ -114,12 +110,16 @@ export const CONFIG = {
   vaultShieldDashJoinRadius: 2.46,
 
   /** Every N-th enemy spawn is a tank ("здоровяк"); only after `tankMinRunSecBeforeSpawn`. */
-  tankEveryNthSpawn: 3,
-  /** Run time (seconds) before any tank can spawn (cadence still uses `tankEveryNthSpawn`). */
-  tankMinRunSecBeforeSpawn: 30,
+  tankEveryNthSpawn: 20,
+  /** Run time (seconds) before any tank can spawn (cadence still uses `tankEveryNthSpawn`). `0` = from run start. */
+  tankMinRunSecBeforeSpawn: 0,
   /** Tank body radius = `enemyRadius * this`. */
   tankRadiusScale: 3,
   tankHitsToKill: 2,
+  /**
+   * Tank: dash body `takeDashHit` is applied this many ms after impact (lets clip/slide finish first).
+   */
+  tankDashDamageDelayMs: 300,
   /** Clear ring between tank body (radius r) and red outline (world units). */
   tankOutlineGap: 0.14,
   /** Radial thickness of the red outline ring (world units). */
@@ -128,7 +128,44 @@ export const CONFIG = {
    * After dash damage hits a tank: snap past him along dash dir and set remaining
    * main-dash time to this fraction of full dash (scaled by on-beat mult).
    */
-  dashPastTankRemainingFraction: 0.35,
+  dashPastTankRemainingFraction: 0.42,
   /** Gap behind tank center along dash dir when snapping past (world units). */
-  dashPastTankBehindOffset: 0.18,
+  dashPastTankBehindOffset: 0.28,
+  /**
+   * Tank / vault clip glide only: speed along the XZ chord to the exit point (world units/s).
+   * Does not affect main dash (`dashSpeed`). Duration = chord length / this value, clamped by min/max.
+   * Set to `0` for instant snap (no slide).
+   */
+  dashPastTankClipSlideSpeed: 22,
+  dashPastTankClipSlideMinSec: 0.04,
+  dashPastTankClipSlideMaxSec: 6,
+
+  /**
+   * Main-dash displacement per frame is split into this many sub-steps (clamped 1–4).
+   * Each sub-step clamps to the arena and runs tank overlap resolution to reduce
+   * tunneling at high dash speed or through tight gaps.
+   */
+  dashMovementSubstepCount: 4,
+  /**
+   * After `resolveDashKills`, run tank overlap resolution this many times so multiple
+   * overlapping tanks are cleared in one frame when a single pass is not enough.
+   */
+  dashTankOverlapResolvePasses: 3,
+
+  /**
+   * Log `clipDashPastTank` / frame summary and draw sweep vs tank hit disks in `Game`
+   * when true. Also enabled if the page URL has query `debugDashTank` (no value needed).
+   */
+  debugDashPastTank: false,
 } as const;
+
+/** Dev-only: tank dash clip logs + sweep/tank overlay (see `CONFIG.debugDashPastTank`). */
+export function isDebugDashPastTankEnabled(): boolean {
+  if (CONFIG.debugDashPastTank) return true;
+  if (typeof window === 'undefined') return false;
+  try {
+    return new URLSearchParams(window.location.search).has('debugDashTank');
+  } catch {
+    return false;
+  }
+}

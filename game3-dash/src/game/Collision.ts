@@ -48,6 +48,76 @@ export function segmentHitsCircle(
   return dx * dx + dz * dz <= cr * cr;
 }
 
+/**
+ * Smallest t > 0 along ray (ox, oz) + t*(dirX, dirZ) in XZ where distance to (cx, cz)
+ * equals `radius` (first exit from the closed disk when starting inside or on it).
+ * Direction is normalized internally. Returns null if the ray never meets the circle
+ * ahead (e.g. zero direction or negative discriminant).
+ */
+export function rayExitFromCircleXZ(
+  ox: number,
+  oz: number,
+  dirX: number,
+  dirZ: number,
+  cx: number,
+  cz: number,
+  radius: number,
+): { t: number; x: number; z: number } | null {
+  if (!(radius > 0) || !Number.isFinite(radius)) return null;
+  let dx = dirX;
+  let dz = dirZ;
+  const dLen = Math.hypot(dx, dz);
+  if (dLen < 1e-10) return null;
+  dx /= dLen;
+  dz /= dLen;
+
+  const vx = ox - cx;
+  const vz = oz - cz;
+  const vd = vx * dx + vz * dz;
+  const v2 = vx * vx + vz * vz;
+  const r2 = radius * radius;
+  const disc = vd * vd - v2 + r2;
+  if (disc < -1e-8) return null;
+  const sqrtDisc = Math.sqrt(Math.max(0, disc));
+  const t0 = -vd - sqrtDisc;
+  const t1 = -vd + sqrtDisc;
+
+  const eps = 1e-5;
+  let t: number | null = null;
+
+  if (v2 <= r2 + eps) {
+    // Inside or on the disk of radius `radius`
+    if (v2 < r2 - 1e-8) {
+      // Strictly inside: one negative root, one positive — forward exit is t1
+      if (t1 > eps) t = t1;
+      else if (t0 > eps) t = t0;
+    } else {
+      // On/near boundary
+      if (vd > eps) {
+        // Moving outward along the ray: advance slightly past the boundary
+        t = eps * 4;
+      } else if (t1 > eps) {
+        t = t1;
+      } else if (t0 > eps) {
+        t = t0;
+      } else {
+        t = eps * 4;
+      }
+    }
+  } else {
+    // Starting outside the expanded disk: smallest positive hit (reaches shell ahead)
+    const cand = [t0, t1].filter((u) => u > eps);
+    if (cand.length > 0) t = Math.min(...cand);
+  }
+
+  if (t === null || !Number.isFinite(t)) return null;
+  return {
+    t,
+    x: ox + dx * t,
+    z: oz + dz * t,
+  };
+}
+
 function sqDistPointSegmentXZ(
   px: number,
   pz: number,

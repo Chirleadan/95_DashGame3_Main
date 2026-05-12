@@ -412,7 +412,6 @@ export class UI {
       if (x < -r - 2 || x > wCss + r + 2) continue;
       const onBeat = hitBeatIndices.has(i);
       const missed =
-        b.type !== 'tp' &&
         !onBeat &&
         audioTime > b.time + CONFIG.dashBeatWindowAfterSec;
       if (missed) {

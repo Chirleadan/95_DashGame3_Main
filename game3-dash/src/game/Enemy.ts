@@ -50,6 +50,8 @@ export class Enemy {
   /** Хранилище: щиты на рёбрах гекса; скрываются при попадании деша. */
   private vaultShieldMeshes: THREE.Mesh[] | null = null;
   private vaultEdgeHalfLen = 0;
+  /** Tank: wall-clock times (`performance.now()`) when queued dash body damage applies. */
+  private pendingTankDashDamageAt: number[] = [];
 
   constructor(scene: THREE.Scene, x: number, z: number, kind: EnemyKind = 'normal') {
     this.kind = kind;
@@ -231,6 +233,35 @@ export class Enemy {
     return this.applyDamage(1);
   }
 
+  /** Tank only: queue one dash body hit after `CONFIG.tankDashDamageDelayMs`. */
+  scheduleDeferredTankDashDamage(): void {
+    if (this.kind !== 'tank') return;
+    this.pendingTankDashDamageAt.push(performance.now() + CONFIG.tankDashDamageDelayMs);
+  }
+
+  /**
+   * Apply due deferred tank dash damage. Call from Game each frame.
+   * @returns true if this unit died and should be removed from the arena.
+   */
+  tickDeferredTankDashDamage(): boolean {
+    if (this.kind !== 'tank' || this.pendingTankDashDamageAt.length === 0) return false;
+    const now = performance.now();
+    let died = false;
+    while (this.pendingTankDashDamageAt.length > 0 && now >= this.pendingTankDashDamageAt[0]!) {
+      this.pendingTankDashDamageAt.shift();
+      if (this.hitsRemaining <= 0) {
+        this.pendingTankDashDamageAt.length = 0;
+        break;
+      }
+      if (this.takeDashHit()) {
+        died = true;
+        this.pendingTankDashDamageAt.length = 0;
+        break;
+      }
+    }
+    return died;
+  }
+
   update(
     dt: number,
     targetX: number,
@@ -271,6 +302,7 @@ export class Enemy {
   }
 
   dispose(scene: THREE.Scene): void {
+    this.pendingTankDashDamageAt.length = 0;
     scene.remove(this.mesh);
     disposeObject3DTree(this.mesh);
   }

@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { CONFIG } from './config.ts';
+import { CONFIG, isDebugDashPastTankEnabled } from './config.ts';
 import { Input } from './Input.ts';
-import { Player } from './Player.ts';
+import { Player, type DashSweepSegment } from './Player.ts';
 import { Enemy } from './Enemy.ts';
 import { EnemySpawner } from './EnemySpawner.ts';
 import { circlesOverlap, segmentHitsCircle } from './Collision.ts';
@@ -68,6 +68,10 @@ export class Game {
     age: number;
     baseOpacity: number;
   }[] = [];
+
+  /** Dash sweep consumed in `resolveDashKills` this frame (debug overlay / logs). */
+  private dashDebugSweepThisFrame: DashSweepSegment | null = null;
+  private debugDashTankGroup: THREE.Group | null = null;
 
   constructor(mount: HTMLElement) {
     this.mount = mount;
@@ -291,6 +295,7 @@ export class Game {
     this.applyLensDistortionEffective();
 
     if (this.runPhase === 'death') {
+      this.clearDashPastTankDebugOverlay();
       this.deathScreenTimer += dt;
       this.beatEffects.update(dt);
       this.updateCamera(dt);
@@ -313,6 +318,7 @@ export class Game {
     }
 
     if (this.runPhase === 'menu') {
+      this.clearDashPastTankDebugOverlay();
       this.beatEffects.update(dt);
       this.updateCamera(dt);
       const instFpsM = dt > 1e-6 ? 1 / dt : 0;
@@ -351,12 +357,20 @@ export class Game {
       aimOk ? this.groundHit : null,
       aimOk,
       this.getDashLengthWidthMultForThisFrame(),
+      this.enemies,
     );
     this.tryRegisterDashBeatHit();
 
-    const dashKills = this.resolveDashKills();
-    this.player.resolveTankOverlapWhileDashing(this.enemies);
+    const dashKills = this.resolveDashKills() + this.applyDeferredTankDashDamage();
+    const overlapPasses = Math.max(
+      1,
+      Math.floor(CONFIG.dashTankOverlapResolvePasses),
+    );
+    for (let p = 0; p < overlapPasses; p++) {
+      this.player.resolveTankOverlapWhileDashing(this.enemies);
+    }
     this.player.tickDashAfterHits(dt);
+    this.syncDashPastTankDebug();
     if (dashKills > 0) {
       const add = Math.min(
         CONFIG.dashKillShakeCap,
@@ -408,7 +422,6 @@ export class Game {
     }
     if (
       touching > 0 &&
-      !this.player.isTeleporting() &&
       this.player.hp > 0 &&
       !this.player.isInvulnerable()
     ) {
@@ -440,7 +453,6 @@ export class Game {
 
     if (this.player.hp <= 0) {
       this.runPhase = 'death';
-      this.cameraController.clearTeleportPan();
       this.deathScreenTimer = 0;
       this.ui.showDeathScreen();
       this.audio.pause();
@@ -483,7 +495,6 @@ export class Game {
     if (this.runPhase === 'playing') {
       return;
     }
-    this.cameraController.clearTeleportPan();
     this.runElapsedSec = 0;
     this.clearDamagePulseRings();
     this.clearAllEnemies();
@@ -506,7 +517,6 @@ export class Game {
   }
 
   private goToMainMenuAfterDeath(): void {
-    this.cameraController.clearTeleportPan();
     this.runElapsedSec = 0;
     this.clearDamagePulseRings();
     this.clearAllEnemies();
@@ -537,7 +547,6 @@ export class Game {
     let bestI = -1;
     let bestAbs = Number.POSITIVE_INFINITY;
     for (let i = 0; i < beats.length; i++) {
-      if (beats[i]!.type === 'tp') continue;
       const bt = beats[i]!.time;
       if (t < bt - before || t > bt + after) continue;
       const d = Math.abs(t - bt);
@@ -579,25 +588,6 @@ export class Game {
 
   private onBeatReached(beat: BeatEvent): void {
     this.beatEffects.triggerBeat(beat);
-    if (beat.type !== 'tp' || this.runPhase !== 'playing') return;
-    const mirrorBehind =
-      !Number.isFinite(beat.x) || !Number.isFinite(beat.z);
-    const dur = mirrorBehind
-      ? CONFIG.teleportBehindDurationSec
-      : CONFIG.teleportDurationSec;
-    let tx: number;
-    let tz: number;
-    if (mirrorBehind) {
-      tx = -this.player.x;
-      tz = -this.player.z;
-    } else {
-      tx = beat.x!;
-      tz = beat.z!;
-    }
-    const px = this.player.x;
-    const pz = this.player.z;
-    this.player.beginTeleport(tx, tz, dur);
-    this.cameraController.beginSyncedTeleportPan(px, pz, tx, tz, dur);
   }
 
   private updateBeatPlayback(dt: number): void {
@@ -627,6 +617,7 @@ export class Game {
 
   private resolveDashKills(): number {
     const seg = this.player.consumeDashSweep();
+    this.dashDebugSweepThisFrame = seg;
     if (!seg) return 0;
     const dashSerial = this.player.getDashHitSerial();
     const scaledPlayer = CONFIG.playerRadius * getDashKillRadiusScale();
@@ -652,8 +643,10 @@ export class Game {
         const tr = e.bodyRadius;
 
         if (e.getActiveShieldCount() > 0) {
-          e.tryBreakVaultShieldWithDash(seg, vaultShieldJoin);
-          this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
+          const brokeShield = e.tryBreakVaultShieldWithDash(seg, vaultShieldJoin);
+          if (brokeShield) {
+            this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
+          }
           continue;
         }
 
@@ -685,20 +678,146 @@ export class Game {
         const tx = e.mesh.position.x;
         const tz = e.mesh.position.z;
         const tr = e.bodyRadius;
-        if (isTank) {
-          this.player.clipDashPastTank(tx, tz, tr);
-        }
+        // One impact per dash serial: tank — clip/slide first, HP after delay; others — immediate damage.
         if (e.damagedInDashHitSerial === dashSerial) continue;
         e.damagedInDashHitSerial = dashSerial;
-        const died = e.takeDashHit();
-        if (died) {
-          e.dispose(this.scene);
-          this.enemies.splice(i, 1);
-          kills += 1;
+        if (isTank) {
+          this.player.clipDashPastTank(tx, tz, tr);
+          e.scheduleDeferredTankDashDamage();
+        } else {
+          const died = e.takeDashHit();
+          if (died) {
+            e.dispose(this.scene);
+            this.enemies.splice(i, 1);
+            kills += 1;
+          }
         }
       }
     }
     return kills;
+  }
+
+  /** Apply tank dash hits that were deferred after clip/slide (see `CONFIG.tankDashDamageDelayMs`). */
+  private applyDeferredTankDashDamage(): number {
+    let kills = 0;
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      const e = this.enemies[i];
+      if (!e.isTank()) continue;
+      if (!e.tickDeferredTankDashDamage()) continue;
+      e.dispose(this.scene);
+      this.enemies.splice(i, 1);
+      kills += 1;
+    }
+    return kills;
+  }
+
+  private clearDashPastTankDebugOverlay(): void {
+    this.dashDebugSweepThisFrame = null;
+    if (!this.debugDashTankGroup) return;
+    this.disposeDebugDashTankChildren(this.debugDashTankGroup);
+    this.debugDashTankGroup.visible = false;
+  }
+
+  /**
+   * Console + scene overlay when `CONFIG.debugDashPastTank` or `?debugDashTank` is set.
+   * Run after `tickDashAfterHits` so logged `timeLeft` matches end of frame.
+   */
+  private syncDashPastTankDebug(): void {
+    if (!isDebugDashPastTankEnabled()) {
+      if (this.debugDashTankGroup) this.debugDashTankGroup.visible = false;
+      return;
+    }
+
+    const seg = this.dashDebugSweepThisFrame;
+    if (!this.debugDashTankGroup) {
+      this.debugDashTankGroup = new THREE.Group();
+      this.debugDashTankGroup.name = 'debugDashPastTank';
+      this.scene.add(this.debugDashTankGroup);
+    }
+    const g = this.debugDashTankGroup;
+    this.disposeDebugDashTankChildren(g);
+
+    if (!seg) {
+      g.visible = false;
+      return;
+    }
+
+    g.visible = true;
+    const yLine = CONFIG.floorY + 0.28;
+    const sweepGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(seg.ax, yLine, seg.az),
+      new THREE.Vector3(seg.bx, yLine, seg.bz),
+    ]);
+    const sweepLine = new THREE.Line(
+      sweepGeo,
+      new THREE.LineBasicMaterial({ color: 0xffdd44 }),
+    );
+    g.add(sweepLine);
+
+    const scaledPlayer = CONFIG.playerRadius * getDashKillRadiusScale();
+    const tankHits: {
+      x: number;
+      z: number;
+      bodyRadius: number;
+      hitR: number;
+    }[] = [];
+
+    for (const e of this.enemies) {
+      if (!e.isTank()) continue;
+      const hitR = scaledPlayer + e.bodyRadius;
+      const cx = e.mesh.position.x;
+      const cz = e.mesh.position.z;
+      if (
+        !segmentHitsCircle(
+          seg.ax,
+          seg.az,
+          seg.bx,
+          seg.bz,
+          cx,
+          cz,
+          hitR,
+        )
+      ) {
+        continue;
+      }
+      tankHits.push({ x: cx, z: cz, bodyRadius: e.bodyRadius, hitR });
+      const inner = Math.max(0.04, hitR - 0.08);
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(inner, hitR + 0.08, 56),
+        new THREE.MeshBasicMaterial({
+          color: 0xff44aa,
+          transparent: true,
+          opacity: 0.82,
+          depthTest: true,
+          side: THREE.DoubleSide,
+        }),
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(cx, CONFIG.floorY + 0.27, cz);
+      g.add(ring);
+    }
+
+    if (tankHits.length > 0) {
+      console.log('[dash-past-tank] frame', {
+        sweep: { ...seg },
+        tankHits,
+        dashTimeLeftAfterTick: this.player.dash.timeLeft,
+      });
+    }
+  }
+
+  private disposeDebugDashTankChildren(group: THREE.Group): void {
+    while (group.children.length > 0) {
+      const ch = group.children[0]!;
+      if (ch instanceof THREE.Line) {
+        ch.geometry.dispose();
+        (ch.material as THREE.Material).dispose();
+      } else if (ch instanceof THREE.Mesh) {
+        ch.geometry.dispose();
+        (ch.material as THREE.Material).dispose();
+      }
+      group.remove(ch);
+    }
   }
 
   private spawnDamagePulseRing(): void {
@@ -787,6 +906,11 @@ export class Game {
     this.audio.pause();
     window.removeEventListener('resize', this.onResize);
     this.clearDamagePulseRings();
+    if (this.debugDashTankGroup) {
+      this.disposeDebugDashTankChildren(this.debugDashTankGroup);
+      this.scene.remove(this.debugDashTankGroup);
+      this.debugDashTankGroup = null;
+    }
     for (const e of this.enemies) e.dispose(this.scene);
     this.enemies.length = 0;
     this.ui.disposeMenuOverlays();

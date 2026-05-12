@@ -1,12 +1,12 @@
 import * as THREE from 'three';
-import { CONFIG } from './config.ts';
+import { CONFIG, isDebugDashPastTankEnabled } from './config.ts';
 import {
   getDashDurationSec,
   getPlayerMaxHp,
   getPlayerSpeed,
 } from './BalanceSettings.ts';
 import type { Input } from './Input.ts';
-import { clampToArena, circlesOverlap } from './Collision.ts';
+import { clampToArena, circlesOverlap, rayExitFromCircleXZ } from './Collision.ts';
 import { Dash } from './Dash.ts';
 import type { Enemy } from './Enemy.ts';
 
@@ -62,19 +62,20 @@ export class Player {
    */
   private dashHitSerial = 0;
 
-  /** Beat `tp`: linear move from current XZ over `teleportDur` (wall-clock via `performance.now`). */
-  private teleportActive = false;
-  private teleportStartMs = 0;
-  private teleportFromX = 0;
-  private teleportFromZ = 0;
-  private teleportToX = 0;
-  private teleportToZ = 0;
-  private teleportDur: number = CONFIG.teleportDurationSec;
-
-  /** If TP started during main dash: resume this `dash.timeLeft` after TP (enemy freeze matches). */
-  private dashResumeTimeLeft: number | null = null;
-  private dashResumeEnemyFreeze = 0;
-  private dashResumeLenMult = 1;
+  /**
+   * Dash hit tank / vault clip: glide from current XZ to exit (same target as old snap), then resume main dash.
+   * Wall-clock timing.
+   */
+  private tankClipSlideActive = false;
+  private tankClipSlideStartMs = 0;
+  private tankClipSlideDurSec = 0;
+  private tankClipSlideFromX = 0;
+  private tankClipSlideFromZ = 0;
+  private tankClipSlideToX = 0;
+  private tankClipSlideToZ = 0;
+  private tankClipResumeTimeLeft = 0;
+  private tankClipResumeEnemyFreeze = 0;
+  private tankClipResumeLenMult = 1;
 
   constructor(scene: THREE.Scene) {
     this.mesh = new THREE.Group();
@@ -161,14 +162,15 @@ export class Player {
   }
 
   get isDashing(): boolean {
-    return this.dash.timeLeft > 0;
+    return this.dash.timeLeft > 0 || this.tankClipSlideActive;
   }
 
   isInvulnerable(): boolean {
     return (
       this.postDashInvulnLeft > 0 ||
       this.dash.timeLeft > 0 ||
-      this.microDashTimeLeft > 0
+      this.microDashTimeLeft > 0 ||
+      this.tankClipSlideActive
     );
   }
 
@@ -184,19 +186,17 @@ export class Player {
     return this.dashHitSerial;
   }
 
-  /** On-beat dash: no post-dash cooldown (same frame as `tryStart` set it). */
+  /** Clears post-dash cooldown (on-beat dash, clip/slide past tank or vault, overlap snap). */
   clearDashCooldownAfterOnBeatHit(): void {
     this.dash.cooldownLeft = 0;
   }
 
   /**
-   * Called when dash damage connects with a tank: place the player just past the
-   * tank along the current dash vector and extend the main dash by a fixed fraction
-   * of full dash duration (see CONFIG.dashPastTankRemainingFraction).
-   *
-   * `minAlongDashFromObstacleCenter` — optional: push at least this far from obstacle
-   * center along dash (used for large vault so the next-frame dash sweep no longer
-   * hits the same obstacle and re-clips every tick).
+   * Dash damage vs tank / large vault: pause main dash (`dash.timeLeft` → 0), glide to exit
+   * along chord at `CONFIG.dashPastTankClipSlideSpeed` only (does not change `dashSpeed`),
+   * then restore remaining main-dash time (capped), freeze timer, and length mult so movement
+   * and trail continue as one dash.
+   * Optional `minAlongDashFromObstacleCenter`: push at least this far from obstacle center along dash (vault).
    */
   clipDashPastTank(
     tankX: number,
@@ -204,12 +204,104 @@ export class Player {
     tankBodyRadius: number,
     minAlongDashFromObstacleCenter?: number,
   ): void {
-    if (!this.dash.isDashingForMovement()) return;
-    this.snapDashPastTankPosition(tankX, tankZ, tankBodyRadius, minAlongDashFromObstacleCenter);
+    if (this.tankClipSlideActive) return;
+    // Do not require dash.timeLeft > 0: resolveDashKills runs before tickDashAfterHits; last-tick kills can have timeLeft === 0 while the sweep still hits.
+    const debug = isDebugDashPastTankEnabled();
+    const timeLeftBeforeCap = debug ? this.dash.timeLeft : 0;
     const mult = this.activeDashLenWidthMult;
     const cap =
       getDashDurationSec() * mult * CONFIG.dashPastTankRemainingFraction;
-    this.dash.timeLeft = Math.min(this.dash.timeLeft, cap);
+    const resumeTime = Math.min(this.dash.timeLeft, cap);
+
+    const exit = this.computeDashPastTankExitXZ(
+      tankX,
+      tankZ,
+      tankBodyRadius,
+      minAlongDashFromObstacleCenter,
+    );
+    const fx = this.mesh.position.x;
+    const fz = this.mesh.position.z;
+    const dist = Math.hypot(exit.x - fx, exit.z - fz);
+    const speed = CONFIG.dashPastTankClipSlideSpeed;
+
+    if (dist < 1e-5) {
+      this.snapDashPastTankPosition(
+        tankX,
+        tankZ,
+        tankBodyRadius,
+        minAlongDashFromObstacleCenter,
+      );
+      this.dash.timeLeft = resumeTime;
+      this.clearDashCooldownAfterOnBeatHit();
+      if (debug) {
+        console.log('[dash-past-tank] clipDashPastTank instant', {
+          tankX,
+          tankZ,
+          tankBodyRadius,
+          timeLeftBeforeCap,
+          timeLeftAfterClip: this.dash.timeLeft,
+          remainingCap: cap,
+          activeDashLenWidthMult: mult,
+        });
+      }
+      return;
+    }
+
+    if (!(speed > 1e-6)) {
+      this.snapDashPastTankPosition(
+        tankX,
+        tankZ,
+        tankBodyRadius,
+        minAlongDashFromObstacleCenter,
+      );
+      this.dash.timeLeft = resumeTime;
+      this.clearDashCooldownAfterOnBeatHit();
+      if (debug) {
+        console.log('[dash-past-tank] clipDashPastTank instant', {
+          tankX,
+          tankZ,
+          tankBodyRadius,
+          timeLeftBeforeCap,
+          timeLeftAfterClip: this.dash.timeLeft,
+          remainingCap: cap,
+          activeDashLenWidthMult: mult,
+        });
+      }
+      return;
+    }
+
+    let dur = dist / speed;
+    dur = Math.min(
+      Math.max(dur, CONFIG.dashPastTankClipSlideMinSec),
+      CONFIG.dashPastTankClipSlideMaxSec,
+    );
+
+    this.tankClipSlideFromX = fx;
+    this.tankClipSlideFromZ = fz;
+    this.tankClipSlideToX = exit.x;
+    this.tankClipSlideToZ = exit.z;
+    this.tankClipSlideStartMs = performance.now();
+    this.tankClipSlideDurSec = dur;
+    this.tankClipResumeTimeLeft = resumeTime;
+    this.tankClipResumeEnemyFreeze = this.dashEnemyFreezeLeft;
+    this.tankClipResumeLenMult = mult;
+    this.tankClipSlideActive = true;
+    this.dash.timeLeft = 0;
+    this.dashSweep = null;
+
+    if (debug) {
+      console.log('[dash-past-tank] clipDashPastTank slide', {
+        tankX,
+        tankZ,
+        tankBodyRadius,
+        timeLeftBeforeCap,
+        resumeDashAfterSlide: resumeTime,
+        remainingCap: cap,
+        dist,
+        durSec: dur,
+        slideSpeed: speed,
+      });
+    }
   }
 
   /**
@@ -217,6 +309,7 @@ export class Player {
    * without changing dash timer — call after `resolveDashKills` each frame.
    */
   resolveTankOverlapWhileDashing(enemies: readonly Enemy[]): void {
+    if (this.tankClipSlideActive) return;
     if (!this.dash.isDashingForMovement()) return;
     for (const e of enemies) {
       if (!e.isTank()) continue;
@@ -236,6 +329,7 @@ export class Player {
         continue;
       }
       this.snapDashPastTankPosition(tx, tz, tr);
+      this.clearDashCooldownAfterOnBeatHit();
     }
   }
 
@@ -245,8 +339,29 @@ export class Player {
     tankBodyRadius: number,
     minAlongDashFromObstacleCenter?: number,
   ): void {
+    const p = this.computeDashPastTankExitXZ(
+      tankX,
+      tankZ,
+      tankBodyRadius,
+      minAlongDashFromObstacleCenter,
+    );
+    this.mesh.position.x = p.x;
+    this.mesh.position.z = p.z;
+  }
+
+  /** Exit XZ for dash clip past tank/vault obstacle (same geometry as legacy snap). */
+  private computeDashPastTankExitXZ(
+    tankX: number,
+    tankZ: number,
+    tankBodyRadius: number,
+    minAlongDashFromObstacleCenter?: number,
+  ): { x: number; z: number } {
+    const ox = this.mesh.position.x;
+    const oz = this.mesh.position.z;
+    const margin = CONFIG.dashPastTankBehindOffset;
+    const exitR = tankBodyRadius + CONFIG.playerRadius + margin;
     let behind =
-      tankBodyRadius + CONFIG.playerRadius + CONFIG.dashPastTankBehindOffset;
+      tankBodyRadius + CONFIG.playerRadius + margin;
     if (
       minAlongDashFromObstacleCenter !== undefined &&
       Number.isFinite(minAlongDashFromObstacleCenter) &&
@@ -254,17 +369,48 @@ export class Player {
     ) {
       behind = minAlongDashFromObstacleCenter;
     }
-    const nx = tankX + this.dash.dirX * behind;
-    const nz = tankZ + this.dash.dirZ * behind;
-    const c = clampToArena(nx, nz);
-    this.mesh.position.x = c.x;
-    this.mesh.position.z = c.z;
+
+    const rayHit = rayExitFromCircleXZ(
+      ox,
+      oz,
+      this.dash.dirX,
+      this.dash.dirZ,
+      tankX,
+      tankZ,
+      exitR,
+    );
+
+    let nx: number;
+    let nz: number;
+    if (rayHit) {
+      const vx = ox - tankX;
+      const vz = oz - tankZ;
+      const dLen = Math.hypot(this.dash.dirX, this.dash.dirZ);
+      const inv = dLen > 1e-10 ? 1 / dLen : 0;
+      const dnx = this.dash.dirX * inv;
+      const dnz = this.dash.dirZ * inv;
+      const vd = vx * dnx + vz * dnz;
+      let t = rayHit.t;
+      if (
+        minAlongDashFromObstacleCenter !== undefined &&
+        Number.isFinite(minAlongDashFromObstacleCenter)
+      ) {
+        const tAlong = minAlongDashFromObstacleCenter - vd;
+        if (tAlong > t) t = tAlong;
+      }
+      nx = ox + dnx * t;
+      nz = oz + dnz * t;
+    } else {
+      nx = tankX + this.dash.dirX * behind;
+      nz = tankZ + this.dash.dirZ * behind;
+    }
+
+    return clampToArena(nx, nz);
   }
 
   /** Full reset for a new run (menu / after death). */
   resetForNewRun(): void {
-    this.teleportActive = false;
-    this.dashResumeTimeLeft = null;
+    this.tankClipSlideActive = false;
     this.hp = getPlayerMaxHp();
     this.mesh.position.set(0, CONFIG.floorY + CONFIG.playerRadius, 0);
     this.dash.reset();
@@ -300,58 +446,11 @@ export class Player {
     return v;
   }
 
-  /** Beatmap `tp`: glide to XZ over `durationSec`. Mid-main-dash: pauses dash timers, resumes after. */
-  beginTeleport(toX: number, toZ: number, durationSec: number): void {
-    const c = clampToArena(toX, toZ);
-    this.teleportFromX = this.mesh.position.x;
-    this.teleportFromZ = this.mesh.position.z;
-    this.teleportToX = c.x;
-    this.teleportToZ = c.z;
-    this.teleportStartMs = performance.now();
-    this.teleportDur =
-      Number.isFinite(durationSec) && durationSec > 1e-4 ? durationSec : CONFIG.teleportDurationSec;
-    this.teleportActive = true;
-
-    const wasMainDash = this.dash.isDashingForMovement();
-    if (wasMainDash) {
-      this.dashResumeTimeLeft = this.dash.timeLeft;
-      this.dashResumeEnemyFreeze = this.dashEnemyFreezeLeft;
-      this.dashResumeLenMult = this.activeDashLenWidthMult;
-      this.dash.timeLeft = 0;
-      this.microDashTimeLeft = 0;
-      this.microDashSpeed = 0;
-      this.mainDashStartedThisFrame = false;
-      this.dashSweep = null;
-    } else {
-      this.dashResumeTimeLeft = null;
-      this.dash.reset();
-      this.microDashTimeLeft = 0;
-      this.microDashSpeed = 0;
-      this.mainDashTravel = 0;
-      this.dashEnemyFreezeLeft = 0;
-      this.dashSweep = null;
-      this.dashTrailBuilding = false;
-      this.mainDashStartedThisFrame = false;
-      this.activeDashLenWidthMult = 1;
-      this.trailPoints.length = 0;
-      this.trailRibbonGeo.setDrawRange(0, 0);
-      this.trailRibbon.visible = false;
-    }
-  }
-
-  isTeleporting(): boolean {
-    return this.teleportActive;
-  }
-
   /**
-   * Run after `resolveDashKills` so `clipDashPastTank` can still see `dash.timeLeft > 0`
-   * on the same frame the sweep hits a tank.
+   * Run after `resolveDashKills` so `clipDashPastTank` can still see `dash.timeLeft > 0` on the frame a sweep hits.
    */
   tickDashAfterHits(dt: number): void {
-    if (this.teleportActive) {
-      if (this.dashResumeTimeLeft === null) {
-        this.dash.tickAfterMove(dt);
-      }
+    if (this.tankClipSlideActive) {
       this.postDashInvulnLeft = Math.max(0, this.postDashInvulnLeft - dt);
       this.applyInvulnVisualAndPulse();
       return;
@@ -412,9 +511,10 @@ export class Player {
     aimGroundWorld: THREE.Vector3 | null,
     aimGroundValid: boolean,
     dashLenWidthMult: number,
+    enemies: readonly Enemy[],
   ): void {
-    if (this.teleportActive) {
-      this.advanceTeleport(dt);
+    if (this.tankClipSlideActive) {
+      this.advanceTankClipSlide();
       return;
     }
 
@@ -479,11 +579,25 @@ export class Player {
       vz = (mv.z / walkLen) * getPlayerSpeed();
     }
 
-    this.mesh.position.x += vx * dt;
-    this.mesh.position.z += vz * dt;
-    const c = clampToArena(this.mesh.position.x, this.mesh.position.z);
-    this.mesh.position.x = c.x;
-    this.mesh.position.z = c.z;
+    if (useDash) {
+      const rawN = Math.floor(CONFIG.dashMovementSubstepCount);
+      const n = Math.min(4, Math.max(1, rawN));
+      const subDt = dt / n;
+      for (let si = 0; si < n; si++) {
+        this.mesh.position.x += vx * subDt;
+        this.mesh.position.z += vz * subDt;
+        const c = clampToArena(this.mesh.position.x, this.mesh.position.z);
+        this.mesh.position.x = c.x;
+        this.mesh.position.z = c.z;
+        this.resolveTankOverlapWhileDashing(enemies);
+      }
+    } else {
+      this.mesh.position.x += vx * dt;
+      this.mesh.position.z += vz * dt;
+      const c = clampToArena(this.mesh.position.x, this.mesh.position.z);
+      this.mesh.position.x = c.x;
+      this.mesh.position.z = c.z;
+    }
 
     if (useDash) {
       const nominalDashLen =
@@ -526,25 +640,27 @@ export class Player {
     }
   }
 
-  private advanceTeleport(_dt: number): void {
-    const dur = this.teleportDur;
-    const elapsedSec = (performance.now() - this.teleportStartMs) / 1000;
-    const u = Math.min(1, elapsedSec / dur);
+  private advanceTankClipSlide(): void {
+    const px = this.mesh.position.x;
+    const pz = this.mesh.position.z;
+    const dur = this.tankClipSlideDurSec;
+    const elapsedSec = (performance.now() - this.tankClipSlideStartMs) / 1000;
+    const u = dur > 1e-8 ? Math.min(1, elapsedSec / dur) : 1;
     this.mesh.position.x =
-      this.teleportFromX + (this.teleportToX - this.teleportFromX) * u;
+      this.tankClipSlideFromX + (this.tankClipSlideToX - this.tankClipSlideFromX) * u;
     this.mesh.position.z =
-      this.teleportFromZ + (this.teleportToZ - this.teleportFromZ) * u;
+      this.tankClipSlideFromZ + (this.tankClipSlideToZ - this.tankClipSlideFromZ) * u;
+    this.mainDashTravel += Math.hypot(this.mesh.position.x - px, this.mesh.position.z - pz);
+    this.trailRibbon.visible = true;
+    this.pushDashTrailPoint(this.mesh.position.x, this.mesh.position.z);
     if (u >= 1) {
-      this.teleportActive = false;
-      this.mesh.position.x = this.teleportToX;
-      this.mesh.position.z = this.teleportToZ;
-      const resume = this.dashResumeTimeLeft;
-      if (resume !== null && resume > 1e-6) {
-        this.dash.timeLeft = resume;
-        this.dashEnemyFreezeLeft = this.dashResumeEnemyFreeze;
-        this.activeDashLenWidthMult = this.dashResumeLenMult;
-        this.dashResumeTimeLeft = null;
-      }
+      this.mesh.position.x = this.tankClipSlideToX;
+      this.mesh.position.z = this.tankClipSlideToZ;
+      this.tankClipSlideActive = false;
+      this.dash.timeLeft = this.tankClipResumeTimeLeft;
+      this.dashEnemyFreezeLeft = this.tankClipResumeEnemyFreeze;
+      this.activeDashLenWidthMult = this.tankClipResumeLenMult;
+      this.clearDashCooldownAfterOnBeatHit();
     }
   }
 
