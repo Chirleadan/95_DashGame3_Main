@@ -17,6 +17,12 @@ export class AudioManager {
       };
       const onErr = () => {
         cleanup();
+        console.error('[Audio] failed to load:', {
+          src: this.audio.src,
+          error: this.audio.error,
+          networkState: this.audio.networkState,
+          readyState: this.audio.readyState,
+        });
         reject(new Error('Audio failed to load'));
       };
       const cleanup = () => {

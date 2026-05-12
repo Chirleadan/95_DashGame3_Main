@@ -54,6 +54,8 @@ export class Game {
   private runElapsedSec = 0;
   /** Post-process: render frustum scale vs gameplay ortho (lens overscan). */
   private lensOverscan = 1.35;
+  /** Lens distortion from UI slider; effective value adds boost while beatmap audio plays. */
+  private lensDistortionBase = 0.15;
 
   private readonly damagePulseRings: {
     mesh: THREE.Mesh;
@@ -126,7 +128,8 @@ export class Game {
     this.ui.setBeatmapState('Loading...');
     this.ui.setBeatDebug(0, null);
     this.ui.onLensDistortionChange((v) => {
-      this.lensPass.setAmount(v);
+      this.lensDistortionBase = v;
+      this.applyLensDistortionEffective();
     });
     this.ui.onLensOverscanChange((v) => {
       this.lensOverscan = v;
@@ -164,6 +167,11 @@ export class Game {
     dir.shadow.camera.top = sh;
     dir.shadow.camera.bottom = -sh;
     this.scene.add(dir);
+  }
+
+  private applyLensDistortionEffective(): void {
+    const boost = this.audio.isPlaying ? CONFIG.lensDistortionWhileTrackPlaysBoost : 0;
+    this.lensPass.setAmount(this.lensDistortionBase + boost);
   }
 
   private addArena(): void {
@@ -208,7 +216,9 @@ export class Game {
       this.ui.setBeatmapState('Ready');
       this.ui.setPlayEnabled(true);
       this.ui.setBeatDebug(this.audio.currentTime, beatmap.beats[0]?.time ?? null);
-    } catch {
+    } catch (e) {
+      console.error('[Beatmap] init failed:', e instanceof Error ? e.message : e, e);
+      this.beatmap = null;
       this.ui.setBeatmapState('Beatmap load failed');
       this.ui.setPlayEnabled(false);
     }
@@ -224,7 +234,8 @@ export class Game {
       }
       await this.audio.play();
       this.ui.setBeatmapState('Playing');
-    } catch {
+    } catch (e) {
+      console.error('[Beatmap] audio play failed:', e instanceof Error ? e.message : e, e);
       this.ui.setBeatmapState('Playback blocked');
     }
   }
@@ -270,6 +281,7 @@ export class Game {
   private update(dt: number): void {
     this.input.beginFrame();
     this.updateDamagePulseRings(dt);
+    this.applyLensDistortionEffective();
 
     if (this.runPhase === 'death') {
       this.deathScreenTimer += dt;
@@ -357,7 +369,14 @@ export class Game {
       }
     }
 
-    this.spawner.update(dt, this.player.x, this.player.z, diffMult, maxSlots);
+    this.spawner.update(
+      dt,
+      this.player.x,
+      this.player.z,
+      diffMult,
+      maxSlots,
+      this.runElapsedSec,
+    );
 
     let touching = 0;
     for (const e of this.enemies) {
@@ -534,6 +553,7 @@ export class Game {
       this.beatHitIndices.add(bestI);
       this.beatHitCount += 1;
       this.beatEffects.triggerOnBeatHitFlash();
+      this.player.clearDashCooldownAfterOnBeatHit();
     }
   }
 

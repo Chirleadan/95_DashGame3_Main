@@ -23,11 +23,11 @@ export class EnemySpawner {
   spawnBurstAround(px: number, pz: number, count: number, maxEnemySlots: number): void {
     for (let i = 0; i < count; i++) {
       if (this.enemies.length >= maxEnemySlots) break;
-      this.spawnOne(px, pz);
+      this.spawnOne(px, pz, 0);
     }
   }
 
-  private spawnOne(px: number, pz: number): void {
+  private spawnOne(px: number, pz: number, runElapsedSec: number): void {
     const angle = Math.random() * Math.PI * 2;
     const dist =
       CONFIG.spawnMinDist +
@@ -39,7 +39,9 @@ export class EnemySpawner {
     z = c.z;
     this.spawnTotal += 1;
     let kind: 'normal' | 'tank' | 'vault' = 'normal';
-    if (this.spawnTotal % CONFIG.tankEveryNthSpawn === 0) {
+    const runOk =
+      Number.isFinite(runElapsedSec) && runElapsedSec >= CONFIG.tankMinRunSecBeforeSpawn;
+    if (this.spawnTotal % CONFIG.tankEveryNthSpawn === 0 && runOk) {
       kind = 'tank';
     } else if (this.spawnTotal % CONFIG.vaultEveryNthSpawn === 0) {
       const vaultN = this.enemies.reduce((n, e) => n + (e.isVault() ? 1 : 0), 0);
@@ -56,6 +58,7 @@ export class EnemySpawner {
     pz: number,
     difficultyMult: number,
     maxEnemySlots: number,
+    runElapsedSec: number,
   ): void {
     const m =
       Number.isFinite(difficultyMult) && difficultyMult > 0 ? difficultyMult : 1;
@@ -67,7 +70,7 @@ export class EnemySpawner {
     this.acc += dt;
     while (this.acc >= interval && this.enemies.length < maxEnemySlots) {
       this.acc -= interval;
-      this.spawnOne(px, pz);
+      this.spawnOne(px, pz, runElapsedSec);
     }
   }
 }

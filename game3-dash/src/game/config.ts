@@ -25,7 +25,7 @@ export const CONFIG = {
    * fraction of nominal dash length (dashSpeed × dashDuration), along dash direction.
    */
   dashBeyondNominalLengthFraction: 0.5,
-  dashCooldown: 0.025,
+  dashCooldown: 0.5,
   /** Enemies are frozen for this long at dash start (seconds). Same as `dashDuration`. */
   dashEnemyFreezeDuration: DASH_DURATION_SEC,
   /** Invulnerability after main + micro dash (seconds). */
@@ -46,6 +46,9 @@ export const CONFIG = {
   dashKillShakeCap: 0.55,
   /** Dash kill sweep uses `playerRadius * this` (enemy radius unchanged). */
   dashKillPlayerRadiusScale: 4,
+
+  /** When beatmap audio is playing, add this to the UI lens distortion (clamped with slider sum to 0.5). */
+  lensDistortionWhileTrackPlaysBoost: 0.2,
 
   /** Beat lane: note x = center + (beatTime - audioTime) * this (px/s), right → left. */
   beatLaneScrollPxPerSec: 880,
@@ -81,7 +84,7 @@ export const CONFIG = {
   initialEnemyCount: 4,
 
   /** Every N-th spawn is a vault / «Хранилище» (unless same tick is also a tank spawn). */
-  vaultEveryNthSpawn: 5,
+  vaultEveryNthSpawn: 75,
   /** Max «Хранилище» on the field at once (extra cadence spawns become normal). */
   vaultMaxSimultaneous: 2,
   /** Navigation: base disk radius around each Storage (XZ, world units). */
@@ -102,8 +105,10 @@ export const CONFIG = {
   /** Dash sweep vs shield segment join distance (XZ, world units). */
   vaultShieldDashJoinRadius: 2.46,
 
-  /** Every N-th enemy spawn is a tank ("здоровяк"). */
-  tankEveryNthSpawn: 10,
+  /** Every N-th enemy spawn is a tank ("здоровяк"); only after `tankMinRunSecBeforeSpawn`. */
+  tankEveryNthSpawn: 20,
+  /** Run time (seconds) before any tank can spawn (cadence still uses `tankEveryNthSpawn`). */
+  tankMinRunSecBeforeSpawn: 30,
   /** Tank body radius = `enemyRadius * this`. */
   tankRadiusScale: 3,
   tankHitsToKill: 2,

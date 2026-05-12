@@ -164,6 +164,11 @@ export class Player {
     return this.dashHitSerial;
   }
 
+  /** On-beat dash: no post-dash cooldown (same frame as `tryStart` set it). */
+  clearDashCooldownAfterOnBeatHit(): void {
+    this.dash.cooldownLeft = 0;
+  }
+
   /**
    * Called when dash damage connects with a tank: place the player just past the
    * tank along the current dash vector and extend the main dash by a fixed fraction
