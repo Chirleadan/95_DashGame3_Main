@@ -3,7 +3,11 @@ const DASH_DURATION_SEC = 0.140595;
 
 /** Tunable gameplay and presentation constants. */
 export const CONFIG = {
-  arenaHalfSize: 52,
+  /**
+   * Half-extent of the floor plane / grid / shadow frustum (world XZ). Gameplay is not
+   * clamped to this; only visuals — use a large value so the ground reads as unlimited.
+   */
+  arenaFloorVisualHalfExtent: 5000,
   /** Orthographic camera half-height (world); frustum top/bottom ±this, sides × aspect. */
   cameraViewHalfExtent: 18,
   floorY: 0,
@@ -61,6 +65,10 @@ export const CONFIG = {
   dashBeatWindowAfterSec: 0.1,
   /** When starting a dash that will newly register an on-beat hit, dash length & trail width × this. */
   dashOnBeatLengthWidthMult: 2,
+  /** Beat `tp` with explicit `x`/`z`: wall-clock travel time (2000 ms). */
+  teleportDurationSec: 2000 / 1000,
+  /** Beat `tp` without coords (mirror «за спину»): wall-clock travel time (2000 ms). */
+  teleportBehindDurationSec: 2000 / 1000,
 
   /** After death, show death screen this long (seconds) then return to main menu. */
   deathScreenToMenuDelaySec: 2.5,
@@ -106,7 +114,7 @@ export const CONFIG = {
   vaultShieldDashJoinRadius: 2.46,
 
   /** Every N-th enemy spawn is a tank ("здоровяк"); only after `tankMinRunSecBeforeSpawn`. */
-  tankEveryNthSpawn: 20,
+  tankEveryNthSpawn: 3,
   /** Run time (seconds) before any tank can spawn (cadence still uses `tankEveryNthSpawn`). */
   tankMinRunSecBeforeSpawn: 30,
   /** Tank body radius = `enemyRadius * this`. */

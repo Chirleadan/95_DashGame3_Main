@@ -1,8 +1,14 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.ts';
+import {
+  getDashDurationSec,
+  getPlayerMaxHp,
+  getPlayerSpeed,
+} from './BalanceSettings.ts';
 import type { Input } from './Input.ts';
-import { clampToArena } from './Collision.ts';
+import { clampToArena, circlesOverlap } from './Collision.ts';
 import { Dash } from './Dash.ts';
+import type { Enemy } from './Enemy.ts';
 
 export type DashSweepSegment = { ax: number; az: number; bx: number; bz: number };
 
@@ -21,7 +27,7 @@ export class Player {
   private readonly trailRibbonGeo: THREE.BufferGeometry;
   private readonly trailRibbon: THREE.Mesh;
 
-  hp: number = CONFIG.playerMaxHp;
+  hp: number = getPlayerMaxHp();
 
   private lastAimDirX = 0;
   private lastAimDirZ = -1;
@@ -55,6 +61,20 @@ export class Player {
    * takes at most one dash-hit per dash (not once per animation frame).
    */
   private dashHitSerial = 0;
+
+  /** Beat `tp`: linear move from current XZ over `teleportDur` (wall-clock via `performance.now`). */
+  private teleportActive = false;
+  private teleportStartMs = 0;
+  private teleportFromX = 0;
+  private teleportFromZ = 0;
+  private teleportToX = 0;
+  private teleportToZ = 0;
+  private teleportDur: number = CONFIG.teleportDurationSec;
+
+  /** If TP started during main dash: resume this `dash.timeLeft` after TP (enemy freeze matches). */
+  private dashResumeTimeLeft: number | null = null;
+  private dashResumeEnemyFreeze = 0;
+  private dashResumeLenMult = 1;
 
   constructor(scene: THREE.Scene) {
     this.mesh = new THREE.Group();
@@ -185,6 +205,46 @@ export class Player {
     minAlongDashFromObstacleCenter?: number,
   ): void {
     if (!this.dash.isDashingForMovement()) return;
+    this.snapDashPastTankPosition(tankX, tankZ, tankBodyRadius, minAlongDashFromObstacleCenter);
+    const mult = this.activeDashLenWidthMult;
+    const cap =
+      getDashDurationSec() * mult * CONFIG.dashPastTankRemainingFraction;
+    this.dash.timeLeft = Math.min(this.dash.timeLeft, cap);
+  }
+
+  /**
+   * If still overlapping a tank while main-dashing (e.g. tangential clip), push past
+   * without changing dash timer — call after `resolveDashKills` each frame.
+   */
+  resolveTankOverlapWhileDashing(enemies: readonly Enemy[]): void {
+    if (!this.dash.isDashingForMovement()) return;
+    for (const e of enemies) {
+      if (!e.isTank()) continue;
+      const tx = e.mesh.position.x;
+      const tz = e.mesh.position.z;
+      const tr = e.bodyRadius;
+      if (
+        !circlesOverlap(
+          this.mesh.position.x,
+          this.mesh.position.z,
+          CONFIG.playerRadius,
+          tx,
+          tz,
+          tr,
+        )
+      ) {
+        continue;
+      }
+      this.snapDashPastTankPosition(tx, tz, tr);
+    }
+  }
+
+  private snapDashPastTankPosition(
+    tankX: number,
+    tankZ: number,
+    tankBodyRadius: number,
+    minAlongDashFromObstacleCenter?: number,
+  ): void {
     let behind =
       tankBodyRadius + CONFIG.playerRadius + CONFIG.dashPastTankBehindOffset;
     if (
@@ -199,14 +259,13 @@ export class Player {
     const c = clampToArena(nx, nz);
     this.mesh.position.x = c.x;
     this.mesh.position.z = c.z;
-    const mult = this.activeDashLenWidthMult;
-    this.dash.timeLeft =
-      CONFIG.dashDuration * mult * CONFIG.dashPastTankRemainingFraction;
   }
 
   /** Full reset for a new run (menu / after death). */
   resetForNewRun(): void {
-    this.hp = CONFIG.playerMaxHp;
+    this.teleportActive = false;
+    this.dashResumeTimeLeft = null;
+    this.hp = getPlayerMaxHp();
     this.mesh.position.set(0, CONFIG.floorY + CONFIG.playerRadius, 0);
     this.dash.reset();
     this.postDashInvulnLeft = 0;
@@ -241,6 +300,112 @@ export class Player {
     return v;
   }
 
+  /** Beatmap `tp`: glide to XZ over `durationSec`. Mid-main-dash: pauses dash timers, resumes after. */
+  beginTeleport(toX: number, toZ: number, durationSec: number): void {
+    const c = clampToArena(toX, toZ);
+    this.teleportFromX = this.mesh.position.x;
+    this.teleportFromZ = this.mesh.position.z;
+    this.teleportToX = c.x;
+    this.teleportToZ = c.z;
+    this.teleportStartMs = performance.now();
+    this.teleportDur =
+      Number.isFinite(durationSec) && durationSec > 1e-4 ? durationSec : CONFIG.teleportDurationSec;
+    this.teleportActive = true;
+
+    const wasMainDash = this.dash.isDashingForMovement();
+    if (wasMainDash) {
+      this.dashResumeTimeLeft = this.dash.timeLeft;
+      this.dashResumeEnemyFreeze = this.dashEnemyFreezeLeft;
+      this.dashResumeLenMult = this.activeDashLenWidthMult;
+      this.dash.timeLeft = 0;
+      this.microDashTimeLeft = 0;
+      this.microDashSpeed = 0;
+      this.mainDashStartedThisFrame = false;
+      this.dashSweep = null;
+    } else {
+      this.dashResumeTimeLeft = null;
+      this.dash.reset();
+      this.microDashTimeLeft = 0;
+      this.microDashSpeed = 0;
+      this.mainDashTravel = 0;
+      this.dashEnemyFreezeLeft = 0;
+      this.dashSweep = null;
+      this.dashTrailBuilding = false;
+      this.mainDashStartedThisFrame = false;
+      this.activeDashLenWidthMult = 1;
+      this.trailPoints.length = 0;
+      this.trailRibbonGeo.setDrawRange(0, 0);
+      this.trailRibbon.visible = false;
+    }
+  }
+
+  isTeleporting(): boolean {
+    return this.teleportActive;
+  }
+
+  /**
+   * Run after `resolveDashKills` so `clipDashPastTank` can still see `dash.timeLeft > 0`
+   * on the same frame the sweep hits a tank.
+   */
+  tickDashAfterHits(dt: number): void {
+    if (this.teleportActive) {
+      if (this.dashResumeTimeLeft === null) {
+        this.dash.tickAfterMove(dt);
+      }
+      this.postDashInvulnLeft = Math.max(0, this.postDashInvulnLeft - dt);
+      this.applyInvulnVisualAndPulse();
+      return;
+    }
+
+    if (this.hp <= 0) {
+      return;
+    }
+
+    const beforeTick = this.dash.timeLeft;
+    this.dash.tickAfterMove(dt);
+
+    if (beforeTick > 0 && this.dash.timeLeft <= 0) {
+      if (CONFIG.microDashEnabled) {
+        const backDist =
+          CONFIG.microDashDistanceFraction * this.mainDashTravel;
+        if (backDist > 1e-4) {
+          this.microDashTimeLeft = CONFIG.microDashDuration;
+          this.microDashSpeed = backDist / CONFIG.microDashDuration;
+        } else {
+          this.postDashInvulnLeft = CONFIG.postDashInvulnerability;
+        }
+      } else {
+        this.postDashInvulnLeft = CONFIG.postDashInvulnerability;
+      }
+    }
+
+    if (CONFIG.microDashEnabled) {
+      const wasInMicro = this.microDashTimeLeft > 0;
+      this.microDashTimeLeft = Math.max(0, this.microDashTimeLeft - dt);
+      if (wasInMicro && this.microDashTimeLeft <= 0) {
+        this.postDashInvulnLeft = CONFIG.postDashInvulnerability;
+      }
+    }
+
+    this.postDashInvulnLeft = Math.max(0, this.postDashInvulnLeft - dt);
+    this.dashEnemyFreezeLeft = Math.max(0, this.dashEnemyFreezeLeft - dt);
+    this.applyInvulnVisualAndPulse();
+  }
+
+  private applyInvulnVisualAndPulse(): void {
+    if (this.isInvulnerable()) {
+      this.bodyMat.color.setHex(0xffffff);
+      this.bodyMat.emissive.setHex(0xffffff);
+      this.bodyMat.emissiveIntensity = 0.4;
+      this.ringMat.color.setHex(0xffffff);
+      this.ringMat.opacity = 0.9;
+    } else {
+      this.applyNormalColors();
+    }
+    const pulse = 1 + Math.sin(performance.now() * 0.004) * 0.04;
+    this.body.scale.setScalar(pulse);
+  }
+
   update(
     dt: number,
     input: Input,
@@ -248,6 +413,11 @@ export class Player {
     aimGroundValid: boolean,
     dashLenWidthMult: number,
   ): void {
+    if (this.teleportActive) {
+      this.advanceTeleport(dt);
+      return;
+    }
+
     if (this.hp <= 0) {
       this.microDashTimeLeft = 0;
       this.mainDashStartedThisFrame = false;
@@ -290,7 +460,7 @@ export class Player {
 
     const useDash = this.dash.isDashingForMovement();
     if (prevDashTimeLeft <= 0 && useDash) {
-      this.dashEnemyFreezeLeft = CONFIG.dashEnemyFreezeDuration * mult;
+      this.dashEnemyFreezeLeft = getDashDurationSec() * mult;
       this.mainDashStartedThisFrame = true;
       this.activeDashLenWidthMult = mult;
       this.dashHitSerial += 1;
@@ -305,8 +475,8 @@ export class Player {
       vx = -this.dash.dirX * this.microDashSpeed;
       vz = -this.dash.dirZ * this.microDashSpeed;
     } else if (walkLen > 1e-3) {
-      vx = (mv.x / walkLen) * CONFIG.playerSpeed;
-      vz = (mv.z / walkLen) * CONFIG.playerSpeed;
+      vx = (mv.x / walkLen) * getPlayerSpeed();
+      vz = (mv.z / walkLen) * getPlayerSpeed();
     }
 
     this.mesh.position.x += vx * dt;
@@ -317,7 +487,7 @@ export class Player {
 
     if (useDash) {
       const nominalDashLen =
-        CONFIG.dashSpeed * CONFIG.dashDuration * this.activeDashLenWidthMult;
+        CONFIG.dashSpeed * getDashDurationSec() * this.activeDashLenWidthMult;
       const beyond =
         CONFIG.dashBeyondNominalLengthFraction * nominalDashLen;
       const extX = this.dash.dirX * beyond;
@@ -354,47 +524,28 @@ export class Player {
       this.trailRibbonGeo.setDrawRange(0, 0);
       this.trailRibbon.visible = false;
     }
+  }
 
-    this.dash.tickAfterMove(dt);
-
-    if (prevDashTimeLeft > 0 && this.dash.timeLeft <= 0) {
-      if (CONFIG.microDashEnabled) {
-        const backDist =
-          CONFIG.microDashDistanceFraction * this.mainDashTravel;
-        if (backDist > 1e-4) {
-          this.microDashTimeLeft = CONFIG.microDashDuration;
-          this.microDashSpeed = backDist / CONFIG.microDashDuration;
-        } else {
-          this.postDashInvulnLeft = CONFIG.postDashInvulnerability;
-        }
-      } else {
-        this.postDashInvulnLeft = CONFIG.postDashInvulnerability;
+  private advanceTeleport(_dt: number): void {
+    const dur = this.teleportDur;
+    const elapsedSec = (performance.now() - this.teleportStartMs) / 1000;
+    const u = Math.min(1, elapsedSec / dur);
+    this.mesh.position.x =
+      this.teleportFromX + (this.teleportToX - this.teleportFromX) * u;
+    this.mesh.position.z =
+      this.teleportFromZ + (this.teleportToZ - this.teleportFromZ) * u;
+    if (u >= 1) {
+      this.teleportActive = false;
+      this.mesh.position.x = this.teleportToX;
+      this.mesh.position.z = this.teleportToZ;
+      const resume = this.dashResumeTimeLeft;
+      if (resume !== null && resume > 1e-6) {
+        this.dash.timeLeft = resume;
+        this.dashEnemyFreezeLeft = this.dashResumeEnemyFreeze;
+        this.activeDashLenWidthMult = this.dashResumeLenMult;
+        this.dashResumeTimeLeft = null;
       }
     }
-
-    if (CONFIG.microDashEnabled) {
-      const wasInMicro = this.microDashTimeLeft > 0;
-      this.microDashTimeLeft = Math.max(0, this.microDashTimeLeft - dt);
-      if (wasInMicro && this.microDashTimeLeft <= 0) {
-        this.postDashInvulnLeft = CONFIG.postDashInvulnerability;
-      }
-    }
-
-    this.postDashInvulnLeft = Math.max(0, this.postDashInvulnLeft - dt);
-    this.dashEnemyFreezeLeft = Math.max(0, this.dashEnemyFreezeLeft - dt);
-
-    if (this.isInvulnerable()) {
-      this.bodyMat.color.setHex(0xffffff);
-      this.bodyMat.emissive.setHex(0xffffff);
-      this.bodyMat.emissiveIntensity = 0.4;
-      this.ringMat.color.setHex(0xffffff);
-      this.ringMat.opacity = 0.9;
-    } else {
-      this.applyNormalColors();
-    }
-
-    const pulse = 1 + Math.sin(performance.now() * 0.004) * 0.04;
-    this.body.scale.setScalar(pulse);
   }
 
   private applyNormalColors(): void {

@@ -1,4 +1,5 @@
 import { CONFIG } from './config.ts';
+import { getDashDurationSec } from './BalanceSettings.ts';
 
 /** Dash timers and locked dash direction (aim-based). */
 export class Dash {
@@ -34,7 +35,7 @@ export class Dash {
     this.dirX = nx;
     this.dirZ = nz;
     const m = Number.isFinite(durationMult) && durationMult > 0 ? durationMult : 1;
-    this.timeLeft = CONFIG.dashDuration * m;
+    this.timeLeft = getDashDurationSec() * m;
     this.cooldownLeft = CONFIG.dashCooldown;
   }
 

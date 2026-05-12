@@ -3,11 +3,15 @@
  * `{ "track": "/audio/foo.mp3", "beats": [{ "time": 1.2, "type": "beat" }, ...] }`
  */
 
-export type BeatKind = 'beat' | 'accent' | 'drop' | 'danger';
+export type BeatKind = 'beat' | 'accent' | 'drop' | 'danger' | 'tp';
 
 export type BeatEvent = {
   time: number;
   type: BeatKind;
+  /** For `type: "tp"` — world X on the arena floor (optional; default = mirrored from hero). */
+  x?: number;
+  /** For `type: "tp"` — world Z (optional). */
+  z?: number;
 };
 
 export type Beatmap = {
@@ -35,6 +39,7 @@ const KNOWN_BEAT_KINDS: ReadonlySet<BeatKind> = new Set([
   'accent',
   'drop',
   'danger',
+  'tp',
 ]);
 
 function normalizeBeatType(raw: unknown): BeatKind {
@@ -81,7 +86,14 @@ function parseBeatsArray(beats: unknown): BeatEvent[] {
     if (time === null) continue;
     const type =
       entry.type === undefined ? 'beat' : normalizeBeatType(entry.type);
-    out.push({ time, type });
+    const ev: BeatEvent = { time, type };
+    if (type === 'tp') {
+      const x = parseTime(entry.x);
+      const z = parseTime(entry.z);
+      if (x !== null) ev.x = x;
+      if (z !== null) ev.z = z;
+    }
+    out.push(ev);
   }
   return out.sort((a, b) => a.time - b.time);
 }

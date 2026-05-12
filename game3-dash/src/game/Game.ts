@@ -11,11 +11,16 @@ import { circlesOverlap, segmentHitsCircle } from './Collision.ts';
 import { UI } from './UI.ts';
 import { CameraController } from './CameraController.ts';
 import { screenToGroundXZ } from './screenToGround.ts';
-import { loadBeatmap, type Beatmap } from './Beatmap.ts';
+import { loadBeatmap, type Beatmap, type BeatEvent } from './Beatmap.ts';
 import { AudioManager } from './AudioManager.ts';
 import { BeatEffects } from './BeatEffects.ts';
 import { LensDistortionPass } from './render/LensDistortionPass.ts';
 import { getConfiguredStorageObstacleDisk } from './ObstacleAvoidance.ts';
+import {
+  getDashKillRadiusScale,
+  getPlayerMaxHp,
+  loadBalanceSettings,
+} from './BalanceSettings.ts';
 
 export class Game {
   /** Outer radius of `RingGeometry` used for damage pulse (local units). */
@@ -115,6 +120,8 @@ export class Game {
     this.addLights();
     this.addArena();
 
+    loadBalanceSettings();
+
     this.input = new Input(window.document.documentElement, mount);
     this.input.centerPointerOn(this.renderer.domElement);
     this.player = new Player(this.scene);
@@ -160,12 +167,12 @@ export class Game {
     dir.castShadow = true;
     dir.shadow.mapSize.set(2048, 2048);
     dir.shadow.camera.near = 1;
-    dir.shadow.camera.far = 160;
-    const sh = CONFIG.arenaHalfSize + 8;
+    const sh = CONFIG.arenaFloorVisualHalfExtent + 80;
     dir.shadow.camera.left = -sh;
     dir.shadow.camera.right = sh;
     dir.shadow.camera.top = sh;
     dir.shadow.camera.bottom = -sh;
+    dir.shadow.camera.far = sh * 2.5;
     this.scene.add(dir);
   }
 
@@ -175,7 +182,7 @@ export class Game {
   }
 
   private addArena(): void {
-    const size = CONFIG.arenaHalfSize * 2 + 2;
+    const size = CONFIG.arenaFloorVisualHalfExtent * 2 + 2;
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(size, size),
       new THREE.MeshStandardMaterial({
@@ -197,8 +204,8 @@ export class Game {
     this.scene.add(edge);
 
     const grid = new THREE.GridHelper(
-      CONFIG.arenaHalfSize * 2,
-      32,
+      CONFIG.arenaFloorVisualHalfExtent * 2,
+      64,
       0x1e2433,
       0x141822,
     );
@@ -294,7 +301,7 @@ export class Game {
           : this.fpsSmoothed * 0.92 + instFpsD * 0.08;
       this.ui.update(
         this.player.hp,
-        CONFIG.playerMaxHp,
+        getPlayerMaxHp(),
         this.enemies.length,
         this.player.dashCooldownRemaining,
       );
@@ -315,7 +322,7 @@ export class Game {
           : this.fpsSmoothed * 0.92 + instFpsM * 0.08;
       this.ui.update(
         this.player.hp,
-        CONFIG.playerMaxHp,
+        getPlayerMaxHp(),
         this.enemies.length,
         this.player.dashCooldownRemaining,
       );
@@ -336,6 +343,8 @@ export class Game {
     const diffMult = this.getDifficultyMultiplier();
     const maxSlots = this.getMaxEnemySlots();
 
+    this.updateBeatPlayback(dt);
+
     this.player.update(
       dt,
       this.input,
@@ -344,9 +353,10 @@ export class Game {
       this.getDashLengthWidthMultForThisFrame(),
     );
     this.tryRegisterDashBeatHit();
-    this.updateBeatPlayback(dt);
 
     const dashKills = this.resolveDashKills();
+    this.player.resolveTankOverlapWhileDashing(this.enemies);
+    this.player.tickDashAfterHits(dt);
     if (dashKills > 0) {
       const add = Math.min(
         CONFIG.dashKillShakeCap,
@@ -396,7 +406,12 @@ export class Game {
         touching += 1;
       }
     }
-    if (touching > 0 && this.player.hp > 0 && !this.player.isInvulnerable()) {
+    if (
+      touching > 0 &&
+      !this.player.isTeleporting() &&
+      this.player.hp > 0 &&
+      !this.player.isInvulnerable()
+    ) {
       const hpBefore = this.player.hp;
       this.player.takeDamage(CONFIG.contactDamagePerTick * touching);
       if (this.player.hp < hpBefore) {
@@ -416,7 +431,7 @@ export class Game {
 
     this.ui.update(
       this.player.hp,
-      CONFIG.playerMaxHp,
+      getPlayerMaxHp(),
       this.enemies.length,
       this.player.dashCooldownRemaining,
     );
@@ -425,6 +440,7 @@ export class Game {
 
     if (this.player.hp <= 0) {
       this.runPhase = 'death';
+      this.cameraController.clearTeleportPan();
       this.deathScreenTimer = 0;
       this.ui.showDeathScreen();
       this.audio.pause();
@@ -467,10 +483,12 @@ export class Game {
     if (this.runPhase === 'playing') {
       return;
     }
+    this.cameraController.clearTeleportPan();
     this.runElapsedSec = 0;
     this.clearDamagePulseRings();
     this.clearAllEnemies();
     this.player.resetForNewRun();
+    this.ui.rebuildHpBarSegments();
     this.spawner.reset();
     this.spawner.spawnBurstAround(
       this.player.x,
@@ -488,6 +506,7 @@ export class Game {
   }
 
   private goToMainMenuAfterDeath(): void {
+    this.cameraController.clearTeleportPan();
     this.runElapsedSec = 0;
     this.clearDamagePulseRings();
     this.clearAllEnemies();
@@ -518,6 +537,7 @@ export class Game {
     let bestI = -1;
     let bestAbs = Number.POSITIVE_INFINITY;
     for (let i = 0; i < beats.length; i++) {
+      if (beats[i]!.type === 'tp') continue;
       const bt = beats[i]!.time;
       if (t < bt - before || t > bt + after) continue;
       const d = Math.abs(t - bt);
@@ -557,6 +577,29 @@ export class Game {
     }
   }
 
+  private onBeatReached(beat: BeatEvent): void {
+    this.beatEffects.triggerBeat(beat);
+    if (beat.type !== 'tp' || this.runPhase !== 'playing') return;
+    const mirrorBehind =
+      !Number.isFinite(beat.x) || !Number.isFinite(beat.z);
+    const dur = mirrorBehind
+      ? CONFIG.teleportBehindDurationSec
+      : CONFIG.teleportDurationSec;
+    let tx: number;
+    let tz: number;
+    if (mirrorBehind) {
+      tx = -this.player.x;
+      tz = -this.player.z;
+    } else {
+      tx = beat.x!;
+      tz = beat.z!;
+    }
+    const px = this.player.x;
+    const pz = this.player.z;
+    this.player.beginTeleport(tx, tz, dur);
+    this.cameraController.beginSyncedTeleportPan(px, pz, tx, tz, dur);
+  }
+
   private updateBeatPlayback(dt: number): void {
     this.beatEffects.update(dt);
     if (!this.beatmap) {
@@ -567,6 +610,7 @@ export class Game {
     const now = this.audio.currentTime;
     const beats = this.beatmap.beats;
     while (this.nextBeatIndex < beats.length && now >= beats[this.nextBeatIndex]!.time) {
+      this.onBeatReached(beats[this.nextBeatIndex]!);
       this.nextBeatIndex += 1;
     }
 
@@ -585,7 +629,7 @@ export class Game {
     const seg = this.player.consumeDashSweep();
     if (!seg) return 0;
     const dashSerial = this.player.getDashHitSerial();
-    const scaledPlayer = CONFIG.playerRadius * CONFIG.dashKillPlayerRadiusScale;
+    const scaledPlayer = CONFIG.playerRadius * getDashKillRadiusScale();
     let kills = 0;
     const vaultShieldJoin = CONFIG.vaultShieldDashJoinRadius;
     for (let i = this.enemies.length - 1; i >= 0; i--) {
@@ -637,16 +681,16 @@ export class Game {
           hitR,
         )
       ) {
-        if (e.damagedInDashHitSerial === dashSerial) continue;
-        e.damagedInDashHitSerial = dashSerial;
         const isTank = e.isTank();
         const tx = e.mesh.position.x;
         const tz = e.mesh.position.z;
         const tr = e.bodyRadius;
-        const died = e.takeDashHit();
         if (isTank) {
           this.player.clipDashPastTank(tx, tz, tr);
         }
+        if (e.damagedInDashHitSerial === dashSerial) continue;
+        e.damagedInDashHitSerial = dashSerial;
+        const died = e.takeDashHit();
         if (died) {
           e.dispose(this.scene);
           this.enemies.splice(i, 1);

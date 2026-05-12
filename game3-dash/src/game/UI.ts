@@ -1,5 +1,12 @@
 import { CONFIG } from './config.ts';
 import type { BeatEvent } from './Beatmap.ts';
+import {
+  balanceLimits,
+  getBalanceSnapshot,
+  getPlayerMaxHp,
+  loadBalanceSettings,
+  setBalancePatch,
+} from './BalanceSettings.ts';
 
 function lowerBeatIndex(beats: readonly BeatEvent[], minTime: number): number {
   let lo = 0;
@@ -37,11 +44,22 @@ export class UI {
   private readonly overscanValEl: HTMLElement;
   private lensOverscanHandler: ((overscan: number) => void) | null = null;
   private readonly mainMenuEl: HTMLElement;
+  private readonly mainMenuPanel: HTMLElement;
+  private readonly upgradeMenuPanel: HTMLElement;
+  private readonly upgradeDashLen: HTMLInputElement;
+  private readonly upgradeDashLenVal: HTMLElement;
+  private readonly upgradeDashRadius: HTMLInputElement;
+  private readonly upgradeDashRadiusVal: HTMLElement;
+  private readonly upgradeMoveSpeed: HTMLInputElement;
+  private readonly upgradeMoveSpeedVal: HTMLElement;
+  private readonly upgradeShields: HTMLInputElement;
+  private readonly upgradeShieldsVal: HTMLElement;
   private readonly deathScreenEl: HTMLElement;
   /** Full-viewport white flash on player damage (covers canvas + HUD). */
   private readonly damageFlashEl: HTMLElement;
 
   constructor(container: HTMLElement) {
+    loadBalanceSettings();
     this.mount = container;
     const hud = document.createElement('div');
     hud.className = 'hud';
@@ -55,12 +73,7 @@ export class UI {
 
     this.hpBarsBottom = document.createElement('div');
     this.hpBarsBottom.className = 'hp-bars-bottom';
-    for (let i = 0; i < CONFIG.playerMaxHp; i++) {
-      const seg = document.createElement('div');
-      seg.className = 'hp-bar-segment';
-      this.hpBarsBottom.appendChild(seg);
-      this.hpBarSegments.push(seg);
-    }
+    this.rebuildHpBarSegments();
     container.appendChild(this.hpBarsBottom);
 
     const fps = document.createElement('div');
@@ -120,16 +133,63 @@ export class UI {
     this.mainMenuEl.className = 'game-overlay game-overlay--menu';
     this.mainMenuEl.setAttribute('role', 'dialog');
     this.mainMenuEl.setAttribute('aria-modal', 'true');
+    const L = balanceLimits();
+    const b = getBalanceSnapshot();
     this.mainMenuEl.innerHTML = `
-      <div class="game-overlay__panel">
+      <div id="main-menu-panel" class="game-overlay__panel">
         <h1 class="game-overlay__title">Arena</h1>
         <button id="main-menu-play" type="button" class="game-overlay__btn">Play</button>
+        <button id="main-menu-upgrade" type="button" class="game-overlay__btn game-overlay__btn--secondary">Апгрейд</button>
+      </div>
+      <div id="upgrade-menu-panel" class="game-overlay__panel game-overlay__panel--upgrade" hidden>
+        <h2 class="game-overlay__subtitle">Апгрейд</h2>
+        <div class="upgrade-menu__row">
+          <div class="upgrade-menu__head">
+            <span class="label">Длина деша по умолчанию (с)</span>
+            <span id="upgrade-dash-len-val" class="upgrade-menu__val">${b.dashDurationSec.toFixed(3)}</span>
+          </div>
+          <input id="upgrade-dash-len" type="range" min="${L.dashDurationSec.min}" max="${L.dashDurationSec.max}" step="0.005" value="${b.dashDurationSec}" />
+        </div>
+        <div class="upgrade-menu__row">
+          <div class="upgrade-menu__head">
+            <span class="label">Радиус деша по умолчанию</span>
+            <span id="upgrade-dash-radius-val" class="upgrade-menu__val">${b.dashKillRadiusScale.toFixed(2)}</span>
+          </div>
+          <input id="upgrade-dash-radius" type="range" min="${L.dashKillRadiusScale.min}" max="${L.dashKillRadiusScale.max}" step="0.05" value="${b.dashKillRadiusScale}" />
+        </div>
+        <div class="upgrade-menu__row">
+          <div class="upgrade-menu__head">
+            <span class="label">Скорость передвижения по умолчанию</span>
+            <span id="upgrade-move-speed-val" class="upgrade-menu__val">${b.playerSpeed.toFixed(1)}</span>
+          </div>
+          <input id="upgrade-move-speed" type="range" min="${L.playerSpeed.min}" max="${L.playerSpeed.max}" step="0.5" value="${b.playerSpeed}" />
+        </div>
+        <div class="upgrade-menu__row">
+          <div class="upgrade-menu__head">
+            <span class="label">Щиты героя</span>
+            <span id="upgrade-shields-val" class="upgrade-menu__val">${b.playerMaxHp}</span>
+          </div>
+          <input id="upgrade-shields" type="range" min="${L.playerMaxHp.min}" max="${L.playerMaxHp.max}" step="1" value="${b.playerMaxHp}" />
+        </div>
+        <button id="upgrade-back" type="button" class="game-overlay__btn game-overlay__btn--upgrade-back">Назад</button>
       </div>
     `;
     this.mainMenuEl.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
     });
     document.body.appendChild(this.mainMenuEl);
+
+    this.mainMenuPanel = this.mainMenuEl.querySelector('#main-menu-panel')!;
+    this.upgradeMenuPanel = this.mainMenuEl.querySelector('#upgrade-menu-panel')!;
+    this.upgradeDashLen = this.mainMenuEl.querySelector('#upgrade-dash-len') as HTMLInputElement;
+    this.upgradeDashLenVal = this.mainMenuEl.querySelector('#upgrade-dash-len-val')!;
+    this.upgradeDashRadius = this.mainMenuEl.querySelector('#upgrade-dash-radius') as HTMLInputElement;
+    this.upgradeDashRadiusVal = this.mainMenuEl.querySelector('#upgrade-dash-radius-val')!;
+    this.upgradeMoveSpeed = this.mainMenuEl.querySelector('#upgrade-move-speed') as HTMLInputElement;
+    this.upgradeMoveSpeedVal = this.mainMenuEl.querySelector('#upgrade-move-speed-val')!;
+    this.upgradeShields = this.mainMenuEl.querySelector('#upgrade-shields') as HTMLInputElement;
+    this.upgradeShieldsVal = this.mainMenuEl.querySelector('#upgrade-shields-val')!;
+    this.bindUpgradeMenuControls();
 
     this.deathScreenEl = document.createElement('div');
     this.deathScreenEl.className = 'game-overlay game-overlay--death';
@@ -171,6 +231,79 @@ export class UI {
     this.mainMenuEl.remove();
     this.deathScreenEl.remove();
     this.damageFlashEl.remove();
+  }
+
+  /** Rebuild bottom HP bar segments when max shields change (upgrade menu). */
+  rebuildHpBarSegments(): void {
+    this.hpBarsBottom.replaceChildren();
+    this.hpBarSegments.length = 0;
+    const n = getPlayerMaxHp();
+    for (let i = 0; i < n; i++) {
+      const seg = document.createElement('div');
+      seg.className = 'hp-bar-segment';
+      this.hpBarsBottom.appendChild(seg);
+      this.hpBarSegments.push(seg);
+    }
+  }
+
+  private syncUpgradeControlsFromBalance(): void {
+    const b = getBalanceSnapshot();
+    this.upgradeDashLen.value = String(b.dashDurationSec);
+    this.upgradeDashLenVal.textContent = b.dashDurationSec.toFixed(3);
+    this.upgradeDashRadius.value = String(b.dashKillRadiusScale);
+    this.upgradeDashRadiusVal.textContent = b.dashKillRadiusScale.toFixed(2);
+    this.upgradeMoveSpeed.value = String(b.playerSpeed);
+    this.upgradeMoveSpeedVal.textContent = b.playerSpeed.toFixed(1);
+    this.upgradeShields.value = String(b.playerMaxHp);
+    this.upgradeShieldsVal.textContent = String(b.playerMaxHp);
+  }
+
+  private openUpgradeMenu(): void {
+    this.syncUpgradeControlsFromBalance();
+    this.mainMenuPanel.hidden = true;
+    this.upgradeMenuPanel.hidden = false;
+  }
+
+  private closeUpgradeMenu(): void {
+    this.upgradeMenuPanel.hidden = true;
+    this.mainMenuPanel.hidden = false;
+  }
+
+  private bindUpgradeMenuControls(): void {
+    this.mainMenuEl.querySelector('#main-menu-upgrade')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.openUpgradeMenu();
+    });
+    this.mainMenuEl.querySelector('#upgrade-back')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closeUpgradeMenu();
+    });
+
+    this.upgradeDashLen.addEventListener('input', () => {
+      const v = parseFloat(this.upgradeDashLen.value);
+      setBalancePatch({ dashDurationSec: v });
+      this.upgradeDashLenVal.textContent =
+        getBalanceSnapshot().dashDurationSec.toFixed(3);
+    });
+    this.upgradeDashRadius.addEventListener('input', () => {
+      const v = parseFloat(this.upgradeDashRadius.value);
+      setBalancePatch({ dashKillRadiusScale: v });
+      this.upgradeDashRadiusVal.textContent =
+        getBalanceSnapshot().dashKillRadiusScale.toFixed(2);
+    });
+    this.upgradeMoveSpeed.addEventListener('input', () => {
+      const v = parseFloat(this.upgradeMoveSpeed.value);
+      setBalancePatch({ playerSpeed: v });
+      this.upgradeMoveSpeedVal.textContent =
+        getBalanceSnapshot().playerSpeed.toFixed(1);
+    });
+    this.upgradeShields.addEventListener('input', () => {
+      const v = Math.round(parseFloat(this.upgradeShields.value));
+      setBalancePatch({ playerMaxHp: v });
+      const b = getBalanceSnapshot();
+      this.upgradeShieldsVal.textContent = String(b.playerMaxHp);
+      this.rebuildHpBarSegments();
+    });
   }
 
   private emitLensDistortion(): void {
@@ -279,7 +412,9 @@ export class UI {
       if (x < -r - 2 || x > wCss + r + 2) continue;
       const onBeat = hitBeatIndices.has(i);
       const missed =
-        !onBeat && audioTime > b.time + CONFIG.dashBeatWindowAfterSec;
+        b.type !== 'tp' &&
+        !onBeat &&
+        audioTime > b.time + CONFIG.dashBeatWindowAfterSec;
       if (missed) {
         ctx.fillStyle = 'rgba(140, 148, 168, 0.28)';
         ctx.strokeStyle = 'rgba(100, 108, 128, 0.32)';
@@ -345,6 +480,7 @@ export class UI {
 
   showMainMenu(): void {
     this.mainMenuEl.hidden = false;
+    this.closeUpgradeMenu();
   }
 
   hideMainMenu(): void {

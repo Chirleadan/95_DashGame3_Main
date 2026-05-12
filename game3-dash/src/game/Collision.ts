@@ -1,5 +1,3 @@
-import { CONFIG } from './config.ts';
-
 export function circlesOverlap(
   ax: number,
   az: number,
@@ -14,28 +12,14 @@ export function circlesOverlap(
   return dx * dx + dz * dz <= r * r;
 }
 
+/** No world bounds — positions are used as-is (legacy name kept for call sites). */
 export function clampToArena(x: number, z: number): { x: number; z: number } {
-  const h = CONFIG.arenaHalfSize - 0.5;
-  return {
-    x: Math.max(-h, Math.min(h, x)),
-    z: Math.max(-h, Math.min(h, z)),
-  };
+  return { x, z };
 }
 
-/** Clamp spawn center so the largest mob type fits fully inside the arena (XZ square). */
+/** Spawn position is not clamped to a map edge. */
 export function clampSpawnToArena(x: number, z: number): { x: number; z: number } {
-  const h = CONFIG.arenaHalfSize - 0.5;
-  const bodyR = Math.max(
-    CONFIG.enemyRadius,
-    CONFIG.enemyRadius * CONFIG.tankRadiusScale,
-    CONFIG.vaultHexCircumradius,
-  );
-  const margin = bodyR + 0.35;
-  const lim = Math.max(0.5, h - margin);
-  return {
-    x: Math.max(-lim, Math.min(lim, x)),
-    z: Math.max(-lim, Math.min(lim, z)),
-  };
+  return { x, z };
 }
 
 /** Closest-point-on-segment vs circle (XZ). `cr` is combined radius (e.g. player + enemy). */
