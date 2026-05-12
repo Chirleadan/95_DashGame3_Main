@@ -132,13 +132,10 @@ export const CONFIG = {
   /** Gap behind tank center along dash dir when snapping past (world units). */
   dashPastTankBehindOffset: 0.28,
   /**
-   * Tank / vault clip glide only: speed along the XZ chord to the exit point (world units/s).
-   * Does not affect main dash (`dashSpeed`). Duration = chord length / this value, clamped by min/max.
-   * Set to `0` for instant snap (no slide).
+   * Tank / vault clip glide: fixed time (ms) to move along the XZ chord to the exit point.
+   * Does not affect main dash (`dashSpeed`). `0` = instant snap (no slide).
    */
-  dashPastTankClipSlideSpeed: 22,
-  dashPastTankClipSlideMinSec: 0.04,
-  dashPastTankClipSlideMaxSec: 6,
+  dashPastTankClipSlideDurationMs: 50,
 
   /**
    * Main-dash displacement per frame is split into this many sub-steps (clamped 1–4).

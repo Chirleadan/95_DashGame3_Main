@@ -193,7 +193,7 @@ export class Player {
 
   /**
    * Dash damage vs tank / large vault: pause main dash (`dash.timeLeft` → 0), glide to exit
-   * along chord at `CONFIG.dashPastTankClipSlideSpeed` only (does not change `dashSpeed`),
+   * along chord over `CONFIG.dashPastTankClipSlideDurationMs` (does not change `dashSpeed`),
    * then restore remaining main-dash time (capped), freeze timer, and length mult so movement
    * and trail continue as one dash.
    * Optional `minAlongDashFromObstacleCenter`: push at least this far from obstacle center along dash (vault).
@@ -222,7 +222,7 @@ export class Player {
     const fx = this.mesh.position.x;
     const fz = this.mesh.position.z;
     const dist = Math.hypot(exit.x - fx, exit.z - fz);
-    const speed = CONFIG.dashPastTankClipSlideSpeed;
+    const durationMs = CONFIG.dashPastTankClipSlideDurationMs;
 
     if (dist < 1e-5) {
       this.snapDashPastTankPosition(
@@ -247,7 +247,7 @@ export class Player {
       return;
     }
 
-    if (!(speed > 1e-6)) {
+    if (!(durationMs > 0)) {
       this.snapDashPastTankPosition(
         tankX,
         tankZ,
@@ -270,11 +270,7 @@ export class Player {
       return;
     }
 
-    let dur = dist / speed;
-    dur = Math.min(
-      Math.max(dur, CONFIG.dashPastTankClipSlideMinSec),
-      CONFIG.dashPastTankClipSlideMaxSec,
-    );
+    const dur = durationMs / 1000;
 
     this.tankClipSlideFromX = fx;
     this.tankClipSlideFromZ = fz;
@@ -299,7 +295,7 @@ export class Player {
         remainingCap: cap,
         dist,
         durSec: dur,
-        slideSpeed: speed,
+        durationMs,
       });
     }
   }

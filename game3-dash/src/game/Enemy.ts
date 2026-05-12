@@ -45,6 +45,11 @@ export class Enemy {
   hitsRemaining: number;
   /** Last `player.getDashHitSerial()` that already applied a dash hit to this enemy. */
   damagedInDashHitSerial = 0;
+  /**
+   * Vault: last dash serial for which `clipDashPastTank` ran (shielded overlap or bare body),
+   * so we do not double-teleport when shields drop and body damage runs same dash.
+   */
+  vaultLastClipDashSerial = 0;
   /** Tank outline ring; hidden after first damage. */
   private tankOutline: THREE.Mesh | null = null;
   /** Хранилище: щиты на рёбрах гекса; скрываются при попадании деша. */
@@ -303,6 +308,7 @@ export class Enemy {
 
   dispose(scene: THREE.Scene): void {
     this.pendingTankDashDamageAt.length = 0;
+    this.vaultLastClipDashSerial = 0;
     scene.remove(this.mesh);
     disposeObject3DTree(this.mesh);
   }

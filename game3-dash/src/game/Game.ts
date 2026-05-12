@@ -643,9 +643,10 @@ export class Game {
         const tr = e.bodyRadius;
 
         if (e.getActiveShieldCount() > 0) {
-          const brokeShield = e.tryBreakVaultShieldWithDash(seg, vaultShieldJoin);
-          if (brokeShield) {
+          e.tryBreakVaultShieldWithDash(seg, vaultShieldJoin);
+          if (e.vaultLastClipDashSerial !== dashSerial) {
             this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
+            e.vaultLastClipDashSerial = dashSerial;
           }
           continue;
         }
@@ -653,7 +654,10 @@ export class Game {
         if (e.damagedInDashHitSerial === dashSerial) continue;
         e.damagedInDashHitSerial = dashSerial;
         const died = e.takeDashHit();
-        this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
+        if (e.vaultLastClipDashSerial !== dashSerial) {
+          this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
+          e.vaultLastClipDashSerial = dashSerial;
+        }
         if (died) {
           e.dispose(this.scene);
           this.enemies.splice(i, 1);
@@ -678,11 +682,11 @@ export class Game {
         const tx = e.mesh.position.x;
         const tz = e.mesh.position.z;
         const tr = e.bodyRadius;
-        // One impact per dash serial: tank — clip/slide first, HP after delay; others — immediate damage.
+        // One impact per dash serial: tank — same clip args as vault body, then deferred HP; others — immediate damage.
         if (e.damagedInDashHitSerial === dashSerial) continue;
         e.damagedInDashHitSerial = dashSerial;
         if (isTank) {
-          this.player.clipDashPastTank(tx, tz, tr);
+          this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
           e.scheduleDeferredTankDashDamage();
         } else {
           const died = e.takeDashHit();
