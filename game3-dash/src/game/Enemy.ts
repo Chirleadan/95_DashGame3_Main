@@ -297,7 +297,8 @@ export class Enemy {
     if (len > 1e-4) {
       const sm =
         Number.isFinite(speedMultiplier) && speedMultiplier > 0 ? speedMultiplier : 1;
-      const s = (CONFIG.enemySpeed * sm * dt) / len;
+      const tankMult = this.kind === 'tank' ? CONFIG.tankEnemyMoveSpeedMult : 1;
+      const s = (CONFIG.enemySpeed * sm * tankMult * dt) / len;
       this.mesh.position.x += mx * s;
       this.mesh.position.z += mz * s;
     }

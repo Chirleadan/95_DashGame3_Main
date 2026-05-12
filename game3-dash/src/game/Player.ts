@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { CONFIG, isDebugDashPastTankEnabled } from './config.ts';
 import {
   getDashDurationSec,
+  getDashNominalLengthWorld,
+  getEffectiveDashSpeed,
   getPlayerMaxHp,
   getPlayerSpeed,
 } from './BalanceSettings.ts';
@@ -61,6 +63,17 @@ export class Player {
    * takes at most one dash-hit per dash (not once per animation frame).
    */
   private dashHitSerial = 0;
+
+  /** True during the auto reverse dash from the Reverse Dash artifact (after a normal dash). */
+  private artifactReverseDashInProgress = false;
+
+  /** Set when a main dash segment ends (landing XZ); consumed by Game for Bomb artifact pulse. */
+  private pendingDashLandPulse: { x: number; z: number } | null = null;
+
+  /** Time without damage toward next passive shield (seconds). */
+  private shieldRegenNoDamageSec = 0;
+  /** Current regen interval (seconds); reduced by in-run upgrades, reset on new run. */
+  private shieldRegenIntervalSec: number = CONFIG.shieldRegenBaseIntervalSec;
 
   /**
    * Dash hit tank / vault clip: glide from current XZ to exit (same target as old snap), then resume main dash.
@@ -193,7 +206,7 @@ export class Player {
 
   /**
    * Dash damage vs tank / large vault: pause main dash (`dash.timeLeft` → 0), glide to exit
-   * along chord over `CONFIG.dashPastTankClipSlideDurationMs` (does not change `dashSpeed`),
+   * along chord over `CONFIG.dashPastTankClipSlideDurationMs` (does not change main-dash speed),
    * then restore remaining main-dash time (capped), freeze timer, and length mult so movement
    * and trail continue as one dash.
    * Optional `minAlongDashFromObstacleCenter`: push at least this far from obstacle center along dash (vault).
@@ -420,6 +433,10 @@ export class Player {
     this.mainDashStartedThisFrame = false;
     this.activeDashLenWidthMult = 1;
     this.dashHitSerial = 0;
+    this.artifactReverseDashInProgress = false;
+    this.pendingDashLandPulse = null;
+    this.shieldRegenNoDamageSec = 0;
+    this.shieldRegenIntervalSec = CONFIG.shieldRegenBaseIntervalSec;
     this.trailPoints.length = 0;
     this.trailRibbonGeo.setDrawRange(0, 0);
     this.trailRibbon.visible = false;
@@ -442,10 +459,17 @@ export class Player {
     return v;
   }
 
+  /** Landing XZ of the last finished main-dash segment, or null (Bomb artifact). */
+  consumeDashLandingPulseXZ(): { x: number; z: number } | null {
+    const p = this.pendingDashLandPulse;
+    this.pendingDashLandPulse = null;
+    return p;
+  }
+
   /**
    * Run after `resolveDashKills` so `clipDashPastTank` can still see `dash.timeLeft > 0` on the frame a sweep hits.
    */
-  tickDashAfterHits(dt: number): void {
+  tickDashAfterHits(dt: number, reverseDashArtifactEnabled: boolean): void {
     if (this.tankClipSlideActive) {
       this.postDashInvulnLeft = Math.max(0, this.postDashInvulnLeft - dt);
       this.applyInvulnVisualAndPulse();
@@ -460,7 +484,56 @@ export class Player {
     this.dash.tickAfterMove(dt);
 
     if (beforeTick > 0 && this.dash.timeLeft <= 0) {
-      if (CONFIG.microDashEnabled) {
+      this.pendingDashLandPulse = {
+        x: this.mesh.position.x,
+        z: this.mesh.position.z,
+      };
+      const mult =
+        Number.isFinite(this.activeDashLenWidthMult) && this.activeDashLenWidthMult > 0
+          ? this.activeDashLenWidthMult
+          : 1;
+      const dirX = this.dash.dirX;
+      const dirZ = this.dash.dirZ;
+
+      if (this.artifactReverseDashInProgress) {
+        this.artifactReverseDashInProgress = false;
+        if (CONFIG.microDashEnabled) {
+          const backDist =
+            CONFIG.microDashDistanceFraction * this.mainDashTravel;
+          if (backDist > 1e-4) {
+            this.microDashTimeLeft = CONFIG.microDashDuration;
+            this.microDashSpeed = backDist / CONFIG.microDashDuration;
+          } else {
+            this.postDashInvulnLeft = CONFIG.postDashInvulnerability;
+          }
+        } else {
+          this.postDashInvulnLeft = CONFIG.postDashInvulnerability;
+        }
+      } else if (reverseDashArtifactEnabled) {
+        const nx = -dirX;
+        const nz = -dirZ;
+        const len = Math.hypot(nx, nz);
+        if (len > 1e-5) {
+          this.dash.dirX = nx / len;
+          this.dash.dirZ = nz / len;
+          this.dash.timeLeft = getDashDurationSec() * mult;
+          this.dash.cooldownLeft = CONFIG.dashCooldown;
+          this.dashEnemyFreezeLeft = getDashDurationSec() * mult;
+          this.dashHitSerial += 1;
+          this.artifactReverseDashInProgress = true;
+        } else if (CONFIG.microDashEnabled) {
+          const backDist =
+            CONFIG.microDashDistanceFraction * this.mainDashTravel;
+          if (backDist > 1e-4) {
+            this.microDashTimeLeft = CONFIG.microDashDuration;
+            this.microDashSpeed = backDist / CONFIG.microDashDuration;
+          } else {
+            this.postDashInvulnLeft = CONFIG.postDashInvulnerability;
+          }
+        } else {
+          this.postDashInvulnLeft = CONFIG.postDashInvulnerability;
+        }
+      } else if (CONFIG.microDashEnabled) {
         const backDist =
           CONFIG.microDashDistanceFraction * this.mainDashTravel;
         if (backDist > 1e-4) {
@@ -508,6 +581,7 @@ export class Player {
     aimGroundValid: boolean,
     dashLenWidthMult: number,
     enemies: readonly Enemy[],
+    reverseDashArtifactEnabled: boolean,
   ): void {
     if (this.tankClipSlideActive) {
       this.advanceTankClipSlide();
@@ -555,6 +629,8 @@ export class Player {
     }
 
     const useDash = this.dash.isDashingForMovement();
+    const dashSpeedMult =
+      useDash && reverseDashArtifactEnabled ? CONFIG.reverseDashArtifactDashSpeedMult : 1;
     if (prevDashTimeLeft <= 0 && useDash) {
       this.dashEnemyFreezeLeft = getDashDurationSec() * mult;
       this.mainDashStartedThisFrame = true;
@@ -565,8 +641,9 @@ export class Player {
     let vx = 0;
     let vz = 0;
     if (useDash) {
-      vx = this.dash.dirX * CONFIG.dashSpeed;
-      vz = this.dash.dirZ * CONFIG.dashSpeed;
+      const dashSp = getEffectiveDashSpeed() * dashSpeedMult;
+      vx = this.dash.dirX * dashSp;
+      vz = this.dash.dirZ * dashSp;
     } else if (inMicro) {
       vx = -this.dash.dirX * this.microDashSpeed;
       vz = -this.dash.dirZ * this.microDashSpeed;
@@ -597,7 +674,7 @@ export class Player {
 
     if (useDash) {
       const nominalDashLen =
-        CONFIG.dashSpeed * getDashDurationSec() * this.activeDashLenWidthMult;
+        getDashNominalLengthWorld() * this.activeDashLenWidthMult * dashSpeedMult;
       const beyond =
         CONFIG.dashBeyondNominalLengthFraction * nominalDashLen;
       const extX = this.dash.dirX * beyond;
@@ -634,6 +711,32 @@ export class Player {
       this.trailRibbonGeo.setDrawRange(0, 0);
       this.trailRibbon.visible = false;
     }
+  }
+
+  /**
+   * Passive shield regen: no damage for `shieldRegenIntervalSec` → +1 `hp` (capped).
+   * Call from `Game` each playing frame after movement/dash ticks.
+   */
+  tickShieldRegen(dt: number): boolean {
+    if (this.hp <= 0 || this.hp >= getPlayerMaxHp()) {
+      this.shieldRegenNoDamageSec = 0;
+      return false;
+    }
+    this.shieldRegenNoDamageSec += dt;
+    if (this.shieldRegenNoDamageSec >= this.shieldRegenIntervalSec) {
+      this.shieldRegenNoDamageSec = 0;
+      this.hp = Math.min(getPlayerMaxHp(), this.hp + 1);
+      return true;
+    }
+    return false;
+  }
+
+  /** In-run upgrade: shorten shield regen interval (floored at `CONFIG.shieldRegenMinIntervalSec`). */
+  accelerateShieldRegenFromUpgrade(): void {
+    this.shieldRegenIntervalSec = Math.max(
+      CONFIG.shieldRegenMinIntervalSec,
+      this.shieldRegenIntervalSec - CONFIG.shieldRegenUpgradeStepSec,
+    );
   }
 
   private advanceTankClipSlide(): void {
@@ -749,9 +852,21 @@ export class Player {
     this.trailRibbonGeo.computeBoundingSphere();
   }
 
+  /** 0…1: progress toward next passive shield (for bottom bar UI). */
+  getShieldRegenVisualProgress(): number {
+    if (this.hp <= 0 || this.hp >= getPlayerMaxHp()) return 0;
+    const t = this.shieldRegenIntervalSec;
+    if (!(t > 1e-8)) return 0;
+    return Math.min(1, this.shieldRegenNoDamageSec / t);
+  }
+
   takeDamage(amount: number): void {
     if (this.isInvulnerable()) return;
+    const before = this.hp;
     this.hp = Math.max(0, this.hp - amount);
+    if (this.hp < before) {
+      this.shieldRegenNoDamageSec = 0;
+    }
     if (this.hp <= 0) {
       this.postDashInvulnLeft = 0;
       this.microDashTimeLeft = 0;

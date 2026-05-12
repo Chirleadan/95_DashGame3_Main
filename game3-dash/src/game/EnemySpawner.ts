@@ -27,6 +27,21 @@ export class EnemySpawner {
     }
   }
 
+  /** If no vault yet and a slot is free, spawn one (used at round start). */
+  spawnGuaranteedVaultIfRoom(px: number, pz: number, maxEnemySlots: number): void {
+    if (this.enemies.length >= maxEnemySlots) return;
+    if (this.enemies.some((e) => e.isVault())) return;
+    const angle = Math.random() * Math.PI * 2;
+    const dist =
+      CONFIG.spawnMinDist +
+      Math.random() * (CONFIG.spawnMaxDist - CONFIG.spawnMinDist);
+    let x = px + Math.cos(angle) * dist;
+    let z = pz + Math.sin(angle) * dist;
+    const c = clampSpawnToArena(x, z);
+    this.spawnTotal += 1;
+    this.enemies.push(new Enemy(this.scene, c.x, c.z, 'vault'));
+  }
+
   private spawnOne(px: number, pz: number, runElapsedSec: number): void {
     const angle = Math.random() * Math.PI * 2;
     const dist =
@@ -63,9 +78,13 @@ export class EnemySpawner {
     const m =
       Number.isFinite(difficultyMult) && difficultyMult > 0 ? difficultyMult : 1;
     if (this.enemies.length >= maxEnemySlots) return;
+    const decay = CONFIG.spawnStartIntervalMultDecaySec;
+    const mult0 = CONFIG.spawnStartIntervalMult;
+    const u = decay > 1e-6 ? Math.min(1, Math.max(0, runElapsedSec) / decay) : 1;
+    const startEase = 1 + (mult0 - 1) * (1 - u);
     const interval = Math.max(
       CONFIG.difficultyMinSpawnIntervalSec,
-      CONFIG.spawnInterval / m,
+      (CONFIG.spawnInterval * startEase) / m,
     );
     this.acc += dt;
     while (this.acc >= interval && this.enemies.length < maxEnemySlots) {

@@ -22,11 +22,14 @@ export const CONFIG = {
   playerSpeed: 14,
   playerRadius: 0.45,
 
+  /** Reference speed at default balance; default nominal length = `dashSpeed × dashDuration`. */
   dashSpeed: 34,
+  /** Reference main-dash duration (seconds); matches default `BalanceSettings.dashDurationSec`. */
   dashDuration: DASH_DURATION_SEC,
   /**
    * Trail and dash-kill segments extend past the clamped player position by this
-   * fraction of nominal dash length (dashSpeed × dashDuration), along dash direction.
+   * fraction of nominal dash length (balance dash length × on-beat mult), along dash direction.
+   * Main-dash speed follows `dashNominalLengthWorld / dashDurationSec` from balance settings.
    */
   dashBeyondNominalLengthFraction: 0.5,
   dashCooldown: 0.5,
@@ -50,6 +53,8 @@ export const CONFIG = {
   dashKillShakeCap: 0.55,
   /** Dash kill sweep uses `playerRadius * this` (enemy radius unchanged). */
   dashKillPlayerRadiusScale: 4,
+  /** Reverse Dash artifact: main dash world speed × this (kill sweep length scales the same). */
+  reverseDashArtifactDashSpeedMult: 2,
 
   /** When beatmap audio is playing, add this to the UI lens distortion (clamped with slider sum to 0.5). */
   lensDistortionWhileTrackPlaysBoost: 0.2,
@@ -58,8 +63,14 @@ export const CONFIG = {
   beatLaneScrollPxPerSec: 880,
   beatLaneHeightPx: 100,
   beatLaneNoteRadiusPx: 36,
+  /** Center hit-ring (empty circle) radius = `beatLaneNoteRadiusPx × 1.1 × this`. */
+  beatLaneHitRingScale: 1.2,
+  /** While hero is dashing, hit-ring radius × this (0.85 = −15%). */
+  beatLaneHitRingDashScaleMult: 0.85,
   /** Lane width as a fraction of the mount (e.g. 0.5 = half screen, centered). */
   beatLaneWidthFraction: 0.5,
+  /** Center HUD: vault direction arc radius in SVG/CSS space (px). */
+  vaultBearingArcRadiusPx: 72,
   /** Main dash start counts as on-beat if audio time is within [beat - before, beat + after]. */
   dashBeatWindowBeforeSec: 0.3,
   dashBeatWindowAfterSec: 0.25,
@@ -69,9 +80,37 @@ export const CONFIG = {
   /** After death, show death screen this long (seconds) then return to main menu. */
   deathScreenToMenuDelaySec: 2.5,
 
+  /** XP to gain one in-run level (upgrade choice). */
+  runXpPerLevel: 10,
+  /** XP for killing a normal mob or vault (not a tank). */
+  runXpKillMob: 1,
+  /** XP for killing a tank. */
+  runXpKillTank: 2,
+  /** In-run upgrade: nominal dash length in world units (+). */
+  runUpgradeDashLengthDeltaWorld: 1,
+  /** In-run upgrade: max shields (HP segments) (+). */
+  runUpgradeShieldsDelta: 1,
+  /** In-run upgrade: walk speed (world units/s) (+), clamped with balance limits. */
+  runUpgradePlayerSpeedDelta: 1,
+  /** Seconds without taking damage before restoring 1 shield (while below max HP). */
+  shieldRegenBaseIntervalSec: 5,
+  /** Fastest shield regen interval (seconds); level-ups reduce interval toward this floor. */
+  shieldRegenMinIntervalSec: 2.5,
+  /** In-run upgrade: shield regen interval −this many seconds (until min). */
+  shieldRegenUpgradeStepSec: 0.5,
+
   enemySpeed: 4.2,
   enemyRadius: 1.14,
+  /** Tank chase speed vs normal: `enemySpeed × difficulty × this` (`1/3` = в 3 раза медленнее). */
+  tankEnemyMoveSpeedMult: 1 / 3,
   spawnInterval: 0.44,
+  /**
+   * At run start, spawn timer interval is multiplied by this (e.g. `4` → 4× slower spawns),
+   * then linearly eases to `1` over `spawnStartIntervalMultDecaySec`. Does not change `difficultyMult`.
+   */
+  spawnStartIntervalMult: 4,
+  /** Seconds over which `spawnStartIntervalMult` blends from its value down to `1`. */
+  spawnStartIntervalMultDecaySec: 60,
   spawnMinDist: 22,
   spawnMaxDist: 38,
   maxEnemies: 48,
@@ -88,9 +127,9 @@ export const CONFIG = {
   initialEnemyCount: 4,
 
   /** Every N-th spawn is a vault / «Хранилище» (unless same tick is also a tank spawn). */
-  vaultEveryNthSpawn: 75,
+  vaultEveryNthSpawn: 30,
   /** Max «Хранилище» on the field at once (extra cadence spawns become normal). */
-  vaultMaxSimultaneous: 2,
+  vaultMaxSimultaneous: 1,
   /** Navigation: base disk radius around each Storage (XZ, world units). */
   storageObstacleRadius: 6.55,
   /** Extra margin added to `storageObstacleRadius` for enemy pathing (enemy centers stay outside). */
