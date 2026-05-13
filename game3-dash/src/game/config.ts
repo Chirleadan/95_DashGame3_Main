@@ -10,6 +10,9 @@ export const CONFIG = {
   arenaFloorVisualHalfExtent: 5000,
   /** Orthographic camera half-height (world); frustum top/bottom ±this, sides × aspect. */
   cameraViewHalfExtent: 18,
+  cameraZoomMinHalfExtent: 8,
+  cameraZoomMaxHalfExtent: 40,
+  cameraZoomWheelSpeed: 0.0015,
   floorY: 0,
 
   playerMaxHp: 3,
@@ -182,7 +185,15 @@ export const CONFIG = {
   tankMinRunSecBeforeSpawn: 0,
   /** Tank body radius = `enemyRadius * this`. */
   tankRadiusScale: 3,
-  tankHitsToKill: 2,
+  /** Tank HP variants in hits-to-kill. */
+  tankHitsToKillMin: 2,
+  tankHitsToKillMax: 4,
+  /** Seconds to ramp tank HP-variant spawn weights from start profile to end profile. */
+  tankHpVariantRampSec: 180,
+  /** Every N-th spawn (when not tank/vault) is an Angel. `0` = never from cadence. */
+  angelEveryNthSpawn: 29,
+  /** Angel shield regen tick interval (seconds): restores one missing shield. */
+  angelShieldRegenSec: 2,
   /**
    * Tank: dash body `takeDashHit` is applied this many ms after impact (lets clip/slide finish first).
    */

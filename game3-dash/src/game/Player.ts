@@ -321,7 +321,7 @@ export class Player {
     if (this.tankClipSlideActive) return;
     if (!this.dash.isDashingForMovement()) return;
     for (const e of enemies) {
-      if (!e.isTank()) continue;
+      if (!e.isTank() && !e.isAngel()) continue;
       const tx = e.mesh.position.x;
       const tz = e.mesh.position.z;
       const tr = e.bodyRadius;

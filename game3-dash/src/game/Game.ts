@@ -86,6 +86,8 @@ export class Game {
   private lensOverscan = 1.35;
   /** Lens distortion from UI slider; effective value adds boost while beatmap audio plays. */
   private lensDistortionBase = 0.15;
+  /** Current ortho camera half-height (world units), changed by wheel zoom. */
+  private cameraViewHalfExtentCurrent: number = CONFIG.cameraViewHalfExtent;
 
   private readonly damagePulseRings: {
     mesh: THREE.Mesh;
@@ -106,7 +108,7 @@ export class Game {
     const w = mount.clientWidth || window.innerWidth;
     const h = mount.clientHeight || window.innerHeight;
     const aspect = w / Math.max(1, h);
-    const view = CONFIG.cameraViewHalfExtent;
+    const view = this.cameraViewHalfExtentCurrent;
     this.camera = new THREE.OrthographicCamera(
       (-view * aspect) / 2,
       (view * aspect) / 2,
@@ -344,7 +346,7 @@ export class Game {
     const w = this.mount.clientWidth || window.innerWidth;
     const h = this.mount.clientHeight || window.innerHeight;
     const aspect = w / Math.max(1, h);
-    const view = CONFIG.cameraViewHalfExtent;
+    const view = this.cameraViewHalfExtentCurrent;
     this.camera.left = (-view * aspect) / 2;
     this.camera.right = (view * aspect) / 2;
     this.camera.top = view / 2;
@@ -366,6 +368,7 @@ export class Game {
 
   private update(dt: number): void {
     this.input.beginFrame();
+    this.updateCameraZoomFromInput();
     this.syncBeatPlayButton();
     this.updateDamagePulseRings(dt);
     this.applyLensDistortionEffective();
@@ -524,6 +527,10 @@ export class Game {
         );
       for (const e of this.enemies) {
         e.update(dt, this.player.x, this.player.z, diffMult, storageNav);
+      }
+    } else {
+      for (const e of this.enemies) {
+        e.tickAngelShieldRegenOnly(dt);
       }
     }
 
@@ -861,7 +868,7 @@ export class Game {
     let xp: number;
     if (enemy.isVault()) {
       xp = this.vaultXpFillToNextSegment();
-    } else if (enemy.isTank()) {
+    } else if (enemy.isTank() || enemy.isAngel()) {
       xp = CONFIG.runXpKillTank;
     } else {
       xp = CONFIG.runXpKillMob;
@@ -966,7 +973,7 @@ export class Game {
     const vaultShieldJoin = CONFIG.vaultShieldDashJoinRadius;
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
-      if (e.isVault()) {
+      if (e.isVault() || e.isAngel()) {
         const hitR = scaledPlayer + e.bodyRadius;
         const bodyHit = segmentHitsCircle(
           seg.ax,
@@ -984,17 +991,23 @@ export class Game {
         const tr = e.bodyRadius;
 
         if (e.getActiveShieldCount() > 0) {
-          e.tryBreakVaultShieldWithDash(seg, vaultShieldJoin);
+          const canDamageAngel =
+            e.isAngel() && e.canDashDamageFromOpenShieldSide(seg, vaultShieldJoin);
+          if (!canDamageAngel) {
+            e.tryBreakVaultShieldWithDash(seg, vaultShieldJoin);
+          }
           if (e.vaultLastClipDashSerial !== dashSerial) {
             this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
             e.vaultLastClipDashSerial = dashSerial;
           }
-          continue;
+          if (!canDamageAngel) {
+            continue;
+          }
         }
 
         if (e.damagedInDashHitSerial === dashSerial) continue;
         e.damagedInDashHitSerial = dashSerial;
-        const died = e.takeDashHit();
+        const died = e.takeDashHit(e.isAngel());
         if (e.vaultLastClipDashSerial !== dashSerial) {
           this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
           e.vaultLastClipDashSerial = dashSerial;
@@ -1251,6 +1264,21 @@ export class Game {
       shakeX,
       shakeZ,
     );
+  }
+
+  private updateCameraZoomFromInput(): void {
+    const delta = this.input.consumeWheelZoomDelta();
+    if (!Number.isFinite(delta) || Math.abs(delta) < 1e-6) return;
+    const speed = Math.max(1e-6, CONFIG.cameraZoomWheelSpeed);
+    const mult = Math.exp(delta * speed);
+    const next = this.cameraViewHalfExtentCurrent * mult;
+    const clamped = Math.min(
+      CONFIG.cameraZoomMaxHalfExtent,
+      Math.max(CONFIG.cameraZoomMinHalfExtent, next),
+    );
+    if (Math.abs(clamped - this.cameraViewHalfExtentCurrent) < 1e-6) return;
+    this.cameraViewHalfExtentCurrent = clamped;
+    this.onResize();
   }
 
   dispose(): void {

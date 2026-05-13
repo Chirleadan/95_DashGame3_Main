@@ -20,6 +20,7 @@ export class Input {
   private pointerDashEdge = false;
   private prevKeyPlayTrack = false;
   private keyPlayTrackEdge = false;
+  private wheelZoomDelta = 0;
 
   constructor(
     keyboardTarget: HTMLElement = document.body,
@@ -52,8 +53,13 @@ export class Input {
         this.pointerDashEdge = true;
       }
     };
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      this.wheelZoomDelta += e.deltaY;
+    };
     pointerTarget.addEventListener('pointermove', onPointerMove);
     pointerTarget.addEventListener('pointerdown', onPointerDown);
+    pointerTarget.addEventListener('wheel', onWheel, { passive: false });
   }
 
   centerPointerOn(domElement: HTMLElement): void {
@@ -97,6 +103,13 @@ export class Input {
   /** True if `consumeDashTrigger()` would return true this frame (does not consume). */
   wouldDashTriggerThisFrame(): boolean {
     return this.keyDashEdge || this.pointerDashEdge;
+  }
+
+  /** Accumulated mouse-wheel delta for camera zoom (consumed once per frame). */
+  consumeWheelZoomDelta(): number {
+    const d = this.wheelZoomDelta;
+    this.wheelZoomDelta = 0;
+    return d;
   }
 
   private keysDashDown(): boolean {

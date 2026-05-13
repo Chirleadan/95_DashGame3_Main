@@ -42,6 +42,20 @@ export class EnemySpawner {
     this.enemies.push(new Enemy(this.scene, c.x, c.z, 'vault'));
   }
 
+  private pickTankHitsToKill(runElapsedSec: number): number {
+    // Weights for tank variants by extra HP: +1 / +2 / +3.
+    // Start: 70% / 25% / 5%, End: 0% / 25% / 75%.
+    const rampSec = Math.max(1, CONFIG.tankHpVariantRampSec);
+    const t = Math.min(1, Math.max(0, runElapsedSec) / rampSec);
+    const w1 = 70 + (0 - 70) * t;
+    const w2 = 25 + (25 - 25) * t;
+    const w3 = 5 + (75 - 5) * t;
+    const r = Math.random() * (w1 + w2 + w3);
+    if (r < w1) return 2;
+    if (r < w1 + w2) return 3;
+    return 4;
+  }
+
   private spawnOne(px: number, pz: number, runElapsedSec: number): void {
     const angle = Math.random() * Math.PI * 2;
     const dist =
@@ -64,13 +78,22 @@ export class EnemySpawner {
         kind = 'vault';
       }
     } else {
+      const aN = CONFIG.angelEveryNthSpawn;
       const gN = CONFIG.goldSackEveryNthSpawn;
       const mN = CONFIG.manaSackEveryNthSpawn;
-      if (gN > 0 && this.spawnTotal % gN === 0) {
+      if (aN > 0 && this.spawnTotal % aN === 0) {
+        kind = 'angel';
+      } else if (gN > 0 && this.spawnTotal % gN === 0) {
         kind = 'goldSack';
       } else if (mN > 0 && this.spawnTotal % mN === 0) {
         kind = 'manaSack';
       }
+    }
+    if (kind === 'tank' || kind === 'angel') {
+      this.enemies.push(
+        new Enemy(this.scene, x, z, kind, this.pickTankHitsToKill(runElapsedSec)),
+      );
+      return;
     }
     this.enemies.push(new Enemy(this.scene, x, z, kind));
   }
