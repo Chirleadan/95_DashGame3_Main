@@ -584,6 +584,7 @@ export class Player {
     aimGroundWorld: THREE.Vector3 | null,
     aimGroundValid: boolean,
     dashLenWidthMult: number,
+    playerSpeedMult: number,
     enemies: readonly Enemy[],
   ): void {
     if (this.tankClipSlideActive) {
@@ -650,8 +651,10 @@ export class Player {
       vx = -this.dash.dirX * this.microDashSpeed;
       vz = -this.dash.dirZ * this.microDashSpeed;
     } else if (walkLen > 1e-3) {
-      vx = (mv.x / walkLen) * getPlayerSpeed();
-      vz = (mv.z / walkLen) * getPlayerSpeed();
+      const speedMult =
+        Number.isFinite(playerSpeedMult) && playerSpeedMult > 0 ? playerSpeedMult : 1;
+      vx = (mv.x / walkLen) * getPlayerSpeed() * speedMult;
+      vz = (mv.z / walkLen) * getPlayerSpeed() * speedMult;
     }
 
     if (useDash && !reverseArtifactStationary) {

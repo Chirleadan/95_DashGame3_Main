@@ -172,7 +172,9 @@ export const CONFIG = {
   vaultBodyThickness: 0.33,
   vaultBodyColor: 0x2a3044,
   vaultBodyEmissive: 0x0a0c12,
-  vaultStripColor: 0x7ecbff,
+  vaultStripColor: 0xffd84d,
+  angelShieldColorA: 0x7ecbff,
+  angelShieldColorB: 0xff7ad9,
   vaultShieldStripHeight: 0.33,
   vaultShieldStripDepth: 0.24,
   vaultShieldStripY: 0.285,
@@ -192,6 +194,8 @@ export const CONFIG = {
   tankHpVariantRampSec: 180,
   /** Every N-th spawn (when not tank/vault) is an Angel. `0` = never from cadence. */
   angelEveryNthSpawn: 29,
+  /** Angel body radius = tank body radius * this. */
+  angelRadiusScale: 1.5,
   /** Angel shield regen tick interval (seconds): restores one missing shield. */
   angelShieldRegenSec: 2,
   /**

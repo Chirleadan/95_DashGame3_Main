@@ -441,6 +441,10 @@ body {
   gap: 12px;
 }
 
+.game-overlay__panel[hidden] {
+  display: none !important;
+}
+
 .game-overlay__title {
   margin: 0 0 12px;
   font-size: 1.75rem;
@@ -456,6 +460,101 @@ body {
   font-size: 1.2rem;
   font-weight: 700;
   color: #e8ecf5;
+}
+
+.track-summary {
+  width: 100%;
+  min-width: 220px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.track-summary__label {
+  color: #8b93a8;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.track-summary__value {
+  color: #e8ecf5;
+  font-weight: 700;
+}
+
+.game-overlay__panel--tracks {
+  align-items: stretch;
+  text-align: left;
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(90vh, 680px);
+  overflow-y: auto;
+}
+
+.track-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.track-menu__section {
+  width: 100%;
+}
+
+.track-menu__title {
+  margin-bottom: 8px;
+  color: #c8d0e8;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.track-menu__stages {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.track-stage-btn {
+  min-height: 66px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(160, 168, 190, 0.28);
+  background: rgba(18, 22, 32, 0.92);
+  color: #e8ecf5;
+  cursor: pointer;
+  text-align: left;
+}
+
+.track-stage-btn:hover {
+  border-color: rgba(102, 204, 255, 0.7);
+}
+
+.track-stage-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.track-stage-btn--selected {
+  border-color: rgba(102, 204, 255, 0.95);
+  box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.35);
+}
+
+.track-stage-btn__name,
+.track-stage-btn__meta {
+  display: block;
+}
+
+.track-stage-btn__name {
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+
+.track-stage-btn__meta {
+  color: #8b93a8;
+  font-size: 0.78rem;
 }
 
 .game-overlay__panel--upgrade {

@@ -14,6 +14,12 @@ import {
   loadBalanceSettings,
   setBalancePatch,
 } from './BalanceSettings.ts';
+import {
+  findTrackStage,
+  findTrackForStage,
+  TRACK_CATALOG,
+  type TrackStage,
+} from './TrackCatalog.ts';
 
 function lowerBeatIndex(beats: readonly BeatEvent[], minTime: number): number {
   let lo = 0;
@@ -61,6 +67,9 @@ export class UI {
   private readonly mainMenuEl: HTMLElement;
   private readonly mainMenuPanel: HTMLElement;
   private readonly upgradeMenuPanel: HTMLElement;
+  private readonly trackMenuPanel: HTMLElement;
+  private readonly trackMenuList: HTMLElement;
+  private readonly currentTrackEl: HTMLElement;
   private readonly upgradeDashLen: HTMLInputElement;
   private readonly upgradeDashLenVal: HTMLElement;
   private readonly upgradeDashNomLen: HTMLInputElement;
@@ -86,6 +95,7 @@ export class UI {
   private readonly vaultBearingHost: HTMLElement;
   private readonly vaultBearingRot: SVGGElement;
   private artifactsChangeHandler: (() => void) | null = null;
+  private trackStageSelectHandler: ((stage: TrackStage) => void) | null = null;
 
   constructor(container: HTMLElement) {
     loadBalanceSettings();
@@ -221,8 +231,18 @@ export class UI {
     this.mainMenuEl.innerHTML = `
       <div id="main-menu-panel" class="game-overlay__panel">
         <h1 class="game-overlay__title">Arena</h1>
+        <div class="track-summary">
+          <span class="track-summary__label">Track</span>
+          <span id="main-menu-track-current" class="track-summary__value">Track 1 / Stage 3</span>
+        </div>
+        <button id="main-menu-tracks" type="button" class="game-overlay__btn game-overlay__btn--secondary">Tracks</button>
         <button id="main-menu-play" type="button" class="game-overlay__btn">Play</button>
         <button id="main-menu-upgrade" type="button" class="game-overlay__btn game-overlay__btn--secondary">Апгрейд</button>
+      </div>
+      <div id="track-menu-panel" class="game-overlay__panel game-overlay__panel--tracks" hidden>
+        <h2 class="game-overlay__subtitle">Tracks</h2>
+        <div id="track-menu-list" class="track-menu"></div>
+        <button id="track-back" type="button" class="game-overlay__btn game-overlay__btn--upgrade-back">Back</button>
       </div>
       <div id="upgrade-menu-panel" class="game-overlay__panel game-overlay__panel--upgrade" hidden>
         <h2 class="game-overlay__subtitle">Апгрейд</h2>
@@ -270,6 +290,9 @@ export class UI {
     document.body.appendChild(this.mainMenuEl);
 
     this.mainMenuPanel = this.mainMenuEl.querySelector('#main-menu-panel')!;
+    this.trackMenuPanel = this.mainMenuEl.querySelector('#track-menu-panel')!;
+    this.trackMenuList = this.mainMenuEl.querySelector('#track-menu-list')!;
+    this.currentTrackEl = this.mainMenuEl.querySelector('#main-menu-track-current')!;
     this.upgradeMenuPanel = this.mainMenuEl.querySelector('#upgrade-menu-panel')!;
     this.upgradeDashLen = this.mainMenuEl.querySelector('#upgrade-dash-len') as HTMLInputElement;
     this.upgradeDashLenVal = this.mainMenuEl.querySelector('#upgrade-dash-len-val')!;
@@ -281,6 +304,7 @@ export class UI {
     this.upgradeMoveSpeedVal = this.mainMenuEl.querySelector('#upgrade-move-speed-val')!;
     this.upgradeShields = this.mainMenuEl.querySelector('#upgrade-shields') as HTMLInputElement;
     this.upgradeShieldsVal = this.mainMenuEl.querySelector('#upgrade-shields-val')!;
+    this.buildTrackMenu();
     this.bindUpgradeMenuControls();
 
     this.deathScreenEl = document.createElement('div');
@@ -455,16 +479,99 @@ export class UI {
 
   private openUpgradeMenu(): void {
     this.syncUpgradeControlsFromBalance();
+    this.trackMenuPanel.hidden = true;
     this.mainMenuPanel.hidden = true;
     this.upgradeMenuPanel.hidden = false;
   }
 
   private closeUpgradeMenu(): void {
     this.upgradeMenuPanel.hidden = true;
+    this.trackMenuPanel.hidden = true;
     this.mainMenuPanel.hidden = false;
   }
 
+  private buildTrackMenu(): void {
+    this.trackMenuList.replaceChildren();
+    for (const track of TRACK_CATALOG) {
+      const section = document.createElement('section');
+      section.className = 'track-menu__section';
+
+      const title = document.createElement('div');
+      title.className = 'track-menu__title';
+      title.textContent = track.label;
+      section.appendChild(title);
+
+      const stages = document.createElement('div');
+      stages.className = 'track-menu__stages';
+      for (const stage of track.stages) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'track-stage-btn';
+        btn.dataset.trackId = track.id;
+        btn.dataset.stageId = stage.id;
+        btn.disabled = !stage.enabled;
+        btn.title = stage.enabled
+          ? `${stage.audioUrl} | ${stage.beatmapUrl}`
+          : `Add files: ${stage.audioUrl} and ${stage.beatmapUrl}`;
+        btn.innerHTML = `
+          <span class="track-stage-btn__name">${stage.label}</span>
+          <span class="track-stage-btn__meta">${stage.enabled ? 'Ready' : 'No files yet'}</span>
+        `;
+        stages.appendChild(btn);
+      }
+      section.appendChild(stages);
+      this.trackMenuList.appendChild(section);
+    }
+  }
+
+  private openTrackMenu(): void {
+    this.mainMenuPanel.hidden = true;
+    this.upgradeMenuPanel.hidden = true;
+    this.trackMenuPanel.hidden = false;
+  }
+
+  private closeTrackMenu(): void {
+    this.trackMenuPanel.hidden = true;
+    this.mainMenuPanel.hidden = false;
+  }
+
+  setSelectedTrackStage(stage: TrackStage): void {
+    const track = findTrackForStage(stage.id);
+    this.currentTrackEl.textContent = `${track?.label ?? 'Track'} / ${stage.label}`;
+    const buttons = this.trackMenuList.querySelectorAll<HTMLButtonElement>('.track-stage-btn');
+    for (const btn of buttons) {
+      btn.classList.toggle('track-stage-btn--selected', btn.dataset.stageId === stage.id);
+    }
+  }
+
+  onTrackStageSelected(handler: (stage: TrackStage) => void): void {
+    this.trackStageSelectHandler = handler;
+  }
+
   private bindUpgradeMenuControls(): void {
+    this.mainMenuEl.querySelector('#main-menu-tracks')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.openTrackMenu();
+    });
+    this.mainMenuEl.querySelector('#track-back')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closeTrackMenu();
+    });
+    this.trackMenuList.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      const btn = target.closest<HTMLButtonElement>('.track-stage-btn');
+      if (!btn || btn.disabled) return;
+      const trackId = btn.dataset.trackId;
+      const stageId = btn.dataset.stageId;
+      if (!trackId || !stageId) return;
+      const stage = findTrackStage(trackId, stageId);
+      if (!stage || !stage.enabled) return;
+      this.trackStageSelectHandler?.(stage);
+      this.closeTrackMenu();
+    });
+
     this.mainMenuEl.querySelector('#main-menu-upgrade')!.addEventListener('click', (e) => {
       e.stopPropagation();
       this.openUpgradeMenu();

@@ -88,12 +88,8 @@ export class Enemy {
       this.hitsRemaining = 1;
       const isAngel = kind === 'angel';
       const R = isAngel
-        ? CONFIG.enemyRadius * CONFIG.tankRadiusScale
+        ? CONFIG.enemyRadius * CONFIG.tankRadiusScale * CONFIG.angelRadiusScale
         : CONFIG.vaultHexCircumradius;
-      if (isAngel) {
-        const tankHits = rollIntInclusive(CONFIG.tankHitsToKillMin, CONFIG.tankHitsToKillMax);
-        this.hitsRemaining = Math.max(1, Math.floor(tankHits));
-      }
       const verts = hexVerticesXZ(R);
       const v0 = verts[0]!;
       const v1 = verts[1]!;
@@ -115,7 +111,7 @@ export class Enemy {
       this.mesh.add(body);
 
       const stripMat = new THREE.MeshBasicMaterial({
-        color: CONFIG.vaultStripColor,
+        color: isAngel ? CONFIG.angelShieldColorA : CONFIG.vaultStripColor,
         transparent: true,
         opacity: 0.92,
         depthWrite: false,
@@ -139,6 +135,11 @@ export class Enemy {
           ),
           stripMat.clone(),
         );
+        if (isAngel) {
+          (strip.material as THREE.MeshBasicMaterial).color.setHex(
+            i % 2 === 0 ? CONFIG.angelShieldColorA : CONFIG.angelShieldColorB,
+          );
+        }
         strip.quaternion.setFromUnitVectors(xAxis, along);
         strip.position.set(mx, CONFIG.vaultShieldStripY, mz);
         strip.renderOrder = 3;
@@ -226,7 +227,10 @@ export class Enemy {
 
   get bodyRadius(): number {
     if (this.kind === 'vault') return CONFIG.vaultHexCircumradius;
-    if (this.kind === 'tank' || this.kind === 'angel') {
+    if (this.kind === 'angel') {
+      return CONFIG.enemyRadius * CONFIG.tankRadiusScale * CONFIG.angelRadiusScale;
+    }
+    if (this.kind === 'tank') {
       return CONFIG.enemyRadius * CONFIG.tankRadiusScale;
     }
     return CONFIG.enemyRadius;
@@ -395,11 +399,7 @@ export class Enemy {
     if (this.kind !== 'angel' || !this.vaultShieldMeshes || this.vaultShieldMeshes.length <= 0) {
       return false;
     }
-    const brokenEntryEdge = this.pickShieldHitByDash(seg, joinRadius, false);
-    if (!brokenEntryEdge) return false;
-    const best = this.pickShieldByIncomingSide(seg, false);
-    // Damage passes only if the incoming side matches the open edge we actually crossed first.
-    return !!best && best === brokenEntryEdge;
+    return this.pickShieldHitByDash(seg, joinRadius, false) !== null;
   }
 
   applyDamage(amount: number, bypassShieldGate = false): boolean {

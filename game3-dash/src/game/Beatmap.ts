@@ -1,6 +1,7 @@
 /**
  * Manual beatmap JSON (from tapper export), e.g. `public/beatmaps/test.json`:
- * `{ "track": "/audio/foo.mp3", "beats": [{ "time": 1.2, "type": "beat" }, ...] }`
+ * `{ "beats": [{ "time": 1.2, "type": "beat" }, ...] }`
+ * Legacy files may also contain `track`; track-stage catalog entries override it.
  */
 
 export type BeatKind = 'beat' | 'accent' | 'drop' | 'danger';
@@ -99,14 +100,10 @@ export async function loadBeatmap(url: string): Promise<Beatmap> {
     }
     const track = raw.track;
     const beatsRaw = raw.beats;
-    if (typeof track !== 'string' || track.trim().length === 0) {
-      throw new Error('beatmap.track must be a non-empty string (audio URL path)');
-    }
-
     const beats = parseBeatsArray(beatsRaw);
 
     const beatmap: Beatmap = {
-      track: track.trim(),
+      track: typeof track === 'string' ? track.trim() : '',
       beats,
     };
 

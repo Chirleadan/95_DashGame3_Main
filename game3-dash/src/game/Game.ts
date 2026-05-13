@@ -27,6 +27,10 @@ import {
 } from './BalanceSettings.ts';
 import { isArtifactEnabled } from './Artifacts.ts';
 import { rollResourceSackDropAmount } from './Loot.ts';
+import {
+  getDefaultTrackStage,
+  type TrackStage,
+} from './TrackCatalog.ts';
 
 export class Game {
   /** Outer radius of `RingGeometry` used for damage pulse (local units). */
@@ -56,6 +60,7 @@ export class Game {
   /** Beat indices the player dashed on-time (lane draws them green). */
   private readonly beatHitIndices = new Set<number>();
   private beatHitCount = 0;
+  private readonly dashSerialsWithBeatHit = new Set<number>();
   private raf = 0;
   /** Orthographic camera shake after dash kills (decays each frame). */
   private cameraShake = 0;
@@ -88,12 +93,15 @@ export class Game {
   private lensDistortionBase = 0.15;
   /** Current ortho camera half-height (world units), changed by wheel zoom. */
   private cameraViewHalfExtentCurrent: number = CONFIG.cameraViewHalfExtent;
+  private selectedTrackStage: TrackStage = getDefaultTrackStage();
+  private beatmapLoadSerial = 0;
 
   private readonly damagePulseRings: {
     mesh: THREE.Mesh;
     mat: THREE.MeshBasicMaterial;
     age: number;
     baseOpacity: number;
+    radiusMult: number;
   }[] = [];
 
   /** Dash sweep consumed in `resolveDashKills` this frame (debug overlay / logs). */
@@ -162,6 +170,10 @@ export class Game {
     this.ui.onPlayRequested(() => {
       void this.requestStartAudioPlayback();
     });
+    this.ui.onTrackStageSelected((stage) => {
+      void this.selectTrackStage(stage);
+    });
+    this.ui.setSelectedTrackStage(this.selectedTrackStage);
     this.ui.setPlayEnabled(false, '');
     this.ui.setBeatmapState('Loading...');
     this.ui.setBeatDebug(0, null);
@@ -215,7 +227,9 @@ export class Game {
   }
 
   private applyLensDistortionEffective(): void {
-    const boost = this.audio.isPlaying ? CONFIG.lensDistortionWhileTrackPlaysBoost : 0;
+    const boost = this.audio.isPlaying
+      ? this.selectedTrackStage.boost.lensDistortionWhilePlaying
+      : 0;
     this.lensPass.setAmount(this.lensDistortionBase + boost);
   }
 
@@ -252,21 +266,45 @@ export class Game {
   }
 
   private async initBeatmap(): Promise<void> {
+    const loadSerial = ++this.beatmapLoadSerial;
+    const stage = this.selectedTrackStage;
     try {
-      const beatmap = await loadBeatmap('/beatmaps/test.json');
+      const loaded = await loadBeatmap(stage.beatmapUrl);
+      if (loadSerial !== this.beatmapLoadSerial) return;
+      const beatmap = {
+        ...loaded,
+        track: stage.audioUrl || loaded.track,
+      };
       this.beatmap = beatmap;
       this.nextBeatIndex = 0;
       this.resetBeatHitTracking();
       await this.audio.setTrack(beatmap.track);
-      this.ui.setBeatmapState('Ready');
+      if (loadSerial !== this.beatmapLoadSerial) return;
+      this.ui.setBeatmapState(`Ready: ${stage.label}`);
       this.syncBeatPlayButton();
       this.ui.setBeatDebug(this.audio.currentTime, beatmap.beats[0]?.time ?? null);
     } catch (e) {
+      if (loadSerial !== this.beatmapLoadSerial) return;
       console.error('[Beatmap] init failed:', e instanceof Error ? e.message : e, e);
       this.beatmap = null;
       this.ui.setBeatmapState('Beatmap load failed');
       this.syncBeatPlayButton();
     }
+  }
+
+  private async selectTrackStage(stage: TrackStage): Promise<void> {
+    if (!stage.enabled) return;
+    this.selectedTrackStage = stage;
+    this.ui.setSelectedTrackStage(stage);
+    this.audio.pause();
+    this.audio.reset();
+    this.beatmap = null;
+    this.nextBeatIndex = 0;
+    this.resetBeatHitTracking();
+    this.ui.setBeatDebug(0, null);
+    this.ui.setBeatmapState('Loading...');
+    this.syncBeatPlayButton();
+    await this.initBeatmap();
   }
 
   private syncBeatPlayButton(): void {
@@ -480,6 +518,7 @@ export class Game {
       aimOk ? this.groundHit : null,
       aimOk,
       this.getDashLengthWidthMultForThisFrame(),
+      this.getActivePlayerSpeedMult(),
       this.enemies,
     );
     this.tryRegisterDashBeatHit();
@@ -494,14 +533,22 @@ export class Game {
       this.player.resolveTankOverlapWhileDashing(this.enemies);
     }
     this.player.tickDashAfterHits(dt, isArtifactEnabled('reverseDash'));
-    if (isArtifactEnabled('bomb')) {
-      const land = this.player.consumeDashLandingPulseXZ();
-      if (land) {
-        this.spawnDamagePulseRingAt(land.x, land.z);
-        this.runEnemiesKilled += this.applyPlayerDamagePulseToEnemiesAt(land.x, land.z);
+    const land = this.player.consumeDashLandingPulseXZ();
+    if (land) {
+      const pulseMult = Math.max(
+        isArtifactEnabled('bomb') ? 1 : 0,
+        this.shouldPulseForSuccessfulBeatDash()
+          ? this.getActiveDashLandingPulseRadiusMult()
+          : 0,
+      );
+      if (pulseMult > 0) {
+        this.spawnDamagePulseRingAt(land.x, land.z, pulseMult);
+        this.runEnemiesKilled += this.applyPlayerDamagePulseToEnemiesAt(
+          land.x,
+          land.z,
+          pulseMult,
+        );
       }
-    } else {
-      this.player.consumeDashLandingPulseXZ();
     }
     if (this.player.tickShieldRegen(dt)) {
       this.ui.rebuildHpBarSegments();
@@ -726,6 +773,7 @@ export class Game {
 
   private resetBeatHitTracking(): void {
     this.beatHitIndices.clear();
+    this.dashSerialsWithBeatHit.clear();
     this.beatHitCount = 0;
   }
 
@@ -751,16 +799,41 @@ export class Game {
 
   /**
    * If the player is about to start a main dash this frame and it will newly hit a beat,
-   * scale dash length & trail width (see `CONFIG.dashOnBeatLengthWidthMult`).
+   * scale dash length & trail width (see selected track-stage boost).
    */
   private getDashLengthWidthMultForThisFrame(): number {
+    const base = this.getActiveDashLengthMult();
     if (!this.input.wouldDashTriggerThisFrame()) return 1;
-    if (!this.beatmap || this.player.hp <= 0) return 1;
-    if (this.player.isMicroDashing) return 1;
-    if (this.player.dash.cooldownLeft > 0 || this.player.dash.timeLeft > 0) return 1;
+    if (!this.beatmap || this.player.hp <= 0) return base;
+    if (this.player.isMicroDashing) return base;
+    if (this.player.dash.cooldownLeft > 0 || this.player.dash.timeLeft > 0) return base;
     const i = this.findBestBeatInDashWindowAtTime(this.audio.currentTime);
-    if (i < 0 || this.beatHitIndices.has(i)) return 1;
-    return CONFIG.dashOnBeatLengthWidthMult;
+    if (i < 0 || this.beatHitIndices.has(i)) return base;
+    const mult = this.selectedTrackStage.boost.onBeatDashLengthWidthMult;
+    const beatMult = Number.isFinite(mult) && mult > 0 ? mult : 1;
+    return base * beatMult;
+  }
+
+  private getActiveDashLengthMult(): number {
+    if (!this.audio.isPlaying) return 1;
+    const mult = this.selectedTrackStage.boost.dashLengthMultWhilePlaying;
+    return Number.isFinite(mult) && mult > 0 ? mult : 1;
+  }
+
+  private getActivePlayerSpeedMult(): number {
+    if (!this.audio.isPlaying) return 1;
+    const mult = this.selectedTrackStage.boost.playerSpeedMultWhilePlaying;
+    return Number.isFinite(mult) && mult > 0 ? mult : 1;
+  }
+
+  private getActiveDashLandingPulseRadiusMult(): number {
+    if (!this.audio.isPlaying) return 0;
+    const mult = this.selectedTrackStage.boost.dashLandingPulseRadiusMult;
+    return Number.isFinite(mult) && mult > 0 ? mult : 0;
+  }
+
+  private shouldPulseForSuccessfulBeatDash(): boolean {
+    return this.dashSerialsWithBeatHit.delete(this.player.getDashHitSerial());
   }
 
   /** If the player just started a main dash, maybe count an on-beat hit vs audio time. */
@@ -771,9 +844,12 @@ export class Game {
     const bestI = this.findBestBeatInDashWindowAtTime(t);
     if (bestI >= 0 && !this.beatHitIndices.has(bestI)) {
       this.beatHitIndices.add(bestI);
+      this.dashSerialsWithBeatHit.add(this.player.getDashHitSerial());
       this.beatHitCount += 1;
       this.beatEffects.triggerOnBeatHitFlash();
-      this.player.clearDashCooldownAfterOnBeatHit();
+      if (this.selectedTrackStage.boost.resetDashCooldownOnBeat) {
+        this.player.clearDashCooldownAfterOnBeatHit();
+      }
     }
   }
 
@@ -990,9 +1066,9 @@ export class Game {
         const tz = e.mesh.position.z;
         const tr = e.bodyRadius;
 
-        if (e.getActiveShieldCount() > 0) {
+        if (e.isAngel()) {
           const canDamageAngel =
-            e.isAngel() && e.canDashDamageFromOpenShieldSide(seg, vaultShieldJoin);
+            e.canDashDamageFromOpenShieldSide(seg, vaultShieldJoin);
           if (!canDamageAngel) {
             e.tryBreakVaultShieldWithDash(seg, vaultShieldJoin);
           }
@@ -1003,6 +1079,15 @@ export class Game {
           if (!canDamageAngel) {
             continue;
           }
+        }
+
+        if (e.isVault() && e.getActiveShieldCount() > 0) {
+          e.tryBreakVaultShieldWithDash(seg, vaultShieldJoin);
+          if (e.vaultLastClipDashSerial !== dashSerial) {
+            this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
+            e.vaultLastClipDashSerial = dashSerial;
+          }
+          continue;
         }
 
         if (e.damagedInDashHitSerial === dashSerial) continue;
@@ -1182,7 +1267,9 @@ export class Game {
     }
   }
 
-  private spawnDamagePulseRingAt(x: number, z: number): void {
+  private spawnDamagePulseRingAt(x: number, z: number, radiusMult = 1): void {
+    const safeRadiusMult =
+      Number.isFinite(radiusMult) && radiusMult > 0 ? radiusMult : 1;
     const inner = 0.1;
     const outer = Game.DAMAGE_PULSE_RING_OUTER_LOCAL;
     const geo = new THREE.RingGeometry(inner, outer, 56);
@@ -1198,23 +1285,31 @@ export class Game {
     mesh.position.set(x, CONFIG.floorY + 0.06, z);
     mesh.renderOrder = 8;
     const scaleMax =
-      (CONFIG.playerRadius * CONFIG.playerDamagePulseVisualRadiusMult) /
+      (CONFIG.playerRadius * CONFIG.playerDamagePulseVisualRadiusMult * safeRadiusMult) /
       Game.DAMAGE_PULSE_RING_OUTER_LOCAL;
     mesh.scale.setScalar(0.2 * scaleMax);
     this.scene.add(mesh);
-    this.damagePulseRings.push({ mesh, mat, age: 0, baseOpacity: 0.92 });
+    this.damagePulseRings.push({
+      mesh,
+      mat,
+      age: 0,
+      baseOpacity: 0.92,
+      radiusMult: safeRadiusMult,
+    });
   }
 
   private updateDamagePulseRings(dt: number): void {
     const dur = 0.24;
     const ringOuterLocal = Game.DAMAGE_PULSE_RING_OUTER_LOCAL;
-    const targetWorldOuter =
-      CONFIG.playerRadius * CONFIG.playerDamagePulseVisualRadiusMult;
-    const scaleMax = targetWorldOuter / ringOuterLocal;
     for (let i = this.damagePulseRings.length - 1; i >= 0; i--) {
       const p = this.damagePulseRings[i]!;
       p.age += dt;
       const t = Math.min(1, p.age / dur);
+      const targetWorldOuter =
+        CONFIG.playerRadius *
+        CONFIG.playerDamagePulseVisualRadiusMult *
+        p.radiusMult;
+      const scaleMax = targetWorldOuter / ringOuterLocal;
       const scale = (0.2 + 0.8 * t) * scaleMax;
       p.mesh.scale.setScalar(scale);
       p.mat.opacity = p.baseOpacity * (1 - t);
@@ -1227,8 +1322,15 @@ export class Game {
     }
   }
 
-  private applyPlayerDamagePulseToEnemiesAt(px: number, pz: number): number {
-    const r = CONFIG.playerRadius * CONFIG.playerDamagePulseRadiusMult;
+  private applyPlayerDamagePulseToEnemiesAt(
+    px: number,
+    pz: number,
+    radiusMult = 1,
+  ): number {
+    const safeRadiusMult =
+      Number.isFinite(radiusMult) && radiusMult > 0 ? radiusMult : 1;
+    const r =
+      CONFIG.playerRadius * CONFIG.playerDamagePulseRadiusMult * safeRadiusMult;
     const r2 = r * r;
     const pulseDmg = CONFIG.playerDamagePulseEnemyDamage;
     let kills = 0;

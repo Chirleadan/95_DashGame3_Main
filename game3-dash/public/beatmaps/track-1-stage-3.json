@@ -1,0 +1,329 @@
+{
+  "track": "/audio/beat.mp3",
+  "beats": [
+    {
+      "time": 5.626,
+      "type": "beat"
+    },
+    {
+      "time": 6.237,
+      "type": "beat"
+    },
+    {
+      "time": 6.93,
+      "type": "beat"
+    },
+    {
+      "time": 7.588,
+      "type": "beat"
+    },
+    {
+      "time": 8.3,
+      "type": "beat"
+    },
+    {
+      "time": 9,
+      "type": "beat"
+    },
+    {
+      "time": 9.674,
+      "type": "beat"
+    },
+    {
+      "time": 10.394,
+      "type": "beat"
+    },
+    {
+      "time": 11.079,
+      "type": "beat"
+    },
+    {
+      "time": 11.772,
+      "type": "beat"
+    },
+    {
+      "time": 12.437,
+      "type": "beat"
+    },
+    {
+      "time": 13.103,
+      "type": "beat"
+    },
+    {
+      "time": 13.822,
+      "type": "beat"
+    },
+    {
+      "time": 14.507,
+      "type": "beat"
+    },
+    {
+      "time": 15.219,
+      "type": "beat"
+    },
+    {
+      "time": 15.893,
+      "type": "beat"
+    },
+    {
+      "time": 16.253,
+      "type": "beat"
+    },
+    {
+      "time": 16.594,
+      "type": "beat"
+    },
+    {
+      "time": 17.263,
+      "type": "beat"
+    },
+    {
+      "time": 17.673,
+      "type": "beat"
+    },
+    {
+      "time": 18.053,
+      "type": "beat"
+    },
+    {
+      "time": 18.393,
+      "type": "beat"
+    },
+    {
+      "time": 18.726,
+      "type": "beat"
+    },
+    {
+      "time": 19.078,
+      "type": "beat"
+    },
+    {
+      "time": 19.438,
+      "type": "beat"
+    },
+    {
+      "time": 19.763,
+      "type": "beat"
+    },
+    {
+      "time": 20.104,
+      "type": "beat"
+    },
+    {
+      "time": 20.448,
+      "type": "beat"
+    },
+    {
+      "time": 20.789,
+      "type": "beat"
+    },
+    {
+      "time": 21.121,
+      "type": "beat"
+    },
+    {
+      "time": 21.462,
+      "type": "beat"
+    },
+    {
+      "time": 21.806,
+      "type": "beat"
+    },
+    {
+      "time": 22.155,
+      "type": "beat"
+    },
+    {
+      "time": 22.499,
+      "type": "beat"
+    },
+    {
+      "time": 22.832,
+      "type": "beat"
+    },
+    {
+      "time": 23.173,
+      "type": "beat"
+    },
+    {
+      "time": 23.533,
+      "type": "beat"
+    },
+    {
+      "time": 23.904,
+      "type": "beat"
+    },
+    {
+      "time": 24.225,
+      "type": "beat"
+    },
+    {
+      "time": 24.55,
+      "type": "beat"
+    },
+    {
+      "time": 24.891,
+      "type": "beat"
+    },
+    {
+      "time": 25.243,
+      "type": "beat"
+    },
+    {
+      "time": 25.576,
+      "type": "beat"
+    },
+    {
+      "time": 25.916,
+      "type": "beat"
+    },
+    {
+      "time": 26.276,
+      "type": "beat"
+    },
+    {
+      "time": 26.628,
+      "type": "beat"
+    },
+    {
+      "time": 26.988,
+      "type": "beat"
+    },
+    {
+      "time": 27.34,
+      "type": "beat"
+    },
+    {
+      "time": 27.681,
+      "type": "beat"
+    },
+    {
+      "time": 28.021,
+      "type": "beat"
+    },
+    {
+      "time": 28.381,
+      "type": "beat"
+    },
+    {
+      "time": 28.742,
+      "type": "beat"
+    },
+    {
+      "time": 29.094,
+      "type": "beat"
+    },
+    {
+      "time": 29.445,
+      "type": "beat"
+    },
+    {
+      "time": 29.759,
+      "type": "beat"
+    },
+    {
+      "time": 30.103,
+      "type": "beat"
+    },
+    {
+      "time": 30.436,
+      "type": "beat"
+    },
+    {
+      "time": 30.777,
+      "type": "beat"
+    },
+    {
+      "time": 31.117,
+      "type": "beat"
+    },
+    {
+      "time": 31.47,
+      "type": "beat"
+    },
+    {
+      "time": 31.81,
+      "type": "beat"
+    },
+    {
+      "time": 32.151,
+      "type": "beat"
+    },
+    {
+      "time": 32.495,
+      "type": "beat"
+    },
+    {
+      "time": 32.829,
+      "type": "beat"
+    },
+    {
+      "time": 33.161,
+      "type": "beat"
+    },
+    {
+      "time": 33.494,
+      "type": "beat"
+    },
+    {
+      "time": 33.854,
+      "type": "beat"
+    },
+    {
+      "time": 34.206,
+      "type": "beat"
+    },
+    {
+      "time": 34.539,
+      "type": "beat"
+    },
+    {
+      "time": 34.852,
+      "type": "beat"
+    },
+    {
+      "time": 35.204,
+      "type": "beat"
+    },
+    {
+      "time": 35.537,
+      "type": "beat"
+    },
+    {
+      "time": 35.905,
+      "type": "beat"
+    },
+    {
+      "time": 36.257,
+      "type": "beat"
+    },
+    {
+      "time": 36.605,
+      "type": "beat"
+    },
+    {
+      "time": 36.957,
+      "type": "beat"
+    },
+    {
+      "time": 37.325,
+      "type": "beat"
+    },
+    {
+      "time": 37.686,
+      "type": "beat"
+    },
+    {
+      "time": 38.029,
+      "type": "beat"
+    },
+    {
+      "time": 38.37,
+      "type": "beat"
+    },
+    {
+      "time": 38.757,
+      "type": "beat"
+    }
+  ]
+}
