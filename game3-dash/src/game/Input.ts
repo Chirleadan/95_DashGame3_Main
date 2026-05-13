@@ -3,6 +3,7 @@ const KEYS = new Set([
   'KeyA',
   'KeyS',
   'KeyD',
+  'KeyE',
   'Space',
   'ShiftLeft',
   'ShiftRight',
@@ -17,6 +18,8 @@ export class Input {
   private prevKeyDash = false;
   private keyDashEdge = false;
   private pointerDashEdge = false;
+  private prevKeyPlayTrack = false;
+  private keyPlayTrackEdge = false;
 
   constructor(
     keyboardTarget: HTMLElement = document.body,
@@ -64,6 +67,22 @@ export class Input {
     const kd = this.keysDashDown();
     this.keyDashEdge = kd && !this.prevKeyDash;
     this.prevKeyDash = kd;
+
+    const pe = this.down.has('KeyE');
+    this.keyPlayTrackEdge = pe && !this.prevKeyPlayTrack;
+    this.prevKeyPlayTrack = pe;
+  }
+
+  /** Key `E` edge this frame (consumed once). */
+  consumePlayTrackTrigger(): boolean {
+    const v = this.keyPlayTrackEdge;
+    this.keyPlayTrackEdge = false;
+    return v;
+  }
+
+  /** True if `consumePlayTrackTrigger()` would return true (does not consume). */
+  wouldPlayTrackTriggerThisFrame(): boolean {
+    return this.keyPlayTrackEdge;
   }
 
   /** Space/Shift edge or primary pointer down this frame (consumed once). */

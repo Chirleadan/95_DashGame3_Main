@@ -1,7 +1,7 @@
 import type { Scene } from 'three';
 import { CONFIG } from './config.ts';
 import { clampSpawnToArena } from './Collision.ts';
-import { Enemy } from './Enemy.ts';
+import { Enemy, type EnemyKind } from './Enemy.ts';
 
 export class EnemySpawner {
   private acc = 0;
@@ -53,7 +53,7 @@ export class EnemySpawner {
     x = c.x;
     z = c.z;
     this.spawnTotal += 1;
-    let kind: 'normal' | 'tank' | 'vault' = 'normal';
+    let kind: EnemyKind = 'normal';
     const runOk =
       Number.isFinite(runElapsedSec) && runElapsedSec >= CONFIG.tankMinRunSecBeforeSpawn;
     if (this.spawnTotal % CONFIG.tankEveryNthSpawn === 0 && runOk) {
@@ -62,6 +62,14 @@ export class EnemySpawner {
       const vaultN = this.enemies.reduce((n, e) => n + (e.isVault() ? 1 : 0), 0);
       if (vaultN < CONFIG.vaultMaxSimultaneous) {
         kind = 'vault';
+      }
+    } else {
+      const gN = CONFIG.goldSackEveryNthSpawn;
+      const mN = CONFIG.manaSackEveryNthSpawn;
+      if (gN > 0 && this.spawnTotal % gN === 0) {
+        kind = 'goldSack';
+      } else if (mN > 0 && this.spawnTotal % mN === 0) {
+        kind = 'manaSack';
       }
     }
     this.enemies.push(new Enemy(this.scene, x, z, kind));

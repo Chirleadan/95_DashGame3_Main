@@ -516,9 +516,13 @@ export class Player {
         if (len > 1e-5) {
           this.dash.dirX = nx / len;
           this.dash.dirZ = nz / len;
-          this.dash.timeLeft = getDashDurationSec() * mult;
+          const revDur = Math.max(
+            1e-4,
+            Math.min(1, CONFIG.reverseDashArtifactDurationFraction),
+          );
+          this.dash.timeLeft = getDashDurationSec() * mult * revDur;
           this.dash.cooldownLeft = CONFIG.dashCooldown;
-          this.dashEnemyFreezeLeft = getDashDurationSec() * mult;
+          this.dashEnemyFreezeLeft = getDashDurationSec() * mult * revDur;
           this.dashHitSerial += 1;
           this.artifactReverseDashInProgress = true;
         } else if (CONFIG.microDashEnabled) {
@@ -581,7 +585,6 @@ export class Player {
     aimGroundValid: boolean,
     dashLenWidthMult: number,
     enemies: readonly Enemy[],
-    reverseDashArtifactEnabled: boolean,
   ): void {
     if (this.tankClipSlideActive) {
       this.advanceTankClipSlide();
@@ -629,9 +632,8 @@ export class Player {
     }
 
     const useDash = this.dash.isDashingForMovement();
-    const dashSpeedMult =
-      useDash && reverseDashArtifactEnabled ? CONFIG.reverseDashArtifactDashSpeedMult : 1;
-    if (prevDashTimeLeft <= 0 && useDash) {
+    const reverseArtifactStationary = useDash && this.artifactReverseDashInProgress;
+    if (prevDashTimeLeft <= 0 && useDash && !this.artifactReverseDashInProgress) {
       this.dashEnemyFreezeLeft = getDashDurationSec() * mult;
       this.mainDashStartedThisFrame = true;
       this.activeDashLenWidthMult = mult;
@@ -640,8 +642,8 @@ export class Player {
 
     let vx = 0;
     let vz = 0;
-    if (useDash) {
-      const dashSp = getEffectiveDashSpeed() * dashSpeedMult;
+    if (useDash && !reverseArtifactStationary) {
+      const dashSp = getEffectiveDashSpeed();
       vx = this.dash.dirX * dashSp;
       vz = this.dash.dirZ * dashSp;
     } else if (inMicro) {
@@ -652,7 +654,7 @@ export class Player {
       vz = (mv.z / walkLen) * getPlayerSpeed();
     }
 
-    if (useDash) {
+    if (useDash && !reverseArtifactStationary) {
       const rawN = Math.floor(CONFIG.dashMovementSubstepCount);
       const n = Math.min(4, Math.max(1, rawN));
       const subDt = dt / n;
@@ -673,8 +675,11 @@ export class Player {
     }
 
     if (useDash) {
+      const revSweepMult = this.artifactReverseDashInProgress
+        ? Math.max(0, CONFIG.reverseDashArtifactSweepNominalMult)
+        : 1;
       const nominalDashLen =
-        getDashNominalLengthWorld() * this.activeDashLenWidthMult * dashSpeedMult;
+        getDashNominalLengthWorld() * this.activeDashLenWidthMult * revSweepMult;
       const beyond =
         CONFIG.dashBeyondNominalLengthFraction * nominalDashLen;
       const extX = this.dash.dirX * beyond;

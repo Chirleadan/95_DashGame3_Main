@@ -26,10 +26,13 @@ import {
   loadBalanceSettings,
 } from './BalanceSettings.ts';
 import { isArtifactEnabled } from './Artifacts.ts';
+import { rollResourceSackDropAmount } from './Loot.ts';
 
 export class Game {
   /** Outer radius of `RingGeometry` used for damage pulse (local units). */
   private static readonly DAMAGE_PULSE_RING_OUTER_LOCAL = 0.36;
+  /** Every next level requires `+5` XP more than the previous one. */
+  private static readonly RUN_XP_STEP_PER_LEVEL = 5;
 
   private readonly mount: HTMLElement;
   private readonly renderer: THREE.WebGLRenderer;
@@ -63,12 +66,22 @@ export class Game {
   private deathScreenTimer = 0;
   /** Total combat XP this run (mob / tank / pulse / vault kills). */
   private runXpTotal = 0;
-  /** Next XP total that triggers the in-run upgrade modal (10, 20, …). */
+  /** Count of reached level-up thresholds this run (earned upgrade choices). */
+  private runLevelUpsAwarded = 0;
+  /** Next cumulative XP threshold that triggers the in-run upgrade modal. */
   private runNextUpgradeAtXp = CONFIG.runXpPerLevel;
+  /** Reached milestones waiting for player choices (shown one-by-one). */
+  private readonly runPendingUpgradeMilestones: number[] = [];
+  /** Previous frame beat-track playback state (used to detect track end). */
+  private wasTrackPlayingLastFrame = false;
   /** Active run time (seconds), only while `playing`; resets each new run. */
   private runElapsedSec = 0;
   /** Enemies killed this run (removed from arena by dash/tank resolve/damage pulse). */
   private runEnemiesKilled = 0;
+  /** Gold picked up this run (мешки золота); пока ни на что не тратится. */
+  private runGold = 0;
+  /** Mana picked up this run (мешки маны); пока ни на что не тратится. */
+  private runMana = 0;
   /** Post-process: render frustum scale vs gameplay ortho (lens overscan). */
   private lensOverscan = 1.35;
   /** Lens distortion from UI slider; effective value adds boost while beatmap audio plays. */
@@ -145,9 +158,9 @@ export class Game {
     this.ui = new UI(mount);
     this.beatEffects = new BeatEffects(mount);
     this.ui.onPlayRequested(() => {
-      void this.startAudioPlayback();
+      void this.requestStartAudioPlayback();
     });
-    this.ui.setPlayEnabled(false);
+    this.ui.setPlayEnabled(false, '');
     this.ui.setBeatmapState('Loading...');
     this.ui.setBeatDebug(0, null);
     this.ui.onLensDistortionChange((v) => {
@@ -244,18 +257,59 @@ export class Game {
       this.resetBeatHitTracking();
       await this.audio.setTrack(beatmap.track);
       this.ui.setBeatmapState('Ready');
-      this.ui.setPlayEnabled(true);
+      this.syncBeatPlayButton();
       this.ui.setBeatDebug(this.audio.currentTime, beatmap.beats[0]?.time ?? null);
     } catch (e) {
       console.error('[Beatmap] init failed:', e instanceof Error ? e.message : e, e);
       this.beatmap = null;
       this.ui.setBeatmapState('Beatmap load failed');
-      this.ui.setPlayEnabled(false);
+      this.syncBeatPlayButton();
     }
   }
 
-  private async startAudioPlayback(): Promise<void> {
+  private syncBeatPlayButton(): void {
+    if (!this.beatmap) {
+      this.ui.setPlayEnabled(false, '');
+      return;
+    }
+    if (this.runPhase === 'death') {
+      this.ui.setPlayEnabled(false, '');
+      return;
+    }
+    const spendMana =
+      this.runPhase === 'playing' || this.runPhase === 'runUpgrade';
+    if (spendMana && this.runMana < CONFIG.playTrackMinManaToActivate) {
+      this.ui.setPlayEnabled(
+        false,
+        `Во время раунда нужно минимум ${CONFIG.playTrackMinManaToActivate} маны (старт: −${CONFIG.playTrackManaCost}).`,
+      );
+      return;
+    }
+    this.ui.setPlayEnabled(true, '');
+  }
+
+  private async requestStartAudioPlayback(): Promise<void> {
     if (!this.beatmap) return;
+    const spendMana =
+      this.runPhase === 'playing' || this.runPhase === 'runUpgrade';
+    if (spendMana) {
+      if (this.runMana < CONFIG.playTrackMinManaToActivate) return;
+      this.runMana -= CONFIG.playTrackManaCost;
+      this.ui.setRunGoldMana(this.runGold, this.runMana);
+      const ok = await this.startAudioPlayback();
+      if (!ok) {
+        this.runMana += CONFIG.playTrackManaCost;
+        this.ui.setRunGoldMana(this.runGold, this.runMana);
+      }
+      this.syncBeatPlayButton();
+      return;
+    }
+    await this.startAudioPlayback();
+    this.syncBeatPlayButton();
+  }
+
+  private async startAudioPlayback(): Promise<boolean> {
+    if (!this.beatmap) return false;
     try {
       if (this.audio.currentTime >= (this.beatmap.beats.at(-1)?.time ?? 0) + 0.25) {
         this.audio.reset();
@@ -264,9 +318,11 @@ export class Game {
       }
       await this.audio.play();
       this.ui.setBeatmapState('Playing');
+      return true;
     } catch (e) {
       console.error('[Beatmap] audio play failed:', e instanceof Error ? e.message : e, e);
       this.ui.setBeatmapState('Playback blocked');
+      return false;
     }
   }
 
@@ -310,6 +366,7 @@ export class Game {
 
   private update(dt: number): void {
     this.input.beginFrame();
+    this.syncBeatPlayButton();
     this.updateDamagePulseRings(dt);
     this.applyLensDistortionEffective();
 
@@ -333,7 +390,8 @@ export class Game {
       this.ui.setFps(this.fpsSmoothed);
       this.ui.setRunRoundElapsedSec(this.runElapsedSec);
       this.ui.setRunKills(this.runEnemiesKilled);
-      this.ui.setRunXp(this.runXpTotal, CONFIG.runXpPerLevel);
+      this.syncRunXpUi();
+      this.ui.setRunGoldMana(this.runGold, this.runMana);
       this.ui.setVaultBearingAngle(null);
       if (this.deathScreenTimer >= CONFIG.deathScreenToMenuDelaySec) {
         this.goToMainMenuAfterDeath();
@@ -360,7 +418,8 @@ export class Game {
       this.ui.setFps(this.fpsSmoothed);
       this.ui.setRunRoundElapsedSec(0);
       this.ui.setRunKills(0);
-      this.ui.setRunXp(0, CONFIG.runXpPerLevel);
+      this.syncRunXpUi();
+      this.ui.setRunGoldMana(0, 0);
       this.ui.setVaultBearingAngle(null);
       return;
     }
@@ -384,8 +443,12 @@ export class Game {
       this.ui.setFps(this.fpsSmoothed);
       this.ui.setRunRoundElapsedSec(this.runElapsedSec);
       this.ui.setRunKills(this.runEnemiesKilled);
-      this.ui.setRunXp(this.runXpTotal, CONFIG.runXpPerLevel);
+      this.syncRunXpUi();
+      this.ui.setRunGoldMana(this.runGold, this.runMana);
       this.ui.setVaultBearingAngle(null);
+      if (this.input.consumePlayTrackTrigger()) {
+        void this.requestStartAudioPlayback();
+      }
       return;
     }
 
@@ -397,6 +460,10 @@ export class Game {
       CONFIG.floorY,
       this.groundHit,
     );
+
+    if (this.input.consumePlayTrackTrigger()) {
+      void this.requestStartAudioPlayback();
+    }
 
     this.runElapsedSec += dt;
     const diffMult = this.getDifficultyMultiplier();
@@ -411,7 +478,6 @@ export class Game {
       aimOk,
       this.getDashLengthWidthMultForThisFrame(),
       this.enemies,
-      isArtifactEnabled('reverseDash'),
     );
     this.tryRegisterDashBeatHit();
 
@@ -475,6 +541,9 @@ export class Game {
       if (e.isVault() && e.getActiveShieldCount() > 0) {
         continue;
       }
+      if (e.isResourceSack()) {
+        continue;
+      }
       if (
         circlesOverlap(
           this.player.x,
@@ -524,7 +593,8 @@ export class Game {
     this.ui.setBeatHitCount(this.beatHitCount);
     this.ui.setRunRoundElapsedSec(this.runElapsedSec);
     this.ui.setRunKills(this.runEnemiesKilled);
-    this.ui.setRunXp(this.runXpTotal, CONFIG.runXpPerLevel);
+    this.syncRunXpUi();
+    this.ui.setRunGoldMana(this.runGold, this.runMana);
     this.syncVaultBearingUi();
 
     if (this.player.hp > 0) {
@@ -538,7 +608,7 @@ export class Game {
       this.ui.setDeathScreenRunSummary({
         survivedSec: this.runElapsedSec,
         kills: this.runEnemiesKilled,
-        level: 1 + Math.floor(this.runXpTotal / CONFIG.runXpPerLevel),
+        level: this.getRunXpProgress(this.runXpTotal).level,
       });
       this.ui.showDeathScreen();
       this.audio.pause();
@@ -584,8 +654,13 @@ export class Game {
     clearRunBalanceBonuses();
     this.runElapsedSec = 0;
     this.runEnemiesKilled = 0;
+    this.runGold = 0;
+    this.runMana = 0;
     this.runXpTotal = 0;
+    this.runLevelUpsAwarded = 0;
     this.runNextUpgradeAtXp = CONFIG.runXpPerLevel;
+    this.runPendingUpgradeMilestones.length = 0;
+    this.wasTrackPlayingLastFrame = false;
     this.clearDamagePulseRings();
     this.clearAllEnemies();
     this.player.resetForNewRun();
@@ -611,14 +686,20 @@ export class Game {
     this.ui.hideDeathScreen();
     this.ui.hideRunUpgradeModal();
     this.ui.setRunKills(0);
-    this.ui.setRunXp(0, CONFIG.runXpPerLevel);
+    this.syncRunXpUi();
+    this.ui.setRunGoldMana(0, 0);
   }
 
   private goToMainMenuAfterDeath(): void {
     this.runElapsedSec = 0;
     this.runEnemiesKilled = 0;
+    this.runGold = 0;
+    this.runMana = 0;
     this.runXpTotal = 0;
+    this.runLevelUpsAwarded = 0;
     this.runNextUpgradeAtXp = CONFIG.runXpPerLevel;
+    this.runPendingUpgradeMilestones.length = 0;
+    this.wasTrackPlayingLastFrame = false;
     clearRunBalanceBonuses();
     this.ui.hideRunUpgradeModal();
     this.clearDamagePulseRings();
@@ -735,15 +816,48 @@ export class Game {
     this.ui.setVaultBearingAngle(phi);
   }
 
-  /** XP to add so that `runXpTotal` reaches the next multiple of `runXpPerLevel` (vault kill). */
+  private getRunXpRequiredForLevelUp(level: number): number {
+    const lv = Math.max(1, Math.floor(level));
+    return CONFIG.runXpPerLevel + (lv - 1) * Game.RUN_XP_STEP_PER_LEVEL;
+  }
+
+  private getRunXpProgress(totalXp: number): {
+    level: number;
+    xpInLevel: number;
+    xpForNextLevel: number;
+  } {
+    let level = 1;
+    let rest = Math.max(0, Math.floor(Number.isFinite(totalXp) ? totalXp : 0));
+    let need = this.getRunXpRequiredForLevelUp(level);
+    while (rest >= need) {
+      rest -= need;
+      level += 1;
+      need = this.getRunXpRequiredForLevelUp(level);
+    }
+    return { level, xpInLevel: rest, xpForNextLevel: need };
+  }
+
+  private syncRunXpUi(): void {
+    const p = this.getRunXpProgress(this.runXpTotal);
+    this.ui.setRunXp(p.level, p.xpInLevel, p.xpForNextLevel);
+  }
+
+  /** XP to add so that `runXpTotal` reaches the next level threshold. */
   private vaultXpFillToNextSegment(): number {
-    const per = CONFIG.runXpPerLevel;
-    const t = this.runXpTotal;
-    const r = t % per;
-    return r === 0 ? per : per - r;
+    const p = this.getRunXpProgress(this.runXpTotal);
+    return Math.max(1, p.xpForNextLevel - p.xpInLevel);
+  }
+
+  private grantResourceLootFromSack(enemy: Enemy): void {
+    if (enemy.isGoldSack()) {
+      this.runGold += rollResourceSackDropAmount();
+    } else if (enemy.isManaSack()) {
+      this.runMana += 10;
+    }
   }
 
   private awardEnemyKillXp(enemy: Enemy): void {
+    if (enemy.isResourceSack()) return;
     let xp: number;
     if (enemy.isVault()) {
       xp = this.vaultXpFillToNextSegment();
@@ -757,10 +871,26 @@ export class Game {
 
   private maybeEnterRunUpgrade(): void {
     if (this.runPhase !== 'playing') return;
-    if (this.runXpTotal < this.runNextUpgradeAtXp) return;
+    this.collectReachedRunUpgradeMilestones();
+    if (this.runPendingUpgradeMilestones.length <= 0) return;
+    // While the beat-track ability is active, queue upgrades but do not interrupt gameplay.
+    if (this.audio.isPlaying) return;
+    this.openNextRunUpgradeModal();
+  }
+
+  private collectReachedRunUpgradeMilestones(): void {
+    while (this.runXpTotal >= this.runNextUpgradeAtXp) {
+      this.runPendingUpgradeMilestones.push(this.runNextUpgradeAtXp);
+      this.runLevelUpsAwarded += 1;
+      this.runNextUpgradeAtXp += this.getRunXpRequiredForLevelUp(this.runLevelUpsAwarded + 1);
+    }
+  }
+
+  private openNextRunUpgradeModal(): void {
+    if (this.runPendingUpgradeMilestones.length <= 0) return;
     this.runPhase = 'runUpgrade';
     this.ui.showRunUpgradeModal({
-      milestoneXp: this.runNextUpgradeAtXp,
+      milestoneXp: this.runPendingUpgradeMilestones[0]!,
       onDash: () => this.applyRunUpgradeChoice('dash'),
       onSpeed: () => this.applyRunUpgradeChoice('speed'),
       onShields: () => this.applyRunUpgradeChoice('shields'),
@@ -786,10 +916,13 @@ export class Game {
     } else {
       this.player.accelerateShieldRegenFromUpgrade();
     }
-    this.runNextUpgradeAtXp += CONFIG.runXpPerLevel;
+    if (this.runPendingUpgradeMilestones.length > 0) {
+      this.runPendingUpgradeMilestones.shift();
+    }
     this.ui.hideRunUpgradeModal();
     this.runPhase = 'playing';
-    this.ui.setRunXp(this.runXpTotal, CONFIG.runXpPerLevel);
+    this.syncRunXpUi();
+    this.ui.setRunGoldMana(this.runGold, this.runMana);
     this.maybeEnterRunUpgrade();
   }
 
@@ -814,6 +947,13 @@ export class Game {
     } else if (now > 0 && this.nextBeatIndex >= beats.length) {
       this.ui.setBeatmapState('Ended');
     }
+
+    const trackPlayingNow = this.audio.isPlaying;
+    // Detect track end edge and immediately flush queued upgrade modals.
+    if (this.wasTrackPlayingLastFrame && !trackPlayingNow) {
+      this.maybeEnterRunUpgrade();
+    }
+    this.wasTrackPlayingLastFrame = trackPlayingNow;
   }
 
   private resolveDashKills(): number {
@@ -893,6 +1033,7 @@ export class Game {
         } else {
           const died = e.takeDashHit();
           if (died) {
+            this.grantResourceLootFromSack(e);
             this.awardEnemyKillXp(e);
             e.dispose(this.scene);
             this.enemies.splice(i, 1);
@@ -1084,6 +1225,7 @@ export class Game {
       const dz = e.mesh.position.z - pz;
       if (dx * dx + dz * dz > r2) continue;
       if (e.applyDamage(pulseDmg)) {
+        this.grantResourceLootFromSack(e);
         this.awardEnemyKillXp(e);
         e.dispose(this.scene);
         this.enemies.splice(i, 1);

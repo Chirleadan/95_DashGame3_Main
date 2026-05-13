@@ -7,7 +7,12 @@ import {
 } from './ObstacleAvoidance.ts';
 
 /** `vault` = игровое «Хранилище» (шестигранник с щитами на рёбрах). */
-export type EnemyKind = 'normal' | 'tank' | 'vault';
+export type EnemyKind =
+  | 'normal'
+  | 'tank'
+  | 'vault'
+  | 'goldSack'
+  | 'manaSack';
 
 /** Same fill for normal / tank body and tank outline (must match visually). */
 const ENEMY_BODY_COLOR = 0xff3344;
@@ -122,6 +127,26 @@ export class Enemy {
       return;
     }
 
+    if (kind === 'goldSack' || kind === 'manaSack') {
+      this.hitsRemaining = 1;
+      const segs = 10;
+      const r = CONFIG.enemyRadius;
+      const isGold = kind === 'goldSack';
+      const mat = new THREE.MeshBasicMaterial({
+        color: isGold ? 0xc9a227 : 0x4a6bdc,
+        transparent: true,
+        opacity: 0.95,
+        depthWrite: true,
+      });
+      const body = new THREE.Mesh(new THREE.CircleGeometry(r, segs), mat);
+      body.rotation.x = -Math.PI / 2;
+      body.castShadow = false;
+      body.receiveShadow = false;
+      this.mesh.add(body);
+      scene.add(this.mesh);
+      return;
+    }
+
     this.hitsRemaining = kind === 'tank' ? CONFIG.tankHitsToKill : 1;
 
     const segs = 10;
@@ -181,6 +206,19 @@ export class Enemy {
   /** Игровое «Хранилище». */
   isVault(): boolean {
     return this.kind === 'vault';
+  }
+
+  isGoldSack(): boolean {
+    return this.kind === 'goldSack';
+  }
+
+  isManaSack(): boolean {
+    return this.kind === 'manaSack';
+  }
+
+  /** Статичные мешки золота/маны: без урона по герою, не двигаются. */
+  isResourceSack(): boolean {
+    return this.kind === 'goldSack' || this.kind === 'manaSack';
   }
 
   /** Активные щиты (только у Хранилища). */
@@ -274,7 +312,7 @@ export class Enemy {
     speedMultiplier = 1,
     storageObstacles: readonly StorageObstacleCircle[] | null = null,
   ): void {
-    if (this.kind === 'vault') {
+    if (this.kind === 'vault' || this.kind === 'goldSack' || this.kind === 'manaSack') {
       return;
     }
     let mx = targetX - this.mesh.position.x;

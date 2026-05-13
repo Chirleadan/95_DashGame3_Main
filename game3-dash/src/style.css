@@ -229,6 +229,12 @@ body {
   font-weight: 600;
 }
 
+.hud-loot-sep {
+  opacity: 0.4;
+  padding: 0 4px;
+  user-select: none;
+}
+
 .fps-meter {
   position: absolute;
   right: 16px;

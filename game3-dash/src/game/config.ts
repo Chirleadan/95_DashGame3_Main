@@ -53,11 +53,25 @@ export const CONFIG = {
   dashKillShakeCap: 0.55,
   /** Dash kill sweep uses `playerRadius * this` (enemy radius unchanged). */
   dashKillPlayerRadiusScale: 4,
-  /** Reverse Dash artifact: main dash world speed × this (kill sweep length scales the same). */
-  reverseDashArtifactDashSpeedMult: 2,
+  /**
+   * Reverse Dash artifact: second phase is stationary (sweep + trail only).
+   * `reverseDashArtifactDurationFraction` scales how long that phase lasts (freeze matches).
+   * `reverseDashArtifactSweepNominalMult` scales kill-sweep / trail length vs
+   * `getDashNominalLengthWorld() × on-beat mult`. Old behavior used ×2 speed on the same
+   * duration (≈2× world length); half of that ≈ 1× nominal — default sweep mult `1`.
+   */
+  reverseDashArtifactDurationFraction: 0.5,
+  reverseDashArtifactSweepNominalMult: 1,
 
   /** When beatmap audio is playing, add this to the UI lens distortion (clamped with slider sum to 0.5). */
   lensDistortionWhileTrackPlaysBoost: 0.2,
+  /**
+   * During a run (`playing` / `runUpgrade`): need at least this much mana to start the track (E or button).
+   * Starting spends `playTrackManaCost` mana on success; refunded if playback fails to start.
+   */
+  playTrackMinManaToActivate: 20,
+  /** Mana removed when the beatmap track starts during a run. */
+  playTrackManaCost: 10,
 
   /** Beat lane: note x = center + (beatTime - audioTime) * this (px/s), right → left. */
   beatLaneScrollPxPerSec: 880,
@@ -80,7 +94,7 @@ export const CONFIG = {
   /** After death, show death screen this long (seconds) then return to main menu. */
   deathScreenToMenuDelaySec: 2.5,
 
-  /** XP to gain one in-run level (upgrade choice). */
+  /** Base XP for the first in-run level-up; each next level-up requires +5 more XP. */
   runXpPerLevel: 10,
   /** XP for killing a normal mob or vault (not a tank). */
   runXpKillMob: 1,
@@ -125,6 +139,20 @@ export const CONFIG = {
   /** Flat HP lost each game tick per overlapping enemy (not scaled by deltaTime). */
   contactDamagePerTick: 1,
   initialEnemyCount: 4,
+
+  /**
+   * Every N-th spawn (when not tank/vault) is a stationary «Мешок золота» (1 удар, без урона игроку).
+   * `0` = never from cadence.
+   */
+  goldSackEveryNthSpawn: 17,
+  /**
+   * Every N-th spawn (when not tank/vault) is a stationary «Мешок маны» (1 удар, без урона игроку).
+   * `0` = never from cadence.
+   */
+  manaSackEveryNthSpawn: 23,
+  /** Inclusive drop when a resource sack is destroyed. */
+  resourceSackDropMin: 1,
+  resourceSackDropMax: 5,
 
   /** Every N-th spawn is a vault / «Хранилище» (unless same tick is also a tank spawn). */
   vaultEveryNthSpawn: 30,

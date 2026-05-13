@@ -36,6 +36,8 @@ export class UI {
   private readonly hpBarRegenFills: HTMLElement[] = [];
   private readonly enemiesEl: HTMLElement;
   private readonly runKillsEl: HTMLElement;
+  private readonly runGoldEl: HTMLElement;
+  private readonly runManaEl: HTMLElement;
   private readonly runXpTextEl: HTMLElement;
   private readonly runXpFillEl: HTMLElement;
   private readonly runLevelEl: HTMLElement;
@@ -100,11 +102,14 @@ export class UI {
         <div class="hud-xp-bar" aria-hidden="true"><div id="hud-run-xp-fill" class="hud-xp-bar__fill"></div></div>
       </div>
       <div class="hud-row"><span class="label">Убито</span> <span id="hud-run-kills">0</span></div>
+      <div class="hud-row hud-row--loot"><span class="label">Золото</span> <span id="hud-run-gold" class="hud-xp-num">0</span><span class="hud-loot-sep" aria-hidden="true">·</span><span class="label">Мана</span> <span id="hud-run-mana" class="hud-xp-num">0</span></div>
       <div class="hud-row"><span class="label">Enemies</span> <span id="hud-enemies">0</span></div>
       <div class="hud-row"><span class="label">Dash CD</span> <span id="hud-dash">Ready</span></div>
     `;
     container.appendChild(hud);
     this.runKillsEl = hud.querySelector('#hud-run-kills')!;
+    this.runGoldEl = hud.querySelector('#hud-run-gold')!;
+    this.runManaEl = hud.querySelector('#hud-run-mana')!;
     this.runXpTextEl = hud.querySelector('#hud-run-xp-text')!;
     this.runXpFillEl = hud.querySelector('#hud-run-xp-fill')!;
     this.runLevelEl = hud.querySelector('#hud-run-level')!;
@@ -125,7 +130,7 @@ export class UI {
     const beatUi = document.createElement('div');
     beatUi.className = 'beat-ui';
     beatUi.innerHTML = `
-      <button id="beat-play-btn" type="button">Play track</button>
+      <button id="beat-play-btn" type="button">Play track (E)</button>
       <div class="beat-debug-row"><span class="label">Audio</span> <span id="beat-audio-time">0.00s</span></div>
       <div class="beat-debug-row"><span class="label">Next</span> <span id="beat-next-time">-</span></div>
       <div class="beat-debug-row"><span class="label">On-beat</span> <span id="beat-hit-count">0</span></div>
@@ -385,13 +390,12 @@ export class UI {
     this.runUpgradeOverlayEl.hidden = false;
   }
 
-  /** Progress within current level: `totalXp % xpPerLevel` / `xpPerLevel`. */
-  setRunXp(totalXp: number, xpPerLevel: number): void {
-    const per = Math.max(1, Math.floor(xpPerLevel));
-    const t = Math.max(0, Math.floor(Number.isFinite(totalXp) ? totalXp : 0));
-    const inLevel = t % per;
-    const level = 1 + Math.floor(t / per);
-    this.runLevelEl.textContent = String(level);
+  /** Progress within current level: `xpInLevel / xpForNextLevel`. */
+  setRunXp(level: number, xpInLevel: number, xpForNextLevel: number): void {
+    const lv = Math.max(1, Math.floor(Number.isFinite(level) ? level : 1));
+    const per = Math.max(1, Math.floor(Number.isFinite(xpForNextLevel) ? xpForNextLevel : 1));
+    const inLevel = Math.max(0, Math.min(per, Math.floor(Number.isFinite(xpInLevel) ? xpInLevel : 0)));
+    this.runLevelEl.textContent = String(lv);
     this.runXpTextEl.textContent = `${inLevel} / ${per}`;
     const pct = (inLevel / per) * 100;
     this.runXpFillEl.style.width = `${pct}%`;
@@ -556,6 +560,14 @@ export class UI {
       panel.appendChild(row);
     }
     container.appendChild(panel);
+  }
+
+  /** Run totals: gold / mana from resource sacks (no spend yet). */
+  setRunGoldMana(gold: number, mana: number): void {
+    const g = Math.max(0, Math.floor(Number.isFinite(gold) ? gold : 0));
+    const m = Math.max(0, Math.floor(Number.isFinite(mana) ? mana : 0));
+    this.runGoldEl.textContent = String(g);
+    this.runManaEl.textContent = String(m);
   }
 
   /** Enemies removed during the current run (dash, pulse, etc.). */
@@ -766,8 +778,9 @@ export class UI {
     this.deathScreenEl.hidden = true;
   }
 
-  setPlayEnabled(enabled: boolean): void {
+  setPlayEnabled(enabled: boolean, disabledTitle = ''): void {
     this.playBtn.disabled = !enabled;
+    this.playBtn.title = disabledTitle;
   }
 
   setBeatmapState(text: string): void {
