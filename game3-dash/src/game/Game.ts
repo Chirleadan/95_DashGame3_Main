@@ -71,6 +71,12 @@ export class Game {
     vz: number;
     age: number;
   }[] = [];
+  private readonly comboEl: HTMLDivElement;
+  private comboCount = 0;
+  private comboTimeLeftSec = 0;
+  private comboWorldX = 0;
+  private comboWorldZ = 0;
+  private readonly comboScreenPos = new THREE.Vector3();
   private readonly spawner: EnemySpawner;
   private readonly ui: UI;
   private readonly audio = new AudioManager();
@@ -132,6 +138,21 @@ export class Game {
     baseOpacity: number;
     radiusMult: number;
   }[] = [];
+  private readonly bloodPuddles: {
+    mesh: THREE.Mesh;
+    mat: THREE.MeshBasicMaterial;
+    age: number;
+    life: number;
+    baseScale: number;
+  }[] = [];
+  private readonly bloodParticles: {
+    mesh: THREE.Mesh;
+    mat: THREE.MeshBasicMaterial;
+    vx: number;
+    vz: number;
+    age: number;
+    life: number;
+  }[] = [];
 
   /** Dash sweep consumed in `resolveDashKills` this frame (debug overlay / logs). */
   private dashDebugSweepThisFrame: DashSweepSegment | null = null;
@@ -177,6 +198,12 @@ export class Game {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     mount.appendChild(this.renderer.domElement);
+    const vignette = document.createElement('div');
+    vignette.className = 'game-vignette';
+    mount.appendChild(vignette);
+    this.comboEl = document.createElement('div');
+    this.comboEl.className = 'combo-pop combo-pop--hidden';
+    mount.appendChild(this.comboEl);
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.renderCamera));
@@ -328,27 +355,38 @@ export class Game {
   }
 
   private createArenaCheckerTexture(): THREE.CanvasTexture {
-    const tileSize = 96;
+    const cellSize = 32;
+    const cellsPerSide = 16;
+    const colors = ['#1f3a40', '#285c78'] as const;
     const canvas = document.createElement('canvas');
-    canvas.width = tileSize * 2;
-    canvas.height = tileSize * 2;
+    canvas.width = cellSize * cellsPerSide;
+    canvas.height = cellSize * cellsPerSide;
     const ctx = canvas.getContext('2d');
     if (!ctx) {
       throw new Error('Could not create arena checker texture canvas');
     }
 
-    ctx.fillStyle = '#05060a';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#1a1d24';
-    ctx.fillRect(tileSize, 0, tileSize, tileSize);
-    ctx.fillRect(0, tileSize, tileSize, tileSize);
+    for (let y = 0; y < cellsPerSide; y++) {
+      for (let x = 0; x < cellsPerSide; x++) {
+        ctx.fillStyle = colors[(x + y) % 2]!;
+        ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+      }
+    }
+
+    for (let y = 0; y < cellsPerSide - 1; y += 2) {
+      for (let x = 0; x < cellsPerSide - 1; x += 2) {
+        if (Math.random() > 0.18) continue;
+        ctx.fillStyle = colors[Math.floor(Math.random() * colors.length)]!;
+        ctx.fillRect(x * cellSize, y * cellSize, cellSize * 2, cellSize * 2);
+      }
+    }
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.repeat.set(
-      CONFIG.arenaFloorVisualHalfExtent / 4,
-      CONFIG.arenaFloorVisualHalfExtent / 4,
+      CONFIG.arenaFloorVisualHalfExtent / 32,
+      CONFIG.arenaFloorVisualHalfExtent / 32,
     );
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.magFilter = THREE.NearestFilter;
@@ -532,6 +570,7 @@ export class Game {
     this.updateCameraZoomFromInput();
     this.syncBeatPlayButton();
     this.updateDamagePulseRings(dt);
+    this.updateBloodEffects(dt);
     this.updateDyingEnemies(dt);
     this.applyLensDistortionEffective();
 
@@ -540,6 +579,7 @@ export class Game {
       this.deathScreenTimer += dt;
       this.beatEffects.update(dt);
       this.updateCamera(dt);
+      this.updateComboOverlay(dt);
       const instFpsD = dt > 1e-6 ? 1 / dt : 0;
       this.fpsSmoothed =
         this.fpsSmoothed <= 0
@@ -566,6 +606,7 @@ export class Game {
 
     if (this.runPhase === 'menu') {
       this.clearDashPastTankDebugOverlay();
+      this.hideComboOverlay();
       this.beatEffects.update(dt);
       this.updateCamera(dt);
       const instFpsM = dt > 1e-6 ? 1 / dt : 0;
@@ -593,6 +634,7 @@ export class Game {
       this.clearDashPastTankDebugOverlay();
       this.beatEffects.update(dt);
       this.updateCamera(dt);
+      this.updateComboOverlay(dt);
       const instFpsU = dt > 1e-6 ? 1 / dt : 0;
       this.fpsSmoothed =
         this.fpsSmoothed <= 0
@@ -755,6 +797,7 @@ export class Game {
     }
 
     this.updateCamera(dt);
+    this.updateComboOverlay(dt);
 
     const instFps = dt > 1e-6 ? 1 / dt : 0;
     this.fpsSmoothed =
@@ -823,6 +866,21 @@ export class Game {
     this.damagePulseRings.length = 0;
   }
 
+  private clearBloodEffects(): void {
+    for (const p of this.bloodPuddles) {
+      this.scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mat.dispose();
+    }
+    this.bloodPuddles.length = 0;
+    for (const p of this.bloodParticles) {
+      this.scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mat.dispose();
+    }
+    this.bloodParticles.length = 0;
+  }
+
   private clearAllEnemies(): void {
     for (const e of this.enemies) {
       e.dispose(this.scene);
@@ -834,11 +892,21 @@ export class Game {
     this.dyingEnemies.length = 0;
   }
 
-  private removeEnemyFromGameplayAt(index: number): Enemy | null {
+  private removeEnemyFromGameplayAt(
+    index: number,
+    dashDir?: { x: number; z: number; passPower?: number },
+  ): Enemy | null {
     const enemy = this.enemies[index];
     if (!enemy) return null;
     this.enemies.splice(index, 1);
+    this.registerComboKill(enemy.mesh.position.x, enemy.mesh.position.z);
     this.playDeathSfx();
+    this.spawnBloodSplash(
+      enemy.mesh.position.x,
+      enemy.mesh.position.z,
+      enemy.bodyRadius,
+      dashDir,
+    );
     enemy.showDeathSprite();
     this.dyingEnemies.push({ enemy, age: 0 });
     return enemy;
@@ -852,6 +920,218 @@ export class Game {
       if (d.age < linger) continue;
       d.enemy.dispose(this.scene);
       this.dyingEnemies.splice(i, 1);
+    }
+  }
+
+  private registerComboKill(x: number, z: number): void {
+    this.comboCount += 1;
+    this.comboTimeLeftSec = 1.5;
+    this.comboWorldX = x;
+    this.comboWorldZ = z;
+    if (this.comboCount < 2) {
+      this.comboEl.classList.add('combo-pop--hidden');
+      return;
+    }
+    const growT = Math.max(0, Math.min(1, (this.comboCount - 2) / 8));
+    const comboSize = 21 + growT * 4;
+    const countSize = 21 + growT * 14;
+    this.comboEl.innerHTML = `<span class="combo-pop__label">COMBO</span> <span class="combo-pop__count">x${this.comboCount}</span>`;
+    this.comboEl.style.setProperty('--combo-label-size', `${comboSize}px`);
+    this.comboEl.style.setProperty('--combo-count-size', `${countSize}px`);
+    this.comboEl.classList.remove('combo-pop--hidden');
+    this.comboEl.classList.remove('combo-pop--hit');
+    void this.comboEl.offsetWidth;
+    this.comboEl.classList.add('combo-pop--hit');
+  }
+
+  private updateComboOverlay(dt: number): void {
+    if (this.comboTimeLeftSec <= 0) {
+      this.hideComboOverlay();
+      return;
+    }
+    this.comboTimeLeftSec = Math.max(0, this.comboTimeLeftSec - Math.max(0, dt));
+    if (this.comboTimeLeftSec <= 0) {
+      this.hideComboOverlay();
+      return;
+    }
+
+    this.comboScreenPos.set(this.comboWorldX, CONFIG.floorY + 1.2, this.comboWorldZ);
+    this.comboScreenPos.project(this.camera);
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const x = (this.comboScreenPos.x * 0.5 + 0.5) * rect.width;
+    const y = (-this.comboScreenPos.y * 0.5 + 0.5) * rect.height;
+    this.comboEl.style.transform = `translate3d(${x}px, ${y}px, 0) translate(0, -100%)`;
+  }
+
+  private hideComboOverlay(): void {
+    if (this.comboCount <= 0 && this.comboTimeLeftSec <= 0) return;
+    this.comboCount = 0;
+    this.comboTimeLeftSec = 0;
+    this.comboEl.classList.add('combo-pop--hidden');
+    this.comboEl.classList.remove('combo-pop--hit');
+  }
+
+  private spawnBloodSplash(
+    x: number,
+    z: number,
+    bodyRadius: number,
+    dashDir?: { x: number; z: number; passPower?: number },
+  ): void {
+    const radius = Math.max(0.25, bodyRadius * CONFIG.enemyBloodPuddleRadiusMult);
+    let dirX = 0;
+    let dirZ = 0;
+    const dirLen = dashDir ? Math.hypot(dashDir.x, dashDir.z) : 0;
+    const directional = dirLen > 1e-4;
+    if (directional && dashDir) {
+      dirX = dashDir.x / dirLen;
+      dirZ = dashDir.z / dirLen;
+    }
+    const passPower = directional
+      ? Math.max(0, Math.min(1, dashDir?.passPower ?? 1))
+      : 0;
+    const stretchActive = directional && passPower > 0.02;
+    const sideX = -dirZ;
+    const sideZ = dirX;
+    const shape = new THREE.Shape();
+    const points = 18;
+    for (let i = 0; i <= points; i++) {
+      const a = (i / points) * Math.PI * 2;
+      const wobble =
+        0.78 +
+        Math.random() * 0.34 +
+        Math.sin(a * 3 + Math.random() * 0.4) * 0.08;
+      const forward = Math.cos(a);
+      const lateral = Math.sin(a);
+      const forwardScale = stretchActive
+        ? (forward >= 0 ? 1 + 3.5 * passPower : 1 - 0.35 * passPower)
+        : 1;
+      const forwardOffset = stretchActive ? radius * 1.08 * passPower : 0;
+      const along = forward * radius * wobble * forwardScale + forwardOffset;
+      const across = lateral * radius * wobble * (stretchActive ? 0.95 : 1);
+      const worldX = stretchActive ? dirX * along + sideX * across : along;
+      const worldZ = stretchActive ? dirZ * along + sideZ * across : across;
+      // Shape local Y becomes negative world Z after rotation.x = -PI / 2.
+      const shapeY = -worldZ;
+      if (i === 0) shape.moveTo(worldX, shapeY);
+      else shape.lineTo(worldX, shapeY);
+    }
+    shape.closePath();
+
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x5c0f3e,
+      transparent: true,
+      opacity: 0.72,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, CONFIG.floorY + 0.012, z);
+    mesh.scale.setScalar(0.42);
+    mesh.renderOrder = 2;
+    this.scene.add(mesh);
+    this.bloodPuddles.push({
+      mesh,
+      mat,
+      age: 0,
+      life: Math.max(0.1, CONFIG.enemyBloodPuddleLifeSec),
+      baseScale: 1 + Math.random() * 0.18,
+    });
+
+    const count = Math.max(0, Math.floor(CONFIG.enemyBloodParticleCount));
+    for (let i = 0; i < count; i++) {
+      const spread = Math.PI * (1 - passPower) + 0.55 * passPower;
+      const a = stretchActive
+        ? Math.atan2(dirZ, dirX) + (Math.random() * 2 - 1) * spread
+        : Math.random() * Math.PI * 2;
+      const speed =
+        CONFIG.enemyBloodParticleSpeed * (0.25 + Math.random() * 0.75) *
+        Math.max(0.55, Math.min(1.7, bodyRadius)) *
+        (1 + 0.75 * passPower);
+      const size = 0.24 + Math.random() * 0.28;
+      const pMat = new THREE.MeshBasicMaterial({
+        color: 0x5c0f3e,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const pMesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size), pMat);
+      pMesh.rotation.x = -Math.PI / 2;
+      pMesh.rotation.z = Math.random() * Math.PI;
+      const spawnScatter = radius * (0.1 + Math.random() * 0.75);
+      const scatterA = Math.random() * Math.PI * 2;
+      const forwardScatter = stretchActive
+        ? radius * passPower * (0.68 + Math.random() * 1.88)
+        : 0;
+      pMesh.position.set(
+        x + dirX * forwardScatter + Math.cos(scatterA) * spawnScatter,
+        CONFIG.floorY + 0.018,
+        z + dirZ * forwardScatter + Math.sin(scatterA) * spawnScatter,
+      );
+      pMesh.renderOrder = 3;
+      this.scene.add(pMesh);
+      this.bloodParticles.push({
+        mesh: pMesh,
+        mat: pMat,
+        vx: Math.cos(a) * speed,
+        vz: Math.sin(a) * speed,
+        age: 0,
+        life: Math.max(0.1, CONFIG.enemyBloodPuddleLifeSec),
+      });
+    }
+  }
+
+  private getDashBloodImpact(
+    enemyX: number,
+    enemyZ: number,
+    bodyRadius: number,
+    dashDir: { x: number; z: number },
+  ): { x: number; z: number; passPower: number } {
+    const dirLen = Math.hypot(dashDir.x, dashDir.z);
+    if (dirLen <= 1e-4) return { x: 0, z: 0, passPower: 0 };
+    const dirX = dashDir.x / dirLen;
+    const dirZ = dashDir.z / dirLen;
+    const projectedEnd = this.player.getProjectedDashEndXZ();
+    const playerPastEnemy =
+      (projectedEnd.x - enemyX) * dirX + (projectedEnd.z - enemyZ) * dirZ;
+    const fullStretchDist = Math.max(0.35, bodyRadius * 2.2);
+    const passPower = Math.max(0, Math.min(1, playerPastEnemy / fullStretchDist));
+    return { x: dirX, z: dirZ, passPower };
+  }
+
+  private updateBloodEffects(dt: number): void {
+    for (let i = this.bloodPuddles.length - 1; i >= 0; i--) {
+      const p = this.bloodPuddles[i]!;
+      p.age += dt;
+      const t = Math.min(1, p.age / p.life);
+      const spreadT = Math.min(1, t / 0.16);
+      const spread = p.baseScale * (0.86 + 0.14 * (1 - Math.pow(1 - spreadT, 3)));
+      p.mesh.scale.setScalar(spread);
+      p.mat.opacity = 0.72 * (1 - Math.max(0, t - 0.28) / 0.72);
+      if (p.age < p.life) continue;
+      this.scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mat.dispose();
+      this.bloodPuddles.splice(i, 1);
+    }
+
+    for (let i = this.bloodParticles.length - 1; i >= 0; i--) {
+      const p = this.bloodParticles[i]!;
+      p.age += dt;
+      const t = Math.min(1, p.age / Math.max(0.001, p.life));
+      const drag = Math.pow(0.035, dt);
+      p.vx *= drag;
+      p.vz *= drag;
+      p.mesh.position.x += p.vx * dt;
+      p.mesh.position.z += p.vz * dt;
+      p.mesh.rotation.z += (p.vx - p.vz) * dt * 0.2;
+      p.mat.opacity = 0.9 * (1 - t);
+      if (p.age < p.life) continue;
+      this.scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mat.dispose();
+      this.bloodParticles.splice(i, 1);
     }
   }
 
@@ -874,7 +1154,7 @@ export class Game {
     const r = CONFIG.shooterProjectileRadius;
     const geo = new THREE.SphereGeometry(r, 12, 8);
     const mat = new THREE.MeshBasicMaterial({
-      color: 0xa8f2ff,
+      color: CONFIG.shooterProjectileColor,
       transparent: true,
       opacity: 0.96,
     });
@@ -961,8 +1241,10 @@ export class Game {
     this.wasTrackPlayingLastFrame = false;
     this.pendingDashSfx = false;
     this.clearDamagePulseRings();
+    this.clearBloodEffects();
     this.clearAllEnemies();
     this.clearEnemyProjectiles();
+    this.hideComboOverlay();
     this.player.resetForNewRun();
     this.ui.rebuildHpBarSegments();
     this.spawner.reset();
@@ -1005,8 +1287,10 @@ export class Game {
     clearRunBalanceBonuses();
     this.ui.hideRunUpgradeModal();
     this.clearDamagePulseRings();
+    this.clearBloodEffects();
     this.clearAllEnemies();
     this.clearEnemyProjectiles();
+    this.hideComboOverlay();
     this.player.resetForNewRun();
     this.spawner.reset();
     this.resetBeatHitTracking();
@@ -1333,6 +1617,13 @@ export class Game {
     const seg = this.player.consumeDashSweep();
     this.dashDebugSweepThisFrame = seg;
     if (!seg) return 0;
+    const dashDx = seg.bx - seg.ax;
+    const dashDz = seg.bz - seg.az;
+    const dashLen = Math.hypot(dashDx, dashDz);
+    const dashKillDir =
+      dashLen > 1e-4
+        ? { x: dashDx / dashLen, z: dashDz / dashLen }
+        : { x: this.player.dash.dirX, z: this.player.dash.dirZ };
     const dashSerial = this.player.getDashHitSerial();
     const scaledPlayer = CONFIG.playerRadius * getDashKillRadiusScale();
     let kills = 0;
@@ -1392,7 +1683,10 @@ export class Game {
         }
         if (died) {
           this.awardEnemyKillXp(e);
-          this.removeEnemyFromGameplayAt(i);
+          this.removeEnemyFromGameplayAt(
+            i,
+            this.getDashBloodImpact(tx, tz, e.bodyRadius, dashKillDir),
+          );
           kills += 1;
         }
         continue;
@@ -1426,7 +1720,10 @@ export class Game {
           if (died) {
             this.grantResourceLootFromSack(e);
             this.awardEnemyKillXp(e);
-            this.removeEnemyFromGameplayAt(i);
+            this.removeEnemyFromGameplayAt(
+              i,
+              this.getDashBloodImpact(tx, tz, e.bodyRadius, dashKillDir),
+            );
             kills += 1;
           }
         }
@@ -1443,7 +1740,15 @@ export class Game {
       if (!e.isTank()) continue;
       if (!e.tickDeferredTankDashDamage()) continue;
       this.awardEnemyKillXp(e);
-      this.removeEnemyFromGameplayAt(i);
+      this.removeEnemyFromGameplayAt(
+        i,
+        this.getDashBloodImpact(
+          e.mesh.position.x,
+          e.mesh.position.z,
+          e.bodyRadius,
+          { x: this.player.dash.dirX, z: this.player.dash.dirZ },
+        ),
+      );
       kills += 1;
     }
     return kills;
@@ -1680,6 +1985,7 @@ export class Game {
     this.clearBackgroundPauseTimer();
     window.removeEventListener('resize', this.onResize);
     this.clearDamagePulseRings();
+    this.clearBloodEffects();
     if (this.debugDashTankGroup) {
       this.disposeDebugDashTankChildren(this.debugDashTankGroup);
       this.scene.remove(this.debugDashTankGroup);

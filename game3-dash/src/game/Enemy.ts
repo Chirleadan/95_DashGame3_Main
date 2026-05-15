@@ -16,7 +16,7 @@ export type EnemyKind =
   | 'goldSack'
   | 'manaSack';
 
-/** Same fill for normal / tank body and tank outline (must match visually). */
+/** Same fill for normal / tank body. */
 const ENEMY_BODY_COLOR = 0xff3344;
 const SHOOTER_BODY_COLOR = 0x58d7ff;
 const ENEMY_TEXTURE_LOADER = new THREE.TextureLoader();
@@ -286,7 +286,7 @@ export class Enemy {
         const ringInner = r + gap + i * (stroke + gap * 0.6);
         const ringOuter = ringInner + stroke;
         const outlineMat = new THREE.MeshBasicMaterial({
-          color: ENEMY_BODY_COLOR,
+          color: CONFIG.tankOutlineColor,
           transparent: true,
           opacity: 0.96,
           depthWrite: false,

@@ -1,5 +1,6 @@
 /** Main dash active time (seconds); enemy freeze uses the same value. */
 const DASH_DURATION_SEC = 0.140595;
+const TANK_OUTLINE_COLOR = 0xff3344;
 
 /** Tunable gameplay and presentation constants. */
 export const CONFIG = {
@@ -24,6 +25,18 @@ export const CONFIG = {
   playerDamagePulseEnemyDamage: 3,
   playerSpeed: 14,
   playerRadius: 0.45,
+  /** Procedural tail point follows behind the player by this many world units. */
+  playerTailFollowDistance: 1.45,
+  /** Higher values make the tail point catch up faster. */
+  playerTailFollowSharpness: 7.5,
+  /** Side-to-side wag amplitude in world units. */
+  playerTailWagAmplitude: 0.32,
+  /** Side-to-side wag cycles per second. */
+  playerTailWagHz: 2.2 / 3,
+  /** Visual ribbon width in world units. */
+  playerTailRibbonWidth: 0.28,
+  /** How strongly the tail ribbon bends sideways around its Bezier control point. */
+  playerTailCurveBendMult: 2.6,
 
   /** Reference speed at default balance; default nominal length = `dashSpeed × dashDuration`. */
   dashSpeed: 34,
@@ -56,6 +69,13 @@ export const CONFIG = {
   dashKillShakeCap: 0.55,
   /** How long dead enemies remain visible after being removed from gameplay (seconds). */
   enemyDeathLingerSec: 0.4,
+  /** Red floor splash lifetime after a unit dies (seconds). */
+  enemyBloodPuddleLifeSec: 1.15 / 1.5,
+  /** Final procedural floor splash radius, multiplied by enemy body radius. */
+  enemyBloodPuddleRadiusMult: 1.35,
+  /** Red pixel droplets emitted on the floor at unit death. */
+  enemyBloodParticleCount: 30,
+  enemyBloodParticleSpeed: 7.5,
   /** Dash kill sweep uses `playerRadius * this` (enemy radius unchanged). */
   dashKillPlayerRadiusScale: 4,
   /**
@@ -131,6 +151,7 @@ export const CONFIG = {
   /** Shooter projectile speed (world units/s). */
   shooterProjectileSpeed: 10,
   shooterProjectileRadius: 0.18,
+  shooterProjectileColor: TANK_OUTLINE_COLOR,
   shooterProjectileDamage: 1,
   shooterProjectileMaxAgeSec: 5,
   /** Every N-th spawn (when not tank/vault/resource/angel) is a shooter. `0` = never. */
@@ -190,8 +211,8 @@ export const CONFIG = {
   vaultBodyColor: 0x2a3044,
   vaultBodyEmissive: 0x0a0c12,
   vaultStripColor: 0xffd84d,
-  angelShieldColorA: 0x7ecbff,
-  angelShieldColorB: 0xff7ad9,
+  angelShieldColorA: TANK_OUTLINE_COLOR,
+  angelShieldColorB: TANK_OUTLINE_COLOR,
   vaultShieldStripHeight: 0.33,
   vaultShieldStripDepth: 0.24,
   vaultShieldStripY: 0.285,
@@ -223,6 +244,7 @@ export const CONFIG = {
   tankOutlineGap: 0.14,
   /** Radial thickness of the red outline ring (world units). */
   tankOutlineStroke: 0.16,
+  tankOutlineColor: TANK_OUTLINE_COLOR,
   /**
    * After dash damage hits a tank: snap past him along dash dir and set remaining
    * main-dash time to this fraction of full dash (scaled by on-beat mult).

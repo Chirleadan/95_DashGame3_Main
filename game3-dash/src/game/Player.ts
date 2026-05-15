@@ -28,6 +28,17 @@ export class Player {
   private readonly trailPositions: Float32Array;
   private readonly trailRibbonGeo: THREE.BufferGeometry;
   private readonly trailRibbon: THREE.Mesh;
+  private readonly tailPoint: THREE.Mesh;
+  private readonly tailRibbonSegmentCount = 8;
+  private readonly tailRibbonPositions = new Float32Array(8 * 6 * 3);
+  private readonly tailRibbonGeo: THREE.BufferGeometry;
+  private readonly tailRibbon: THREE.Mesh;
+  private readonly tailBase = new THREE.Vector3();
+  private readonly tailVisual = new THREE.Vector3();
+  private tailDirX = 0;
+  private tailDirZ = -1;
+  private tailWagOffsetA = 0;
+  private tailWagOffsetB = 0;
 
   hp: number = getPlayerMaxHp();
 
@@ -160,6 +171,42 @@ export class Player {
     this.trailRibbon.renderOrder = 10;
     scene.add(this.trailRibbon);
 
+    const tailMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.92,
+      depthTest: false,
+      depthWrite: false,
+    });
+    this.tailPoint = new THREE.Mesh(
+      new THREE.SphereGeometry(CONFIG.playerRadius * 0.16, 10, 8),
+      tailMat,
+    );
+    this.tailPoint.frustumCulled = false;
+    this.tailPoint.renderOrder = 8;
+    scene.add(this.tailPoint);
+
+    this.tailRibbonGeo = new THREE.BufferGeometry();
+    this.tailRibbonGeo.setAttribute(
+      'position',
+      new THREE.BufferAttribute(this.tailRibbonPositions, 3),
+    );
+    this.tailRibbon = new THREE.Mesh(
+      this.tailRibbonGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.86,
+        depthTest: false,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    this.tailRibbon.frustumCulled = false;
+    this.tailRibbon.renderOrder = 7;
+    scene.add(this.tailRibbon);
+    this.resetTailVisual();
+
     scene.add(this.mesh);
   }
 
@@ -197,6 +244,21 @@ export class Player {
 
   getDashHitSerial(): number {
     return this.dashHitSerial;
+  }
+
+  getProjectedDashEndXZ(): { x: number; z: number } {
+    if (
+      this.dash.timeLeft <= 0 ||
+      this.artifactReverseDashInProgress ||
+      this.tankClipSlideActive
+    ) {
+      return { x: this.mesh.position.x, z: this.mesh.position.z };
+    }
+    const remainingDist = getEffectiveDashSpeed() * this.dash.timeLeft;
+    return clampToArena(
+      this.mesh.position.x + this.dash.dirX * remainingDist,
+      this.mesh.position.z + this.dash.dirZ * remainingDist,
+    );
   }
 
   /** Clears post-dash cooldown (on-beat dash, clip/slide past tank or vault, overlap snap). */
@@ -440,6 +502,7 @@ export class Player {
     this.trailPoints.length = 0;
     this.trailRibbonGeo.setDrawRange(0, 0);
     this.trailRibbon.visible = false;
+    this.resetTailVisual();
     this.lastAimDirX = 0;
     this.lastAimDirZ = -1;
     this.applyNormalColors();
@@ -578,6 +641,152 @@ export class Player {
     this.body.scale.setScalar(pulse);
   }
 
+  private resetTailVisual(): void {
+    const x = this.mesh.position.x - this.tailDirX * CONFIG.playerTailFollowDistance;
+    const z = this.mesh.position.z - this.tailDirZ * CONFIG.playerTailFollowDistance;
+    const y = CONFIG.floorY + 0.2;
+    this.tailBase.set(x, y, z);
+    this.tailVisual.copy(this.tailBase);
+    this.tailPoint.position.copy(this.tailVisual);
+    this.tailPoint.visible = this.hp > 0;
+    this.tailRibbon.visible = this.hp > 0;
+    this.rebuildTailRibbon();
+  }
+
+  private updateTailVisual(dt: number, prevX: number, prevZ: number): void {
+    if (this.hp <= 0) {
+      this.tailPoint.visible = false;
+      this.tailRibbon.visible = false;
+      return;
+    }
+
+    const px = this.mesh.position.x;
+    const pz = this.mesh.position.z;
+    const dx = px - prevX;
+    const dz = pz - prevZ;
+    const moveLen = Math.hypot(dx, dz);
+    if (moveLen > 1e-4) {
+      this.tailDirX = dx / moveLen;
+      this.tailDirZ = dz / moveLen;
+    }
+
+    const targetX = px - this.tailDirX * CONFIG.playerTailFollowDistance;
+    const targetZ = pz - this.tailDirZ * CONFIG.playerTailFollowDistance;
+    const follow = 1 - Math.exp(-Math.max(0.001, CONFIG.playerTailFollowSharpness) * dt);
+    this.tailBase.x += (targetX - this.tailBase.x) * follow;
+    this.tailBase.z += (targetZ - this.tailBase.z) * follow;
+    this.tailBase.y = CONFIG.floorY + 0.2;
+
+    const time = performance.now() * 0.001;
+    const phase = Math.PI * 2 * CONFIG.playerTailWagHz * time;
+    const wag =
+      (Math.sin(phase) +
+        Math.sin(phase * 1.73 + 1.9) * 0.42 +
+        Math.sin(phase * 0.57 + 4.1) * 0.28) *
+      CONFIG.playerTailWagAmplitude *
+      0.72;
+    this.tailWagOffsetA =
+      (Math.sin(phase * 1.31 + 0.7) + Math.sin(phase * 2.11 + 2.6) * 0.35) *
+      CONFIG.playerTailWagAmplitude *
+      0.85;
+    this.tailWagOffsetB =
+      (Math.sin(phase * 0.83 + 3.4) + Math.sin(phase * 1.91 + 0.2) * 0.48) *
+      CONFIG.playerTailWagAmplitude *
+      0.9;
+    const perpX = -this.tailDirZ;
+    const perpZ = this.tailDirX;
+    this.tailVisual.set(
+      this.tailBase.x + perpX * wag,
+      this.tailBase.y,
+      this.tailBase.z + perpZ * wag,
+    );
+    this.tailPoint.position.copy(this.tailVisual);
+    this.tailPoint.visible = true;
+    this.tailRibbon.visible = true;
+    this.rebuildTailRibbon();
+  }
+
+  private rebuildTailRibbon(): void {
+    const px = this.mesh.position.x - this.tailDirX * CONFIG.playerRadius * 0.25;
+    const pz = this.mesh.position.z - this.tailDirZ * CONFIG.playerRadius * 0.25;
+    const tx = this.tailVisual.x;
+    const tz = this.tailVisual.z;
+    const curvePerpX = -this.tailDirZ;
+    const curvePerpZ = this.tailDirX;
+    const bendA = this.tailWagOffsetA * CONFIG.playerTailCurveBendMult;
+    const bendB = this.tailWagOffsetB * CONFIG.playerTailCurveBendMult;
+    const c1x = px + (tx - px) * 0.33 + curvePerpX * bendA;
+    const c1z = pz + (tz - pz) * 0.33 + curvePerpZ * bendA;
+    const c2x = px + (tx - px) * 0.66 + curvePerpX * bendB;
+    const c2z = pz + (tz - pz) * 0.66 + curvePerpZ * bendB;
+    const halfPlayer = CONFIG.playerTailRibbonWidth * 0.34;
+    const halfTail = CONFIG.playerTailRibbonWidth * 0.5;
+    const y0 = CONFIG.floorY + 0.17;
+    const y1 = CONFIG.floorY + 0.2;
+    const arr = this.tailRibbonPositions;
+    let o = 0;
+
+    const sample = (t: number): { x: number; z: number; y: number; px: number; pz: number; w: number } => {
+      const inv = 1 - t;
+      const inv2 = inv * inv;
+      const t2 = t * t;
+      const x = inv2 * inv * px + 3 * inv2 * t * c1x + 3 * inv * t2 * c2x + t2 * t * tx;
+      const z = inv2 * inv * pz + 3 * inv2 * t * c1z + 3 * inv * t2 * c2z + t2 * t * tz;
+      const y = y0 + (y1 - y0) * t;
+      let dx = 3 * inv2 * (c1x - px) + 6 * inv * t * (c2x - c1x) + 3 * t2 * (tx - c2x);
+      let dz = 3 * inv2 * (c1z - pz) + 6 * inv * t * (c2z - c1z) + 3 * t2 * (tz - c2z);
+      const len = Math.hypot(dx, dz);
+      if (len < 1e-5) {
+        dx = -this.tailDirX;
+        dz = -this.tailDirZ;
+      } else {
+        dx /= len;
+        dz /= len;
+      }
+      const edgeTaper = Math.sin(Math.PI * Math.max(0, Math.min(1, t)));
+      const w = (halfPlayer + (halfTail - halfPlayer) * t) * (0.45 + 0.55 * edgeTaper);
+      return { x, z, y, px: -dz, pz: dx, w };
+    };
+
+    for (let i = 0; i < this.tailRibbonSegmentCount; i++) {
+      const a = sample(i / this.tailRibbonSegmentCount);
+      const b = sample((i + 1) / this.tailRibbonSegmentCount);
+      const alx = a.x - a.px * a.w;
+      const alz = a.z - a.pz * a.w;
+      const arx = a.x + a.px * a.w;
+      const arz = a.z + a.pz * a.w;
+      const blx = b.x - b.px * b.w;
+      const blz = b.z - b.pz * b.w;
+      const brx = b.x + b.px * b.w;
+      const brz = b.z + b.pz * b.w;
+
+      arr[o++] = alx;
+      arr[o++] = a.y;
+      arr[o++] = alz;
+      arr[o++] = brx;
+      arr[o++] = b.y;
+      arr[o++] = brz;
+      arr[o++] = arx;
+      arr[o++] = a.y;
+      arr[o++] = arz;
+
+      arr[o++] = alx;
+      arr[o++] = a.y;
+      arr[o++] = alz;
+      arr[o++] = blx;
+      arr[o++] = b.y;
+      arr[o++] = blz;
+      arr[o++] = brx;
+      arr[o++] = b.y;
+      arr[o++] = brz;
+    }
+
+    const posAttr = this.tailRibbonGeo.attributes.position as THREE.BufferAttribute;
+    posAttr.needsUpdate = true;
+    this.tailRibbonGeo.setDrawRange(0, this.tailRibbonSegmentCount * 6);
+    this.tailRibbonGeo.computeBoundingSphere();
+  }
+
   update(
     dt: number,
     input: Input,
@@ -596,6 +805,8 @@ export class Player {
       this.microDashTimeLeft = 0;
       this.mainDashStartedThisFrame = false;
       this.activeDashLenWidthMult = 1;
+      this.tailPoint.visible = false;
+      this.tailRibbon.visible = false;
       this.applyNormalColors();
       return;
     }
@@ -676,6 +887,8 @@ export class Player {
       this.mesh.position.x = c.x;
       this.mesh.position.z = c.z;
     }
+
+    this.updateTailVisual(dt, prevX, prevZ);
 
     if (useDash) {
       const revSweepMult = this.artifactReverseDashInProgress
@@ -758,6 +971,7 @@ export class Player {
     this.mesh.position.z =
       this.tankClipSlideFromZ + (this.tankClipSlideToZ - this.tankClipSlideFromZ) * u;
     this.mainDashTravel += Math.hypot(this.mesh.position.x - px, this.mesh.position.z - pz);
+    this.updateTailVisual(Math.max(0.001, 1 / 60), px, pz);
     this.trailRibbon.visible = true;
     this.pushDashTrailPoint(this.mesh.position.x, this.mesh.position.z);
     if (u >= 1) {
