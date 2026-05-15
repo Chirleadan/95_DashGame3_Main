@@ -1136,7 +1136,7 @@ export class Game {
       this.dashSerialsWithBeatHit.add(this.player.getDashHitSerial());
       this.beatHitCount += 1;
       this.beatEffects.triggerOnBeatHitFlash();
-      if (this.selectedTrackStage.boost.resetDashCooldownOnBeat) {
+      if (this.audio.isPlaying && this.selectedTrackStage.boost.resetDashCooldownOnBeat) {
         this.player.clearDashCooldownAfterOnBeatHit();
       }
     }

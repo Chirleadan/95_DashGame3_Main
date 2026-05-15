@@ -9,7 +9,7 @@ export const CONFIG = {
    */
   arenaFloorVisualHalfExtent: 5000,
   /** Orthographic camera half-height (world); frustum top/bottom ±this, sides × aspect. */
-  cameraViewHalfExtent: 18,
+  cameraViewHalfExtent: 26.1,
   cameraZoomMinHalfExtent: 8,
   cameraZoomMaxHalfExtent: 40,
   cameraZoomWheelSpeed: 0.0015,

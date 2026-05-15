@@ -11,7 +11,7 @@ export const LensDistortionShader = {
     resolution: { value: new THREE.Vector2(1024, 1024) },
     vignetteStrength: { value: 0.14 },
     /** Render frustum scale vs gameplay camera; >1 crops center in shader (overscan). */
-    overscan: { value: 1.35 },
+    overscan: { value: 2 },
   },
 
   vertexShader: /* glsl */ `
@@ -61,7 +61,7 @@ export class LensDistortionPass extends ShaderPass {
   constructor() {
     super(LensDistortionShader);
     this.setAmount(0.15);
-    this.setOverscan(1.35);
+    this.setOverscan(2);
   }
 
   setAmount(value: number): void {

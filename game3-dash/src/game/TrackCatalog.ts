@@ -55,7 +55,7 @@ const TRACK_2_BOOST: TrackStageBoost = {
   dashLengthMultWhilePlaying: 0.25,
   playerSpeedMultWhilePlaying: 0.5,
   onBeatDashLengthWidthMult: 1,
-  resetDashCooldownOnBeat: false,
+  resetDashCooldownOnBeat: true,
   dashLandingPulseRadiusMult: 3,
 };
 
@@ -64,7 +64,7 @@ const TRACK_3_PLACEHOLDER_BOOST: TrackStageBoost = {
   dashLengthMultWhilePlaying: 1,
   playerSpeedMultWhilePlaying: 1,
   onBeatDashLengthWidthMult: 1,
-  resetDashCooldownOnBeat: false,
+  resetDashCooldownOnBeat: true,
   dashLandingPulseRadiusMult: 0,
 };
 
@@ -74,7 +74,7 @@ const STAGE_PLACEHOLDER_BOOSTS: Record<number, TrackStageBoost> = {
     dashLengthMultWhilePlaying: 1,
     playerSpeedMultWhilePlaying: 1,
     onBeatDashLengthWidthMult: 1.25,
-    resetDashCooldownOnBeat: false,
+    resetDashCooldownOnBeat: true,
     dashLandingPulseRadiusMult: 0,
   },
   2: {

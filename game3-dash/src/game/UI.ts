@@ -160,9 +160,9 @@ export class UI {
       <div class="beat-lens-row">
         <div class="beat-lens-head">
           <span class="label">Lens Overscan</span>
-          <span id="lens-overscan-val" class="beat-lens-val">1.35</span>
+          <span id="lens-overscan-val" class="beat-lens-val">2.00</span>
         </div>
-        <input id="lens-overscan" type="range" min="1" max="2" step="0.01" value="1.35" />
+        <input id="lens-overscan" type="range" min="1" max="2" step="0.01" value="2" />
       </div>
       <div class="beat-lens-row">
         <div class="beat-lens-head">
