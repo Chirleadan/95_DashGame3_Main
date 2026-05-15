@@ -81,12 +81,15 @@ export class EnemySpawner {
       const aN = CONFIG.angelEveryNthSpawn;
       const gN = CONFIG.goldSackEveryNthSpawn;
       const mN = CONFIG.manaSackEveryNthSpawn;
+      const sN = CONFIG.shooterEveryNthSpawn;
       if (aN > 0 && this.spawnTotal % aN === 0) {
         kind = 'angel';
       } else if (gN > 0 && this.spawnTotal % gN === 0) {
         kind = 'goldSack';
       } else if (mN > 0 && this.spawnTotal % mN === 0) {
         kind = 'manaSack';
+      } else if (sN > 0 && this.spawnTotal % sN === 0) {
+        kind = 'shooter';
       }
     }
     if (kind === 'tank' || kind === 'angel') {

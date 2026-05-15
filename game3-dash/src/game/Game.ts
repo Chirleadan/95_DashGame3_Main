@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { CONFIG, isDebugDashPastTankEnabled } from './config.ts';
 import { Input } from './Input.ts';
 import { Player, type DashSweepSegment } from './Player.ts';
@@ -37,10 +38,22 @@ export class Game {
   private static readonly DAMAGE_PULSE_RING_OUTER_LOCAL = 0.36;
   /** Every next level requires `+5` XP more than the previous one. */
   private static readonly RUN_XP_STEP_PER_LEVEL = 5;
+  private static readonly DASH_SFX_URL = '/audio/dash_1.mp3';
+  private static readonly DEATH_SFX_URL = '/audio/death_1.mp3';
+  private static readonly HIT_SFX_URLS = [
+    '/audio/hit_1.mp3',
+    '/audio/hit_2.mp3',
+    '/audio/hit_3.mp3',
+  ] as const;
+  private static readonly DASH_SFX_RATE_VARIANCE = 0.15;
+  private static readonly HIT_SFX_RATE_VARIANCE = 0.2;
+  private static readonly SFX_VOLUME_MULT = 0.5;
+  private static readonly DEATH_SFX_COOLDOWN_MS = 100;
 
   private readonly mount: HTMLElement;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly composer: EffectComposer;
+  private readonly bloomPass: UnrealBloomPass;
   private readonly lensPass: LensDistortionPass;
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.OrthographicCamera;
@@ -51,9 +64,21 @@ export class Game {
   private readonly input: Input;
   private readonly player: Player;
   private readonly enemies: Enemy[] = [];
+  private readonly dyingEnemies: { enemy: Enemy; age: number }[] = [];
+  private readonly enemyProjectiles: {
+    mesh: THREE.Mesh;
+    vx: number;
+    vz: number;
+    age: number;
+  }[] = [];
   private readonly spawner: EnemySpawner;
   private readonly ui: UI;
   private readonly audio = new AudioManager();
+  private readonly backgroundAudio = new AudioManager();
+  private readonly dashSfx = new Audio(Game.DASH_SFX_URL);
+  private readonly deathSfx = new Audio(Game.DEATH_SFX_URL);
+  private readonly hitSfxPool = Game.HIT_SFX_URLS.map((url) => new Audio(url));
+  private backgroundPauseTimer: number | null = null;
   private readonly beatEffects: BeatEffects;
   private beatmap: Beatmap | null = null;
   private nextBeatIndex = 0;
@@ -91,6 +116,10 @@ export class Game {
   private lensOverscan = 1.35;
   /** Lens distortion from UI slider; effective value adds boost while beatmap audio plays. */
   private lensDistortionBase = 0.15;
+  private bloomThreshold = 0.35;
+  private bloomStrength = 0.3;
+  private pendingDashSfx = false;
+  private lastDeathSfxAtMs = -Infinity;
   /** Current ortho camera half-height (world units), changed by wheel zoom. */
   private cameraViewHalfExtentCurrent: number = CONFIG.cameraViewHalfExtent;
   private selectedTrackStage: TrackStage = getDefaultTrackStage();
@@ -111,7 +140,7 @@ export class Game {
   constructor(mount: HTMLElement) {
     this.mount = mount;
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x07080c);
+    this.scene.background = new THREE.Color(0x9eaaad);
 
     const w = mount.clientWidth || window.innerWidth;
     const h = mount.clientHeight || window.innerHeight;
@@ -151,6 +180,13 @@ export class Game {
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.renderCamera));
+    this.bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(w, h),
+      this.bloomStrength,
+      0.35,
+      this.bloomThreshold,
+    );
+    this.composer.addPass(this.bloomPass);
     this.lensPass = new LensDistortionPass();
     this.composer.addPass(this.lensPass);
     this.composer.addPass(new OutputPass());
@@ -167,6 +203,22 @@ export class Game {
     this.spawner = new EnemySpawner(this.scene, this.enemies);
     this.ui = new UI(mount);
     this.beatEffects = new BeatEffects(mount);
+    this.backgroundAudio.setLoop(true);
+    this.backgroundAudio.setVolume(CONFIG.backgroundMusicVolume);
+    this.dashSfx.preload = 'auto';
+    this.dashSfx.volume = 0.72 * Game.SFX_VOLUME_MULT;
+    this.dashSfx.load();
+    this.deathSfx.preload = 'auto';
+    this.deathSfx.volume = 0.78 * Game.SFX_VOLUME_MULT;
+    this.deathSfx.load();
+    for (const hitSfx of this.hitSfxPool) {
+      hitSfx.preload = 'auto';
+      hitSfx.volume = 0.78 * Game.SFX_VOLUME_MULT;
+      hitSfx.load();
+    }
+    void this.backgroundAudio.setTrack(CONFIG.backgroundMusicUrl).catch((e) => {
+      console.error('[BackgroundAudio] init failed:', e instanceof Error ? e.message : e, e);
+    });
     this.ui.onPlayRequested(() => {
       void this.requestStartAudioPlayback();
     });
@@ -184,6 +236,14 @@ export class Game {
     this.ui.onLensOverscanChange((v) => {
       this.lensOverscan = v;
       this.lensPass.setOverscan(v);
+    });
+    this.ui.onBloomThresholdChange((v) => {
+      this.bloomThreshold = v;
+      this.bloomPass.threshold = v;
+    });
+    this.ui.onBloomStrengthChange((v) => {
+      this.bloomStrength = v;
+      this.bloomPass.strength = v;
     });
     this.ui.onArtifactsChange(() => {
       if (!isArtifactEnabled('vaultBearing')) {
@@ -235,10 +295,12 @@ export class Game {
 
   private addArena(): void {
     const size = CONFIG.arenaFloorVisualHalfExtent * 2 + 2;
+    const checkerTexture = this.createArenaCheckerTexture();
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(size, size),
       new THREE.MeshStandardMaterial({
-        color: 0x12141c,
+        map: checkerTexture,
+        color: 0xffffff,
         metalness: 0.05,
         roughness: 0.92,
       }),
@@ -258,11 +320,41 @@ export class Game {
     const grid = new THREE.GridHelper(
       CONFIG.arenaFloorVisualHalfExtent * 2,
       64,
-      0x1e2433,
-      0x141822,
+      0x151923,
+      0x0d1017,
     );
     grid.position.y = 0.01;
     this.scene.add(grid);
+  }
+
+  private createArenaCheckerTexture(): THREE.CanvasTexture {
+    const tileSize = 96;
+    const canvas = document.createElement('canvas');
+    canvas.width = tileSize * 2;
+    canvas.height = tileSize * 2;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('Could not create arena checker texture canvas');
+    }
+
+    ctx.fillStyle = '#05060a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#1a1d24';
+    ctx.fillRect(tileSize, 0, tileSize, tileSize);
+    ctx.fillRect(0, tileSize, tileSize, tileSize);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(
+      CONFIG.arenaFloorVisualHalfExtent / 4,
+      CONFIG.arenaFloorVisualHalfExtent / 4,
+    );
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    texture.needsUpdate = true;
+    return texture;
   }
 
   private async initBeatmap(): Promise<void> {
@@ -329,6 +421,7 @@ export class Game {
   }
 
   private async requestStartAudioPlayback(): Promise<void> {
+    void this.ensureBackgroundMusicPlaying();
     if (!this.beatmap) return;
     const spendMana =
       this.runPhase === 'playing' || this.runPhase === 'runUpgrade';
@@ -357,13 +450,42 @@ export class Game {
         this.resetBeatHitTracking();
       }
       await this.audio.play();
+      this.scheduleBackgroundPauseForTrack();
       this.ui.setBeatmapState('Playing');
       return true;
     } catch (e) {
       console.error('[Beatmap] audio play failed:', e instanceof Error ? e.message : e, e);
       this.ui.setBeatmapState('Playback blocked');
+      void this.ensureBackgroundMusicPlaying();
       return false;
     }
+  }
+
+  private async ensureBackgroundMusicPlaying(): Promise<void> {
+    this.clearBackgroundPauseTimer();
+    if (this.audio.isPlaying || this.backgroundAudio.isPlaying) return;
+    try {
+      await this.backgroundAudio.play();
+    } catch {
+      // Browser autoplay can block this until the next explicit user gesture.
+    }
+  }
+
+  private scheduleBackgroundPauseForTrack(): void {
+    this.clearBackgroundPauseTimer();
+    const delay = Math.max(0, CONFIG.backgroundMusicPauseAfterTrackStartMs);
+    this.backgroundPauseTimer = window.setTimeout(() => {
+      this.backgroundPauseTimer = null;
+      if (this.audio.isPlaying) {
+        this.backgroundAudio.pause();
+      }
+    }, delay);
+  }
+
+  private clearBackgroundPauseTimer(): void {
+    if (this.backgroundPauseTimer === null) return;
+    window.clearTimeout(this.backgroundPauseTimer);
+    this.backgroundPauseTimer = null;
   }
 
   private syncRenderCamera(): void {
@@ -393,6 +515,7 @@ export class Game {
     this.syncRenderCamera();
     this.renderer.setSize(w, h, false);
     this.composer.setSize(w, h);
+    this.bloomPass.setSize(w, h);
     this.ui.resizeBeatLane();
   };
 
@@ -409,6 +532,7 @@ export class Game {
     this.updateCameraZoomFromInput();
     this.syncBeatPlayButton();
     this.updateDamagePulseRings(dt);
+    this.updateDyingEnemies(dt);
     this.applyLensDistortionEffective();
 
     if (this.runPhase === 'death') {
@@ -521,7 +645,11 @@ export class Game {
       this.getActivePlayerSpeedMult(),
       this.enemies,
     );
-    this.tryRegisterDashBeatHit();
+    const mainDashStarted = this.player.consumeMainDashStarted();
+    if (mainDashStarted) {
+      this.pendingDashSfx = true;
+    }
+    this.tryRegisterDashBeatHit(mainDashStarted);
 
     const dashKills = this.resolveDashKills() + this.applyDeferredTankDashDamage();
     this.runEnemiesKilled += dashKills;
@@ -533,6 +661,7 @@ export class Game {
       this.player.resolveTankOverlapWhileDashing(this.enemies);
     }
     this.player.tickDashAfterHits(dt, isArtifactEnabled('reverseDash'));
+    this.flushPendingDashSfxIfDashEnded();
     const land = this.player.consumeDashLandingPulseXZ();
     if (land) {
       const pulseMult = Math.max(
@@ -574,12 +703,18 @@ export class Game {
         );
       for (const e of this.enemies) {
         e.update(dt, this.player.x, this.player.z, diffMult, storageNav);
+        if (e.tickShooterShotCooldown(dt)) {
+          this.spawnEnemyProjectile(e);
+        }
       }
     } else {
       for (const e of this.enemies) {
+        e.faceTarget(this.player.x, this.player.z);
         e.tickAngelShieldRegenOnly(dt);
       }
     }
+
+    this.updateEnemyProjectiles(dt);
 
     this.spawner.update(
       dt,
@@ -616,16 +751,7 @@ export class Game {
       this.player.hp > 0 &&
       !this.player.isInvulnerable()
     ) {
-      const hpBefore = this.player.hp;
-      this.player.takeDamage(CONFIG.contactDamagePerTick * touching);
-      if (this.player.hp < hpBefore) {
-        this.ui.triggerDamageScreenFlash();
-        this.spawnDamagePulseRingAt(this.player.x, this.player.z);
-        this.runEnemiesKilled += this.applyPlayerDamagePulseToEnemiesAt(
-          this.player.x,
-          this.player.z,
-        );
-      }
+      this.damagePlayerAndPulse(CONFIG.contactDamagePerTick * touching);
     }
 
     this.updateCamera(dt);
@@ -657,8 +783,10 @@ export class Game {
 
     if (this.player.hp <= 0) {
       this.ui.hideRunUpgradeModal();
+      this.pendingDashSfx = false;
       this.runPhase = 'death';
       this.deathScreenTimer = 0;
+      this.clearEnemyProjectiles();
       this.ui.setDeathScreenRunSummary({
         survivedSec: this.runElapsedSec,
         kills: this.runEnemiesKilled,
@@ -666,6 +794,7 @@ export class Game {
       });
       this.ui.showDeathScreen();
       this.audio.pause();
+      void this.ensureBackgroundMusicPlaying();
     }
   }
 
@@ -699,6 +828,121 @@ export class Game {
       e.dispose(this.scene);
     }
     this.enemies.length = 0;
+    for (const d of this.dyingEnemies) {
+      d.enemy.dispose(this.scene);
+    }
+    this.dyingEnemies.length = 0;
+  }
+
+  private removeEnemyFromGameplayAt(index: number): Enemy | null {
+    const enemy = this.enemies[index];
+    if (!enemy) return null;
+    this.enemies.splice(index, 1);
+    this.playDeathSfx();
+    enemy.showDeathSprite();
+    this.dyingEnemies.push({ enemy, age: 0 });
+    return enemy;
+  }
+
+  private updateDyingEnemies(dt: number): void {
+    const linger = Math.max(0, CONFIG.enemyDeathLingerSec);
+    for (let i = this.dyingEnemies.length - 1; i >= 0; i--) {
+      const d = this.dyingEnemies[i]!;
+      d.age += dt;
+      if (d.age < linger) continue;
+      d.enemy.dispose(this.scene);
+      this.dyingEnemies.splice(i, 1);
+    }
+  }
+
+  private clearEnemyProjectiles(): void {
+    for (const p of this.enemyProjectiles) {
+      this.scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      (p.mesh.material as THREE.Material).dispose();
+    }
+    this.enemyProjectiles.length = 0;
+  }
+
+  private spawnEnemyProjectile(enemy: Enemy): void {
+    const dx = this.player.x - enemy.mesh.position.x;
+    const dz = this.player.z - enemy.mesh.position.z;
+    const len = Math.hypot(dx, dz);
+    if (len <= 1e-4) return;
+    const nx = dx / len;
+    const nz = dz / len;
+    const r = CONFIG.shooterProjectileRadius;
+    const geo = new THREE.SphereGeometry(r, 12, 8);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xa8f2ff,
+      transparent: true,
+      opacity: 0.96,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    const startOffset = enemy.bodyRadius + r + 0.08;
+    mesh.position.set(
+      enemy.mesh.position.x + nx * startOffset,
+      CONFIG.floorY + 0.28,
+      enemy.mesh.position.z + nz * startOffset,
+    );
+    this.scene.add(mesh);
+    this.enemyProjectiles.push({
+      mesh,
+      vx: nx * CONFIG.shooterProjectileSpeed,
+      vz: nz * CONFIG.shooterProjectileSpeed,
+      age: 0,
+    });
+  }
+
+  private updateEnemyProjectiles(dt: number): void {
+    const maxAge = Math.max(0.1, CONFIG.shooterProjectileMaxAgeSec);
+    for (let i = this.enemyProjectiles.length - 1; i >= 0; i--) {
+      const p = this.enemyProjectiles[i]!;
+      p.age += dt;
+      p.mesh.position.x += p.vx * dt;
+      p.mesh.position.z += p.vz * dt;
+      if (
+        this.player.hp > 0 &&
+        !this.player.isInvulnerable() &&
+        circlesOverlap(
+          this.player.x,
+          this.player.z,
+          CONFIG.playerRadius,
+          p.mesh.position.x,
+          p.mesh.position.z,
+          CONFIG.shooterProjectileRadius,
+        )
+      ) {
+        this.damagePlayerAndPulse(CONFIG.shooterProjectileDamage);
+        this.removeEnemyProjectileAt(i);
+        continue;
+      }
+      if (p.age >= maxAge) {
+        this.removeEnemyProjectileAt(i);
+      }
+    }
+  }
+
+  private removeEnemyProjectileAt(index: number): void {
+    const p = this.enemyProjectiles[index];
+    if (!p) return;
+    this.scene.remove(p.mesh);
+    p.mesh.geometry.dispose();
+    (p.mesh.material as THREE.Material).dispose();
+    this.enemyProjectiles.splice(index, 1);
+  }
+
+  private damagePlayerAndPulse(amount: number): void {
+    if (this.player.hp <= 0) return;
+    const hpBefore = this.player.hp;
+    this.player.takeDamage(amount);
+    if (this.player.hp >= hpBefore) return;
+    this.ui.triggerDamageScreenFlash();
+    this.spawnDamagePulseRingAt(this.player.x, this.player.z);
+    this.runEnemiesKilled += this.applyPlayerDamagePulseToEnemiesAt(
+      this.player.x,
+      this.player.z,
+    );
   }
 
   private startGameFromMenu(): void {
@@ -715,8 +959,10 @@ export class Game {
     this.runNextUpgradeAtXp = CONFIG.runXpPerLevel;
     this.runPendingUpgradeMilestones.length = 0;
     this.wasTrackPlayingLastFrame = false;
+    this.pendingDashSfx = false;
     this.clearDamagePulseRings();
     this.clearAllEnemies();
+    this.clearEnemyProjectiles();
     this.player.resetForNewRun();
     this.ui.rebuildHpBarSegments();
     this.spawner.reset();
@@ -742,6 +988,7 @@ export class Game {
     this.ui.setRunKills(0);
     this.syncRunXpUi();
     this.ui.setRunGoldMana(0, 0);
+    void this.ensureBackgroundMusicPlaying();
   }
 
   private goToMainMenuAfterDeath(): void {
@@ -754,16 +1001,19 @@ export class Game {
     this.runNextUpgradeAtXp = CONFIG.runXpPerLevel;
     this.runPendingUpgradeMilestones.length = 0;
     this.wasTrackPlayingLastFrame = false;
+    this.pendingDashSfx = false;
     clearRunBalanceBonuses();
     this.ui.hideRunUpgradeModal();
     this.clearDamagePulseRings();
     this.clearAllEnemies();
+    this.clearEnemyProjectiles();
     this.player.resetForNewRun();
     this.spawner.reset();
     this.resetBeatHitTracking();
     this.nextBeatIndex = 0;
     this.audio.pause();
     this.audio.reset();
+    void this.ensureBackgroundMusicPlaying();
     this.cameraShake = 0;
     this.deathScreenTimer = 0;
     this.runPhase = 'menu';
@@ -836,9 +1086,48 @@ export class Game {
     return this.dashSerialsWithBeatHit.delete(this.player.getDashHitSerial());
   }
 
+  private playSfx(source: HTMLAudioElement, rateVariance: number): void {
+    const sfx = source.cloneNode(true) as HTMLAudioElement;
+    sfx.playbackRate = rateVariance > 0
+      ? 1 + (Math.random() * 2 - 1) * rateVariance
+      : 1;
+    sfx.volume = source.volume;
+    void sfx.play().catch(() => {
+      // The first user gesture may still be required by the browser.
+    });
+  }
+
+  private playDashSfx(): void {
+    this.playSfx(this.dashSfx, Game.DASH_SFX_RATE_VARIANCE);
+  }
+
+  private playHitSfx(): void {
+    const index = Math.floor(Math.random() * this.hitSfxPool.length);
+    this.playSfx(this.hitSfxPool[index] ?? this.hitSfxPool[0]!, Game.HIT_SFX_RATE_VARIANCE);
+  }
+
+  private playDeathSfx(): void {
+    const now = performance.now();
+    if (now - this.lastDeathSfxAtMs < Game.DEATH_SFX_COOLDOWN_MS) return;
+    this.lastDeathSfxAtMs = now;
+    this.playSfx(this.deathSfx, 0);
+  }
+
+  private markDashImpactSfx(): void {
+    if (!this.pendingDashSfx) return;
+    this.pendingDashSfx = false;
+    this.playHitSfx();
+  }
+
+  private flushPendingDashSfxIfDashEnded(): void {
+    if (!this.pendingDashSfx || this.player.isDashing) return;
+    this.pendingDashSfx = false;
+    this.playDashSfx();
+  }
+
   /** If the player just started a main dash, maybe count an on-beat hit vs audio time. */
-  private tryRegisterDashBeatHit(): void {
-    if (!this.player.consumeMainDashStarted()) return;
+  private tryRegisterDashBeatHit(mainDashStarted: boolean): void {
+    if (!mainDashStarted) return;
     if (!this.beatmap) return;
     const t = this.audio.currentTime;
     const bestI = this.findBestBeatInDashWindowAtTime(t);
@@ -1034,6 +1323,7 @@ export class Game {
     const trackPlayingNow = this.audio.isPlaying;
     // Detect track end edge and immediately flush queued upgrade modals.
     if (this.wasTrackPlayingLastFrame && !trackPlayingNow) {
+      void this.ensureBackgroundMusicPlaying();
       this.maybeEnterRunUpgrade();
     }
     this.wasTrackPlayingLastFrame = trackPlayingNow;
@@ -1069,6 +1359,7 @@ export class Game {
         if (e.isAngel()) {
           const canDamageAngel =
             e.canDashDamageFromOpenShieldSide(seg, vaultShieldJoin);
+          this.markDashImpactSfx();
           if (!canDamageAngel) {
             e.tryBreakVaultShieldWithDash(seg, vaultShieldJoin);
           }
@@ -1082,6 +1373,7 @@ export class Game {
         }
 
         if (e.isVault() && e.getActiveShieldCount() > 0) {
+          this.markDashImpactSfx();
           e.tryBreakVaultShieldWithDash(seg, vaultShieldJoin);
           if (e.vaultLastClipDashSerial !== dashSerial) {
             this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
@@ -1092,6 +1384,7 @@ export class Game {
 
         if (e.damagedInDashHitSerial === dashSerial) continue;
         e.damagedInDashHitSerial = dashSerial;
+        this.markDashImpactSfx();
         const died = e.takeDashHit(e.isAngel());
         if (e.vaultLastClipDashSerial !== dashSerial) {
           this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
@@ -1099,8 +1392,7 @@ export class Game {
         }
         if (died) {
           this.awardEnemyKillXp(e);
-          e.dispose(this.scene);
-          this.enemies.splice(i, 1);
+          this.removeEnemyFromGameplayAt(i);
           kills += 1;
         }
         continue;
@@ -1125,6 +1417,7 @@ export class Game {
         // One impact per dash serial: tank — same clip args as vault body, then deferred HP; others — immediate damage.
         if (e.damagedInDashHitSerial === dashSerial) continue;
         e.damagedInDashHitSerial = dashSerial;
+        this.markDashImpactSfx();
         if (isTank) {
           this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
           e.scheduleDeferredTankDashDamage();
@@ -1133,8 +1426,7 @@ export class Game {
           if (died) {
             this.grantResourceLootFromSack(e);
             this.awardEnemyKillXp(e);
-            e.dispose(this.scene);
-            this.enemies.splice(i, 1);
+            this.removeEnemyFromGameplayAt(i);
             kills += 1;
           }
         }
@@ -1151,8 +1443,7 @@ export class Game {
       if (!e.isTank()) continue;
       if (!e.tickDeferredTankDashDamage()) continue;
       this.awardEnemyKillXp(e);
-      e.dispose(this.scene);
-      this.enemies.splice(i, 1);
+      this.removeEnemyFromGameplayAt(i);
       kills += 1;
     }
     return kills;
@@ -1342,8 +1633,7 @@ export class Game {
       if (e.applyDamage(pulseDmg)) {
         this.grantResourceLootFromSack(e);
         this.awardEnemyKillXp(e);
-        e.dispose(this.scene);
-        this.enemies.splice(i, 1);
+        this.removeEnemyFromGameplayAt(i);
         kills += 1;
       }
     }
@@ -1386,6 +1676,8 @@ export class Game {
   dispose(): void {
     cancelAnimationFrame(this.raf);
     this.audio.pause();
+    this.backgroundAudio.pause();
+    this.clearBackgroundPauseTimer();
     window.removeEventListener('resize', this.onResize);
     this.clearDamagePulseRings();
     if (this.debugDashTankGroup) {
@@ -1393,11 +1685,12 @@ export class Game {
       this.scene.remove(this.debugDashTankGroup);
       this.debugDashTankGroup = null;
     }
-    for (const e of this.enemies) e.dispose(this.scene);
-    this.enemies.length = 0;
+    this.clearAllEnemies();
+    this.clearEnemyProjectiles();
     this.ui.disposeMenuOverlays();
     this.mount.removeChild(this.renderer.domElement);
     this.composer.dispose();
+    this.bloomPass.dispose();
     this.lensPass.dispose();
     this.renderer.dispose();
   }

@@ -135,7 +135,11 @@ export const TRACK_CATALOG: readonly TrackEntry[] = [
     id: 'track-3',
     label: 'Track 3',
     stages: [
-      makeStage(3, 1, { enabled: true, boost: TRACK_3_PLACEHOLDER_BOOST }),
+      makeStage(3, 1, {
+        audioUrl: '/audio/track-3-stage-1.mp3.OPUS',
+        enabled: true,
+        boost: TRACK_3_PLACEHOLDER_BOOST,
+      }),
       makeStage(3, 2, { boost: TRACK_3_PLACEHOLDER_BOOST }),
       makeStage(3, 3, { boost: TRACK_3_PLACEHOLDER_BOOST }),
     ],

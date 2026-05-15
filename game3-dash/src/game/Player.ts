@@ -147,7 +147,7 @@ export class Player {
       new THREE.BufferAttribute(this.trailPositions, 3),
     );
     const trailMat = new THREE.MeshBasicMaterial({
-      color: 0x55eeff,
+      color: 0xffffff,
       transparent: true,
       opacity: 0.94,
       depthTest: false,
@@ -816,22 +816,28 @@ export class Player {
       let pz: number;
       if (len < 1e-6) {
         px = 0;
-        pz = halfW;
+        pz = 1;
       } else {
-        const inv = halfW / len;
+        const inv = 1 / len;
         px = -dz * inv;
         pz = dx * inv;
       }
+      const aw = halfW * this.getTrailTaperAtPoint(i, n);
+      const bw = halfW * this.getTrailTaperAtPoint(i + 1, n);
+      const apx = px * aw;
+      const apz = pz * aw;
+      const bpx = px * bw;
+      const bpz = pz * bw;
       const y0 = a.y;
       const y1 = b.y;
-      const alx = a.x - px;
-      const alz = a.z - pz;
-      const arx = a.x + px;
-      const arz = a.z + pz;
-      const blx = b.x - px;
-      const blz = b.z - pz;
-      const brx = b.x + px;
-      const brz = b.z + pz;
+      const alx = a.x - apx;
+      const alz = a.z - apz;
+      const arx = a.x + apx;
+      const arz = a.z + apz;
+      const blx = b.x - bpx;
+      const blz = b.z - bpz;
+      const brx = b.x + bpx;
+      const brz = b.z + bpz;
 
       arr[o++] = alx;
       arr[o++] = y0;
@@ -861,6 +867,12 @@ export class Player {
   }
 
   /** 0…1: progress toward next passive shield (for bottom bar UI). */
+  private getTrailTaperAtPoint(index: number, pointCount: number): number {
+    if (pointCount <= 1) return 0;
+    const t = index / (pointCount - 1);
+    return Math.sin(Math.PI * Math.max(0, Math.min(1, t)));
+  }
+
   getShieldRegenVisualProgress(): number {
     if (this.hp <= 0 || this.hp >= getPlayerMaxHp()) return 0;
     const t = this.shieldRegenIntervalSec;

@@ -5,6 +5,17 @@ export class AudioManager {
     this.audio.preload = 'auto';
   }
 
+  setLoop(loop: boolean): void {
+    this.audio.loop = loop;
+  }
+
+  setVolume(volume: number): void {
+    this.audio.volume = Math.min(
+      1,
+      Math.max(0, Number.isFinite(volume) ? volume : 1),
+    );
+  }
+
   async setTrack(src: string): Promise<void> {
     if (this.audio.src !== src) {
       this.audio.src = src;

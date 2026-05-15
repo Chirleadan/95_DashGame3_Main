@@ -9,6 +9,7 @@ import {
 /** `vault` = игровое «Хранилище» (шестигранник с щитами на рёбрах). */
 export type EnemyKind =
   | 'normal'
+  | 'shooter'
   | 'tank'
   | 'angel'
   | 'vault'
@@ -17,6 +18,20 @@ export type EnemyKind =
 
 /** Same fill for normal / tank body and tank outline (must match visually). */
 const ENEMY_BODY_COLOR = 0xff3344;
+const SHOOTER_BODY_COLOR = 0x58d7ff;
+const ENEMY_TEXTURE_LOADER = new THREE.TextureLoader();
+const ENEMY_SPRITE_URLS: Partial<Record<EnemyKind, string>> = {
+  normal: '/assets/enemies/normal/idle.png',
+  shooter: '/assets/enemies/shooter/idle.png',
+  tank: '/assets/enemies/tank/idle.png',
+  angel: '/assets/enemies/angel/idle.png',
+};
+const ENEMY_DEATH_SPRITE_URLS: Partial<Record<EnemyKind, string>> = {
+  normal: '/assets/enemies/normal/mob_death.png',
+  shooter: '/assets/enemies/shooter/shooter_death.png',
+  tank: '/assets/enemies/tank/tank_death.png',
+  angel: '/assets/enemies/angel/angel_death.png',
+};
 
 function disposeObject3DTree(root: THREE.Object3D): void {
   root.traverse((obj) => {
@@ -49,6 +64,37 @@ function rollIntInclusive(min: number, max: number): number {
   return a + Math.floor(Math.random() * (b - a + 1));
 }
 
+function addEnemySprite(
+  root: THREE.Group,
+  kind: EnemyKind,
+  radius: number,
+  y = 0.08,
+  scale = 1,
+): { pivot: THREE.Group; mat: THREE.MeshBasicMaterial } | null {
+  const url = ENEMY_SPRITE_URLS[kind];
+  if (!url) return null;
+  const tex = ENEMY_TEXTURE_LOADER.load(url);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const visualRadius = radius * scale;
+  const sprite = new THREE.Mesh(
+    new THREE.PlaneGeometry(visualRadius * 2, visualRadius * 2),
+    mat,
+  );
+  sprite.rotation.x = -Math.PI / 2;
+  sprite.position.y = y;
+  sprite.renderOrder = 4;
+  const pivot = new THREE.Group();
+  pivot.add(sprite);
+  root.add(pivot);
+  return { pivot, mat };
+}
+
 export type DashSweepSeg = { ax: number; az: number; bx: number; bz: number };
 
 export class Enemy {
@@ -72,6 +118,9 @@ export class Enemy {
   private pendingTankDashDamageAt: number[] = [];
   /** Angel shield regen accumulator (seconds). */
   private angelShieldRegenAccSec = 0;
+  private shooterShotCooldownSec = CONFIG.shooterShotIntervalSec * 0.5;
+  private facingSpritePivot: THREE.Group | null = null;
+  private spriteMat: THREE.MeshBasicMaterial | null = null;
 
   constructor(
     scene: THREE.Scene,
@@ -109,6 +158,13 @@ export class Enemy {
       body.position.y = CONFIG.vaultBodyThickness * 0.5;
       body.castShadow = true;
       this.mesh.add(body);
+      const spriteScale = isAngel ? 1 / 1.25 : 1;
+      const sprite = addEnemySprite(this.mesh, kind, R, 0.08, spriteScale);
+      if (sprite) {
+        this.facingSpritePivot = sprite.pivot;
+        this.spriteMat = sprite.mat;
+        body.visible = false;
+      }
 
       const stripMat = new THREE.MeshBasicMaterial({
         color: isAngel ? CONFIG.angelShieldColorA : CONFIG.vaultStripColor,
@@ -184,7 +240,7 @@ export class Enemy {
         : CONFIG.enemyRadius;
 
     const mat = new THREE.MeshBasicMaterial({
-      color: ENEMY_BODY_COLOR,
+      color: kind === 'shooter' ? SHOOTER_BODY_COLOR : ENEMY_BODY_COLOR,
       transparent: true,
       opacity: 0.95,
       depthWrite: true,
@@ -195,6 +251,32 @@ export class Enemy {
     body.castShadow = false;
     body.receiveShadow = false;
     this.mesh.add(body);
+    if (ENEMY_SPRITE_URLS[kind]) {
+      body.visible = false;
+    }
+
+    if (kind === 'shooter') {
+      const barrelMat = new THREE.MeshBasicMaterial({
+        color: 0xd7f8ff,
+        transparent: true,
+        opacity: 0.92,
+        depthWrite: true,
+      });
+      const barrel = new THREE.Mesh(
+        new THREE.BoxGeometry(r * 0.34, 0.08, r * 1.05),
+        barrelMat,
+      );
+      barrel.position.z = r * 0.34;
+      barrel.position.y = 0.04;
+      barrel.visible = false;
+      this.mesh.add(barrel);
+    }
+    const spriteScale = kind === 'tank' ? 1 / 1.1 : 1;
+    const sprite = addEnemySprite(this.mesh, kind, r, 0.08, spriteScale);
+    if (sprite) {
+      this.facingSpritePivot = sprite.pivot;
+      this.spriteMat = sprite.mat;
+    }
 
     if (kind === 'tank') {
       const gap = CONFIG.tankOutlineGap;
@@ -238,6 +320,10 @@ export class Enemy {
 
   isTank(): boolean {
     return this.kind === 'tank';
+  }
+
+  isShooter(): boolean {
+    return this.kind === 'shooter';
   }
 
   isAngel(): boolean {
@@ -461,18 +547,34 @@ export class Enemy {
     speedMultiplier = 1,
     storageObstacles: readonly StorageObstacleCircle[] | null = null,
   ): void {
+    this.faceTarget(targetX, targetZ);
     if (this.kind === 'vault' || this.kind === 'goldSack' || this.kind === 'manaSack') {
       return;
     }
     let mx = targetX - this.mesh.position.x;
     let mz = targetZ - this.mesh.position.z;
     let len = Math.hypot(mx, mz);
+    let steerTargetX = targetX;
+    let steerTargetZ = targetZ;
+    if (this.kind === 'shooter' && len > 1e-4) {
+      const desired = CONFIG.shooterKeepDistance;
+      if (len < desired * 0.85) {
+        mx = -mx;
+        mz = -mz;
+        steerTargetX = this.mesh.position.x + mx;
+        steerTargetZ = this.mesh.position.z + mz;
+      } else if (len <= desired * 1.08) {
+        mx = 0;
+        mz = 0;
+      }
+      len = Math.hypot(mx, mz);
+    }
     if (len > 1e-4 && storageObstacles && storageObstacles.length > 0) {
       const dir = computeEnemyMoveDirectionAvoidingStorages(
         this.mesh.position.x,
         this.mesh.position.z,
-        targetX,
-        targetZ,
+        steerTargetX,
+        steerTargetZ,
         storageObstacles,
         CONFIG.enemyAvoidanceLookahead,
         this.bodyRadius,
@@ -494,6 +596,37 @@ export class Enemy {
     this.mesh.position.x = c.x;
     this.mesh.position.z = c.z;
     this.tickAngelShieldRegen(dt);
+  }
+
+  faceTarget(targetX: number, targetZ: number): void {
+    if (!this.facingSpritePivot) return;
+    const dx = targetX - this.mesh.position.x;
+    const dz = targetZ - this.mesh.position.z;
+    if (Math.hypot(dx, dz) <= 1e-4) return;
+    this.facingSpritePivot.rotation.y = Math.atan2(dx, dz);
+  }
+
+  showDeathSprite(): void {
+    if (!this.spriteMat) return;
+    const url = ENEMY_DEATH_SPRITE_URLS[this.kind];
+    if (!url) return;
+    const oldMap = this.spriteMat.map;
+    const tex = ENEMY_TEXTURE_LOADER.load(url);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    this.spriteMat.map = tex;
+    this.spriteMat.needsUpdate = true;
+    oldMap?.dispose();
+  }
+
+  tickShooterShotCooldown(dt: number): boolean {
+    if (this.kind !== 'shooter') return false;
+    this.shooterShotCooldownSec -= Math.max(0, dt);
+    if (this.shooterShotCooldownSec > 0) return false;
+    this.shooterShotCooldownSec += CONFIG.shooterShotIntervalSec;
+    if (this.shooterShotCooldownSec <= 0) {
+      this.shooterShotCooldownSec = CONFIG.shooterShotIntervalSec;
+    }
+    return true;
   }
 
   /** Passive shield regen tick for Angel (safe no-op for other kinds). */

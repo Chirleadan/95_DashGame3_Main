@@ -54,6 +54,8 @@ export const CONFIG = {
   /** Camera shake impulse per dash kill (clamped in Game). */
   dashKillShakePerEnemy: 0.2,
   dashKillShakeCap: 0.55,
+  /** How long dead enemies remain visible after being removed from gameplay (seconds). */
+  enemyDeathLingerSec: 0.4,
   /** Dash kill sweep uses `playerRadius * this` (enemy radius unchanged). */
   dashKillPlayerRadiusScale: 4,
   /**
@@ -68,13 +70,17 @@ export const CONFIG = {
 
   /** When beatmap audio is playing, add this to the UI lens distortion (clamped with slider sum to 0.5). */
   lensDistortionWhileTrackPlaysBoost: 0.2,
+  backgroundMusicUrl: '/audio/Background.m4a',
+  backgroundMusicVolume: 0.35,
   /**
    * During a run (`playing` / `runUpgrade`): need at least this much mana to start the track (E or button).
    * Starting spends `playTrackManaCost` mana on success; refunded if playback fails to start.
    */
-  playTrackMinManaToActivate: 20,
+  playTrackMinManaToActivate: 0,
   /** Mana removed when the beatmap track starts during a run. */
-  playTrackManaCost: 10,
+  playTrackManaCost: 0,
+  /** Delay before background music pauses after Play track starts (milliseconds). */
+  backgroundMusicPauseAfterTrackStartMs: 1200,
 
   /** Beat lane: note x = center + (beatTime - audioTime) * this (px/s), right → left. */
   beatLaneScrollPxPerSec: 880,
@@ -118,6 +124,17 @@ export const CONFIG = {
 
   enemySpeed: 4.2,
   enemyRadius: 1.14,
+  /** Shooter preferred center-to-center distance from player (world units). */
+  shooterKeepDistance: 12,
+  /** Shooter projectile cadence (seconds). */
+  shooterShotIntervalSec: 2,
+  /** Shooter projectile speed (world units/s). */
+  shooterProjectileSpeed: 10,
+  shooterProjectileRadius: 0.18,
+  shooterProjectileDamage: 1,
+  shooterProjectileMaxAgeSec: 5,
+  /** Every N-th spawn (when not tank/vault/resource/angel) is a shooter. `0` = never. */
+  shooterEveryNthSpawn: 11,
   /** Tank chase speed vs normal: `enemySpeed × difficulty × this` (`1/3` = в 3 раза медленнее). */
   tankEnemyMoveSpeedMult: 1 / 3,
   spawnInterval: 0.44,

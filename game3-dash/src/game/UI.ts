@@ -64,6 +64,12 @@ export class UI {
   private readonly overscanSlider: HTMLInputElement;
   private readonly overscanValEl: HTMLElement;
   private lensOverscanHandler: ((overscan: number) => void) | null = null;
+  private readonly bloomThresholdSlider: HTMLInputElement;
+  private readonly bloomThresholdValEl: HTMLElement;
+  private bloomThresholdHandler: ((threshold: number) => void) | null = null;
+  private readonly bloomStrengthSlider: HTMLInputElement;
+  private readonly bloomStrengthValEl: HTMLElement;
+  private bloomStrengthHandler: ((strength: number) => void) | null = null;
   private readonly mainMenuEl: HTMLElement;
   private readonly mainMenuPanel: HTMLElement;
   private readonly upgradeMenuPanel: HTMLElement;
@@ -158,6 +164,20 @@ export class UI {
         </div>
         <input id="lens-overscan" type="range" min="1" max="2" step="0.01" value="1.35" />
       </div>
+      <div class="beat-lens-row">
+        <div class="beat-lens-head">
+          <span class="label">Glow Threshold</span>
+          <span id="bloom-threshold-val" class="beat-lens-val">0.35</span>
+        </div>
+        <input id="bloom-threshold" type="range" min="0" max="1" step="0.01" value="0.35" />
+      </div>
+      <div class="beat-lens-row">
+        <div class="beat-lens-head">
+          <span class="label">Glow Strength</span>
+          <span id="bloom-strength-val" class="beat-lens-val">0.30</span>
+        </div>
+        <input id="bloom-strength" type="range" min="0" max="3" step="0.01" value="0.30" />
+      </div>
       <div class="beat-debug-row"><span class="label">State</span> <span id="beat-state">Loading...</span></div>
     `;
     container.appendChild(beatUi);
@@ -170,6 +190,10 @@ export class UI {
     this.lensValEl = beatUi.querySelector('#lens-distortion-val')!;
     this.overscanSlider = beatUi.querySelector('#lens-overscan') as HTMLInputElement;
     this.overscanValEl = beatUi.querySelector('#lens-overscan-val')!;
+    this.bloomThresholdSlider = beatUi.querySelector('#bloom-threshold') as HTMLInputElement;
+    this.bloomThresholdValEl = beatUi.querySelector('#bloom-threshold-val')!;
+    this.bloomStrengthSlider = beatUi.querySelector('#bloom-strength') as HTMLInputElement;
+    this.bloomStrengthValEl = beatUi.querySelector('#bloom-strength-val')!;
 
     this.beatLaneHost = document.createElement('div');
     this.beatLaneHost.className = 'beat-lane-host';
@@ -221,6 +245,8 @@ export class UI {
 
     this.lensSlider.addEventListener('input', () => this.emitLensDistortion());
     this.overscanSlider.addEventListener('input', () => this.emitLensOverscan());
+    this.bloomThresholdSlider.addEventListener('input', () => this.emitBloomThreshold());
+    this.bloomStrengthSlider.addEventListener('input', () => this.emitBloomStrength());
 
     this.mainMenuEl = document.createElement('div');
     this.mainMenuEl.className = 'game-overlay game-overlay--menu';
@@ -626,6 +652,18 @@ export class UI {
     this.lensOverscanHandler?.(v);
   }
 
+  private emitBloomThreshold(): void {
+    const v = parseFloat(this.bloomThresholdSlider.value);
+    this.bloomThresholdValEl.textContent = v.toFixed(2);
+    this.bloomThresholdHandler?.(v);
+  }
+
+  private emitBloomStrength(): void {
+    const v = parseFloat(this.bloomStrengthSlider.value);
+    this.bloomStrengthValEl.textContent = v.toFixed(2);
+    this.bloomStrengthHandler?.(v);
+  }
+
   onLensDistortionChange(handler: (amount: number) => void): void {
     this.lensDistortionHandler = handler;
     this.emitLensDistortion();
@@ -634,6 +672,16 @@ export class UI {
   onLensOverscanChange(handler: (overscan: number) => void): void {
     this.lensOverscanHandler = handler;
     this.emitLensOverscan();
+  }
+
+  onBloomThresholdChange(handler: (threshold: number) => void): void {
+    this.bloomThresholdHandler = handler;
+    this.emitBloomThreshold();
+  }
+
+  onBloomStrengthChange(handler: (strength: number) => void): void {
+    this.bloomStrengthHandler = handler;
+    this.emitBloomStrength();
   }
 
   onArtifactsChange(handler: () => void): void {
