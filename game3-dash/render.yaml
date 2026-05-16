@@ -1,4 +1,5 @@
 # Render Blueprint — leaderboard API + PostgreSQL
+# Repo root: 95_DashGame3_Main — use Blueprint path: game3-dash/render.yaml
 # Docs: https://render.com/docs/blueprint-spec
 #
 # After deploy, set FRONTEND_ORIGIN to your Vercel URL in the Render dashboard.
@@ -13,7 +14,7 @@ services:
   - type: web
     name: game3-dash-api
     runtime: node
-    rootDir: backend
+    rootDir: game3-dash/backend
     plan: free
     buildCommand: npm ci && npm run build
     startCommand: npm start
