@@ -90,7 +90,7 @@ export const CONFIG = {
 
   /** When beatmap audio is playing, add this to the UI lens distortion (clamped with slider sum to 0.5). */
   lensDistortionWhileTrackPlaysBoost: 0.2,
-  backgroundMusicUrl: '/audio/Background.m4a',
+  backgroundMusicUrl: '/audio/Background.mp3',
   backgroundMusicVolume: 0.35,
   /**
    * During a run (`playing` / `runUpgrade`): need at least this much mana to start the track (E or button).
@@ -238,6 +238,15 @@ export const CONFIG = {
   angelRadiusScale: 1.5,
   /** Angel shield regen tick interval (seconds): restores one missing shield. */
   angelShieldRegenSec: 2,
+  /** Angel shield layers: every side starts with at least one, extra layers ramp in over run time. */
+  angelShieldLayerMax: 4,
+  angelShieldLayer2StartSec: 45,
+  angelShieldLayer3StartSec: 105,
+  angelShieldLayer4StartSec: 180,
+  /** Radial gap between Angel shield layers (world units). */
+  angelShieldLayerGap: 0.56,
+  /** Extra visual length added to each outer Angel shield layer. */
+  angelShieldLayerLengthStep: 0.18,
   /**
    * Tank: dash body `takeDashHit` is applied this many ms after impact (lets clip/slide finish first).
    */

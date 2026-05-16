@@ -4,6 +4,7 @@ const STORAGE_KEY = 'game3-dash-upgrades-v1';
 const FIXED_DASH_DURATION_SEC = 0.115;
 
 const DISCRETE_LEVELS = {
+  dashCooldownSec: [0.65, 0.5, 0.35],
   dashNominalLengthWorld: [6, 7, 8, 9, 10],
   dashKillRadiusScale: [1.5, 2.75, 4, 5.25, 6.5],
   playerSpeed: [7, 8.5, 10, 11.5, 13],
@@ -13,6 +14,8 @@ const DISCRETE_LEVELS = {
 export type BalanceSettingsState = {
   /** Main dash active time (seconds); enemy freeze matches this in gameplay. */
   dashDurationSec: number;
+  /** Delay after dash start before another dash can begin (seconds). */
+  dashCooldownSec: number;
   /**
    * Nominal dash travel distance in world XZ at length-mult `1` over `dashDurationSec`.
    * Effective dash speed = this / `dashDurationSec` (see `getEffectiveDashSpeed`).
@@ -26,6 +29,7 @@ export type BalanceSettingsState = {
 
 const LIMITS = {
   dashDurationSec: { min: FIXED_DASH_DURATION_SEC, max: FIXED_DASH_DURATION_SEC },
+  dashCooldownSec: { min: 0.35, max: 0.65 },
   dashNominalLengthWorld: { min: 6, max: 10 },
   dashKillRadiusScale: { min: 1.5, max: 6.5 },
   playerSpeed: { min: 7, max: 13 },
@@ -35,6 +39,7 @@ const LIMITS = {
 function defaults(): BalanceSettingsState {
   return {
     dashDurationSec: FIXED_DASH_DURATION_SEC,
+    dashCooldownSec: snapToDiscreteLevel(CONFIG.dashCooldown, DISCRETE_LEVELS.dashCooldownSec),
     dashNominalLengthWorld: snapToDiscreteLevel(
       CONFIG.dashSpeed * FIXED_DASH_DURATION_SEC,
       DISCRETE_LEVELS.dashNominalLengthWorld,
@@ -79,6 +84,10 @@ function snapToDiscreteLevel<T extends readonly number[]>(n: number, levels: T):
 function sanitize(p: BalanceSettingsState): BalanceSettingsState {
   return {
     dashDurationSec: FIXED_DASH_DURATION_SEC,
+    dashCooldownSec: snapToDiscreteLevel(
+      clamp(p.dashCooldownSec, LIMITS.dashCooldownSec.min, LIMITS.dashCooldownSec.max),
+      DISCRETE_LEVELS.dashCooldownSec,
+    ),
     dashNominalLengthWorld: snapToDiscreteLevel(
       clamp(
         p.dashNominalLengthWorld,
@@ -117,6 +126,12 @@ export function loadBalanceSettings(): void {
     const o = JSON.parse(raw) as Partial<BalanceSettingsState>;
     const merged: BalanceSettingsState = { ...defaults(), ...o };
     if (
+      typeof o.dashCooldownSec !== 'number' ||
+      !Number.isFinite(o.dashCooldownSec)
+    ) {
+      merged.dashCooldownSec = CONFIG.dashCooldown;
+    }
+    if (
       typeof o.dashNominalLengthWorld !== 'number' ||
       !Number.isFinite(o.dashNominalLengthWorld)
     ) {
@@ -138,6 +153,10 @@ export function saveBalanceSettings(): void {
 
 export function getDashDurationSec(): number {
   return current.dashDurationSec;
+}
+
+export function getDashCooldownSec(): number {
+  return current.dashCooldownSec;
 }
 
 export function getDashNominalLengthWorld(): number {

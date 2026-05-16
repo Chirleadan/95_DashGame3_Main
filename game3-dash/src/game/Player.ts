@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CONFIG, isDebugDashPastTankEnabled } from './config.ts';
 import {
   getDashDurationSec,
+  getDashCooldownSec,
   getDashNominalLengthWorld,
   getEffectiveDashSpeed,
   getPlayerMaxHp,
@@ -17,8 +18,28 @@ export type DashSweepSegment = { ax: number; az: number; bx: number; bz: number 
 const PLAYER_TEXTURE_LOADER = new THREE.TextureLoader();
 const PLAYER_IDLE_TEXTURE = PLAYER_TEXTURE_LOADER.load('/assets/player/player_idle_1.png');
 const PLAYER_DASH_TEXTURE = PLAYER_TEXTURE_LOADER.load('/assets/player/player_dash_1.png');
-PLAYER_IDLE_TEXTURE.colorSpace = THREE.SRGBColorSpace;
-PLAYER_DASH_TEXTURE.colorSpace = THREE.SRGBColorSpace;
+const PLAYER_STEP_1_TEXTURE = PLAYER_TEXTURE_LOADER.load('/assets/player/player_step_1.png');
+const PLAYER_STEP_2_TEXTURE = PLAYER_TEXTURE_LOADER.load('/assets/player/player_step_2.png');
+const PLAYER_STEP_3_TEXTURE = PLAYER_TEXTURE_LOADER.load('/assets/player/player_step_3.png');
+const PLAYER_STEP_4_TEXTURE = PLAYER_TEXTURE_LOADER.load('/assets/player/player_step_4.png');
+
+function configurePlayerTexture(texture: THREE.Texture): void {
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+}
+
+for (const texture of [
+  PLAYER_IDLE_TEXTURE,
+  PLAYER_DASH_TEXTURE,
+  PLAYER_STEP_1_TEXTURE,
+  PLAYER_STEP_2_TEXTURE,
+  PLAYER_STEP_3_TEXTURE,
+  PLAYER_STEP_4_TEXTURE,
+]) {
+  configurePlayerTexture(texture);
+}
 
 export class Player {
   readonly mesh: THREE.Group;
@@ -30,7 +51,9 @@ export class Player {
   private readonly spritePivot: THREE.Group;
   private readonly sprite: THREE.Mesh;
   private readonly spriteMat: THREE.MeshBasicMaterial;
-  private currentSpriteMode: 'idle' | 'dash' = 'idle';
+  private currentSpriteMode: 'idle' | 'dash' | 'walk1' | 'walk2' | 'walk3' | 'walk4' = 'idle';
+  private spriteWalkTimeSec = 0;
+  private spriteWalkingThisFrame = false;
   readonly dash = new Dash();
 
   private readonly trailPoints: THREE.Vector3[] = [];
@@ -145,6 +168,7 @@ export class Player {
     this.spriteMat = new THREE.MeshBasicMaterial({
       map: PLAYER_IDLE_TEXTURE,
       transparent: true,
+      alphaTest: 0.08,
       depthTest: false,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -331,7 +355,7 @@ export class Player {
     this.dash.dirX = dx;
     this.dash.dirZ = dz;
     this.dash.timeLeft = getDashDurationSec() * mult;
-    this.dash.cooldownLeft = CONFIG.dashCooldown;
+    this.dash.cooldownLeft = getDashCooldownSec();
     this.dashEnemyFreezeLeft = getDashDurationSec() * mult;
     this.activeDashLenWidthMult = mult;
     this.dashHitSerial += 1;
@@ -683,7 +707,7 @@ export class Player {
             Math.min(1, CONFIG.reverseDashArtifactDurationFraction),
           );
           this.dash.timeLeft = getDashDurationSec() * mult * revDur;
-          this.dash.cooldownLeft = CONFIG.dashCooldown;
+          this.dash.cooldownLeft = getDashCooldownSec();
           this.dashEnemyFreezeLeft = getDashDurationSec() * mult * revDur;
           this.dashHitSerial += 1;
           this.artifactReverseDashInProgress = true;
@@ -1020,7 +1044,8 @@ export class Player {
   ): void {
     if (this.tankClipSlideActive) {
       this.advanceTankClipSlide();
-      this.syncSpriteState();
+      this.spriteWalkingThisFrame = false;
+      this.syncSpriteState(0);
       return;
     }
 
@@ -1074,6 +1099,7 @@ export class Player {
 
     const useDash = this.dash.isDashingForMovement();
     const reverseArtifactStationary = useDash && this.artifactReverseDashInProgress;
+    this.spriteWalkingThisFrame = !useDash && !inMicro && walkLen > 1e-3;
     if (prevDashTimeLeft <= 0 && useDash && !this.artifactReverseDashInProgress) {
       this.dashEnemyFreezeLeft = getDashDurationSec() * mult;
       this.mainDashStartedThisFrame = true;
@@ -1161,7 +1187,7 @@ export class Player {
       this.trailRibbonGeo.setDrawRange(0, 0);
       this.trailRibbon.visible = false;
     }
-    this.syncSpriteState();
+    this.syncSpriteState(dt);
   }
 
   /**
@@ -1223,11 +1249,41 @@ export class Player {
     this.ringMat.opacity = 0.5;
   }
 
-  private syncSpriteState(): void {
-    const mode = this.isDashing ? 'dash' : 'idle';
+  private syncSpriteState(dt: number): void {
+    if (this.spriteWalkingThisFrame && !this.isDashing) {
+      this.spriteWalkTimeSec += Math.max(0, dt);
+    } else {
+      this.spriteWalkTimeSec = 0;
+    }
+
+    const walkFrame = [0, 1, 2, 3, 2, 1][
+      Math.floor(this.spriteWalkTimeSec / 0.175) % 6
+    ]!;
+    const mode = this.isDashing
+      ? 'dash'
+      : this.spriteWalkingThisFrame
+        ? walkFrame === 0
+          ? 'walk1'
+          : walkFrame === 1
+            ? 'walk2'
+            : walkFrame === 2
+              ? 'walk3'
+              : 'walk4'
+        : 'idle';
     if (mode === this.currentSpriteMode) return;
     this.currentSpriteMode = mode;
-    this.spriteMat.map = mode === 'dash' ? PLAYER_DASH_TEXTURE : PLAYER_IDLE_TEXTURE;
+    this.spriteMat.map =
+      mode === 'dash'
+        ? PLAYER_DASH_TEXTURE
+        : mode === 'walk1'
+          ? PLAYER_STEP_1_TEXTURE
+          : mode === 'walk2'
+            ? PLAYER_STEP_2_TEXTURE
+            : mode === 'walk3'
+              ? PLAYER_STEP_3_TEXTURE
+              : mode === 'walk4'
+                ? PLAYER_STEP_4_TEXTURE
+                : PLAYER_IDLE_TEXTURE;
     this.spriteMat.needsUpdate = true;
   }
 

@@ -127,8 +127,8 @@ export const TRACK_CATALOG: readonly TrackEntry[] = [
     label: 'Track 2',
     stages: [
       makeStage(2, 1, { enabled: true, boost: TRACK_2_BOOST }),
-      makeStage(2, 2, { boost: TRACK_2_BOOST }),
-      makeStage(2, 3, { boost: TRACK_2_BOOST }),
+      makeStage(2, 2, { enabled: true, boost: TRACK_2_BOOST }),
+      makeStage(2, 3, { enabled: true, boost: TRACK_2_BOOST }),
     ],
   },
   {

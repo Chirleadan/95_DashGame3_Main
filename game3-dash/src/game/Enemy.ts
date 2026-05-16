@@ -64,6 +64,46 @@ function rollIntInclusive(min: number, max: number): number {
   return a + Math.floor(Math.random() * (b - a + 1));
 }
 
+function createCurvedAngelShieldGeometry(
+  halfLen: number,
+  height: number,
+  depth: number,
+  curveSign: number,
+): THREE.BufferGeometry {
+  const segs = 10;
+  const bulge = depth * 1.45;
+  const verts: number[] = [];
+  const indices: number[] = [];
+  for (let i = 0; i <= segs; i++) {
+    const t = i / segs;
+    const x = -halfLen + halfLen * 2 * t;
+    const u = t * 2 - 1;
+    const z = curveSign * bulge * (1 - u * u);
+    verts.push(
+      x, height * 0.5, z + depth * 0.5,
+      x, height * 0.5, z - depth * 0.5,
+      x, -height * 0.5, z + depth * 0.5,
+      x, -height * 0.5, z - depth * 0.5,
+    );
+  }
+  for (let i = 0; i < segs; i++) {
+    const a = i * 4;
+    const b = a + 4;
+    indices.push(
+      a, b, a + 1, a + 1, b, b + 1,
+      a + 2, a + 3, b + 2, a + 3, b + 3, b + 2,
+      a, a + 2, b, a + 2, b + 2, b,
+      a + 1, b + 1, a + 3, a + 3, b + 1, b + 3,
+    );
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
+  return geo;
+}
+
 function addEnemySprite(
   root: THREE.Group,
   kind: EnemyKind,
@@ -114,6 +154,7 @@ export class Enemy {
   /** Хранилище: щиты на рёбрах гекса; скрываются при попадании деша. */
   private vaultShieldMeshes: THREE.Mesh[] | null = null;
   private vaultEdgeHalfLen = 0;
+  private angelShieldLayersPerSide = 1;
   /** Tank: wall-clock times (`performance.now()`) when queued dash body damage applies. */
   private pendingTankDashDamageAt: number[] = [];
   /** Angel shield regen accumulator (seconds). */
@@ -128,6 +169,7 @@ export class Enemy {
     z: number,
     kind: EnemyKind = 'normal',
     tankHitsToKillOverride?: number,
+    angelShieldLayersOverride?: number,
   ) {
     this.kind = kind;
     this.mesh = new THREE.Group();
@@ -136,6 +178,15 @@ export class Enemy {
     if (kind === 'vault' || kind === 'angel') {
       this.hitsRemaining = 1;
       const isAngel = kind === 'angel';
+      this.angelShieldLayersPerSide = isAngel
+        ? Math.max(
+            1,
+            Math.min(
+              CONFIG.angelShieldLayerMax,
+              Math.floor(angelShieldLayersOverride ?? 1),
+            ),
+          )
+        : 1;
       const R = isAngel
         ? CONFIG.enemyRadius * CONFIG.tankRadiusScale * CONFIG.angelRadiusScale
         : CONFIG.vaultHexCircumradius;
@@ -183,24 +234,47 @@ export class Enemy {
         const dx = b.x - a.x;
         const dz = b.z - a.z;
         along.set(dx, 0, dz).normalize();
-        const strip = new THREE.Mesh(
-          new THREE.BoxGeometry(
-            this.vaultEdgeHalfLen * 2,
-            CONFIG.vaultShieldStripHeight,
-            CONFIG.vaultShieldStripDepth,
-          ),
-          stripMat.clone(),
-        );
-        if (isAngel) {
-          (strip.material as THREE.MeshBasicMaterial).color.setHex(
-            i % 2 === 0 ? CONFIG.angelShieldColorA : CONFIG.angelShieldColorB,
+        const q = new THREE.Quaternion().setFromUnitVectors(xAxis, along);
+        const radial = new THREE.Vector3(mx, 0, mz).normalize();
+        const localZWorld = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+        const curveSign = localZWorld.dot(radial) >= 0 ? 1 : -1;
+        const layers = isAngel ? this.angelShieldLayersPerSide : 1;
+        for (let layer = 0; layer < layers; layer++) {
+          const shieldGeo = isAngel
+            ? createCurvedAngelShieldGeometry(
+                this.vaultEdgeHalfLen * (0.82 + layer * CONFIG.angelShieldLayerLengthStep),
+                CONFIG.vaultShieldStripHeight,
+                CONFIG.vaultShieldStripDepth,
+                curveSign,
+              )
+            : new THREE.BoxGeometry(
+                this.vaultEdgeHalfLen * 2,
+                CONFIG.vaultShieldStripHeight,
+                CONFIG.vaultShieldStripDepth,
+              );
+          const strip = new THREE.Mesh(
+            shieldGeo,
+            stripMat.clone(),
           );
+          if (isAngel) {
+            const mat = strip.material as THREE.MeshBasicMaterial;
+            mat.color.setHex(
+              i % 2 === 0 ? CONFIG.angelShieldColorA : CONFIG.angelShieldColorB,
+            );
+            mat.opacity = Math.max(0.48, 0.92 - layer * 0.1);
+            strip.userData.shieldSide = i;
+            strip.userData.shieldLayer = layer;
+          }
+          strip.quaternion.copy(q);
+          strip.position.set(
+            mx + radial.x * CONFIG.angelShieldLayerGap * layer,
+            CONFIG.vaultShieldStripY + layer * 0.018,
+            mz + radial.z * CONFIG.angelShieldLayerGap * layer,
+          );
+          strip.renderOrder = 3 + layer;
+          this.mesh.add(strip);
+          shields.push(strip);
         }
-        strip.quaternion.setFromUnitVectors(xAxis, along);
-        strip.position.set(mx, CONFIG.vaultShieldStripY, mz);
-        strip.renderOrder = 3;
-        this.mesh.add(strip);
-        shields.push(strip);
       }
       this.vaultShieldMeshes = shields;
       scene.add(this.mesh);
@@ -233,7 +307,7 @@ export class Enemy {
         : rollIntInclusive(CONFIG.tankHitsToKillMin, CONFIG.tankHitsToKillMax);
     this.hitsRemaining = kind === 'tank' ? Math.max(1, Math.floor(tankHits)) : 1;
 
-    const segs = 10;
+    const segs = kind === 'tank' ? 40 : 10;
     const r =
       kind === 'tank'
         ? CONFIG.enemyRadius * CONFIG.tankRadiusScale
@@ -295,7 +369,7 @@ export class Enemy {
           side: THREE.DoubleSide,
         });
         const outline = new THREE.Mesh(
-          new THREE.RingGeometry(ringInner, ringOuter, segs),
+          new THREE.RingGeometry(ringInner, ringOuter, 56),
           outlineMat,
         );
         outline.rotation.x = -Math.PI / 2;
@@ -380,6 +454,9 @@ export class Enemy {
     requireVisible: boolean,
   ): THREE.Mesh | null {
     if (!this.vaultShieldMeshes) return null;
+    if (this.kind === 'angel') {
+      return this.pickShieldByIncomingSide(seg, requireVisible);
+    }
     // Prefer the shield on the incoming side; this removes "neighbor shield broke" artifacts.
     const incomingSide = this.pickShieldByIncomingSide(seg, requireVisible);
     if (incomingSide) {
@@ -451,21 +528,44 @@ export class Enemy {
     requireVisible: boolean,
   ): THREE.Mesh | null {
     if (!this.vaultShieldMeshes || this.vaultShieldMeshes.length <= 0) return null;
+    const side = this.pickShieldSideByIncomingSide(seg);
+    if (side < 0) return null;
+    if (this.kind === 'angel') {
+      return requireVisible
+        ? this.pickOutermostVisibleAngelShieldOnSide(side)
+        : this.isAngelShieldSideOpen(side)
+          ? this.pickInnermostHiddenAngelShieldOnSide(side)
+          : null;
+    }
+    const vaultShield = this.vaultShieldMeshes[side] ?? null;
+    if (!vaultShield) return null;
+    if (requireVisible && !vaultShield.visible) return null;
+    if (!requireVisible && vaultShield.visible) return null;
+    return vaultShield;
+  }
+
+  private pickShieldSideByIncomingSide(seg: DashSweepSeg): number {
+    if (!this.vaultShieldMeshes || this.vaultShieldMeshes.length <= 0) return -1;
     const cx = this.mesh.position.x;
     const cz = this.mesh.position.z;
     let inX = seg.ax - cx;
     let inZ = seg.az - cz;
     const inLen = Math.hypot(inX, inZ);
-    if (inLen <= 1e-8) return null;
+    if (inLen <= 1e-8) return -1;
     inX /= inLen;
     inZ /= inLen;
 
-    let best: THREE.Mesh | null = null;
+    let bestSide = -1;
     let bestScore = -Number.POSITIVE_INFINITY;
     const mid = new THREE.Vector3();
-    for (const strip of this.vaultShieldMeshes) {
-      if (requireVisible && !strip.visible) continue;
-      if (!requireVisible && strip.visible) continue;
+    const sideCount = this.kind === 'angel' ? 6 : this.vaultShieldMeshes.length;
+    for (let side = 0; side < sideCount; side++) {
+      const strip =
+        this.kind === 'angel'
+          ? this.pickOutermostVisibleAngelShieldOnSide(side) ??
+            this.pickInnermostHiddenAngelShieldOnSide(side)
+          : this.vaultShieldMeshes[side] ?? null;
+      if (!strip) continue;
       strip.getWorldPosition(mid);
       let sx = mid.x - cx;
       let sz = mid.z - cz;
@@ -476,10 +576,47 @@ export class Enemy {
       const score = sx * inX + sz * inZ;
       if (score > bestScore) {
         bestScore = score;
+        bestSide = side;
+      }
+    }
+    return bestSide;
+  }
+
+  private pickOutermostVisibleAngelShieldOnSide(side: number): THREE.Mesh | null {
+    if (!this.vaultShieldMeshes) return null;
+    let best: THREE.Mesh | null = null;
+    let bestLayer = -1;
+    for (const strip of this.vaultShieldMeshes) {
+      if (!strip.visible || strip.userData.shieldSide !== side) continue;
+      const layer = Number(strip.userData.shieldLayer ?? 0);
+      if (layer > bestLayer) {
+        bestLayer = layer;
         best = strip;
       }
     }
     return best;
+  }
+
+  private pickInnermostHiddenAngelShieldOnSide(side: number): THREE.Mesh | null {
+    if (!this.vaultShieldMeshes) return null;
+    let best: THREE.Mesh | null = null;
+    let bestLayer = Number.POSITIVE_INFINITY;
+    for (const strip of this.vaultShieldMeshes) {
+      if (strip.visible || strip.userData.shieldSide !== side) continue;
+      const layer = Number(strip.userData.shieldLayer ?? 0);
+      if (layer < bestLayer) {
+        bestLayer = layer;
+        best = strip;
+      }
+    }
+    return best;
+  }
+
+  private isAngelShieldSideOpen(side: number): boolean {
+    if (!this.vaultShieldMeshes) return false;
+    return !this.vaultShieldMeshes.some(
+      (strip) => strip.userData.shieldSide === side && strip.visible,
+    );
   }
 
   /**

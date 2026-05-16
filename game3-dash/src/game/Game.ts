@@ -47,6 +47,8 @@ const RUN_UPGRADE_MAX_LEVEL = 5;
 const SIDE_DASH_MAX_LEVEL = 2;
 const ORBIT_SHIELD_RADIUS = 1.45;
 const ORBIT_SHIELD_THETA = Math.PI * 0.2;
+const VAULT_WALK_PSEUDO_COLLISION_RADIUS =
+  CONFIG.vaultHexCircumradius + CONFIG.playerRadius * 0.65;
 const SIDE_DASH_TRAIL_LIFE_SEC = 0.16;
 const SIDE_DASH_DELAY_SEC = 0.15;
 const LIGHTNING_AUTO_DASH_DELAY_SEC = 0.1;
@@ -117,6 +119,8 @@ export class Game {
   private nextBeatIndex = 0;
   /** Beat indices the player dashed on-time (lane draws them green). */
   private readonly beatHitIndices = new Set<number>();
+  /** Beat indices that already dealt miss/skip damage. */
+  private readonly beatPenaltyIndices = new Set<number>();
   private beatHitCount = 0;
   private readonly dashSerialsWithBeatHit = new Set<number>();
   private raf = 0;
@@ -618,6 +622,10 @@ export class Game {
       this.ui.setPlayEnabled(false, '');
       return;
     }
+    if (this.audio.isPlaying) {
+      this.ui.setPlayEnabled(false, '');
+      return;
+    }
     const spendMana =
       this.runPhase === 'playing' || this.runPhase === 'runUpgrade';
     if (spendMana && this.runMana < CONFIG.playTrackMinManaToActivate) {
@@ -882,6 +890,7 @@ export class Game {
       this.getActivePlayerSpeedMult(),
       this.enemies,
     );
+    this.applyVaultWalkPseudoCollision();
     this.updateLightningAutoDashChain(dt);
     const mainDashStarted = this.player.consumeMainDashStarted();
     if (mainDashStarted) {
@@ -1215,8 +1224,21 @@ export class Game {
   private getBloodPaletteForEnemy(enemy: Enemy): BloodPalette {
     if (enemy.isGoldSack()) return BLOOD_PALETTE_GOLD_SACK;
     if (enemy.isManaSack()) return BLOOD_PALETTE_MANA_SACK;
-    if (enemy.isVault()) return BLOOD_PALETTE_VAULT;
+    if (enemy.isVault() || enemy.isAngel()) return BLOOD_PALETTE_VAULT;
     return BLOOD_PALETTE_DEFAULT;
+  }
+
+  private queueShieldBloodSplash(
+    enemy: Enemy,
+    dashDir?: { x: number; z: number; passPower?: number },
+  ): void {
+    this.queueBloodSplash(
+      enemy.mesh.position.x,
+      enemy.mesh.position.z,
+      enemy.bodyRadius * 0.62,
+      BLOOD_PALETTE_VAULT,
+      dashDir,
+    );
   }
 
   private queueBloodSplash(
@@ -1618,7 +1640,9 @@ export class Game {
 
     if ((e.isVault() || e.isAngel()) && e.getActiveShieldCount() > 0) {
       const scaledPlayer = CONFIG.playerRadius * getDashKillRadiusScale();
-      e.tryBreakVaultShieldWithDash(seg, this.getVaultShieldJoinRadius(scaledPlayer));
+      if (e.tryBreakVaultShieldWithDash(seg, this.getVaultShieldJoinRadius(scaledPlayer))) {
+        this.queueShieldBloodSplash(e, dir);
+      }
       this.markDashImpactSfx();
     } else {
       died = e.takeDashHit(e.isAngel());
@@ -1699,6 +1723,11 @@ export class Game {
       this.player.x,
       this.player.z,
     );
+  }
+
+  private damagePlayerForBeatMistake(): void {
+    if (this.runPhase !== 'playing' || this.player.hp <= 0) return;
+    this.damagePlayerAndPulse(1);
   }
 
   private startGameFromMenu(): void {
@@ -1787,6 +1816,7 @@ export class Game {
 
   private resetBeatHitTracking(): void {
     this.beatHitIndices.clear();
+    this.beatPenaltyIndices.clear();
     this.dashSerialsWithBeatHit.clear();
     this.beatHitCount = 0;
   }
@@ -1897,6 +1927,26 @@ export class Game {
 
   private queueTrack3PhantomSplash(): void {
     this.pendingPhantomSplashes.push({ delay: TRACK_3_PHANTOM_SPLASH_DELAY_SEC });
+  }
+
+  private applyVaultWalkPseudoCollision(): void {
+    if (this.player.isDashing || this.player.isMicroDashing || this.player.hp <= 0) {
+      return;
+    }
+    for (const e of this.enemies) {
+      if (!e.isVault()) continue;
+      const dx = this.player.x - e.mesh.position.x;
+      const dz = this.player.z - e.mesh.position.z;
+      const d = Math.hypot(dx, dz);
+      if (d >= VAULT_WALK_PSEUDO_COLLISION_RADIUS) continue;
+
+      const nx = d > 1e-5 ? dx / d : 1;
+      const nz = d > 1e-5 ? dz / d : 0;
+      this.player.mesh.position.x =
+        e.mesh.position.x + nx * VAULT_WALK_PSEUDO_COLLISION_RADIUS;
+      this.player.mesh.position.z =
+        e.mesh.position.z + nz * VAULT_WALK_PSEUDO_COLLISION_RADIUS;
+    }
   }
 
   private handleRunLightningDashStart(): void {
@@ -2066,11 +2116,12 @@ export class Game {
   /** If the player just started a main dash, maybe count an on-beat hit vs audio time. */
   private tryRegisterDashBeatHit(mainDashStarted: boolean): void {
     if (!mainDashStarted) return;
-    if (!this.beatmap) return;
+    if (!this.beatmap || !this.audio.isPlaying || this.runPhase !== 'playing') return;
     const t = this.audio.currentTime;
     const bestI = this.findBestBeatInDashWindowAtTime(t);
     if (bestI >= 0 && !this.beatHitIndices.has(bestI)) {
       this.beatHitIndices.add(bestI);
+      this.beatPenaltyIndices.add(bestI);
       this.dashSerialsWithBeatHit.add(this.player.getDashHitSerial());
       this.beatHitCount += 1;
       this.beatEffects.triggerOnBeatHitFlash();
@@ -2080,7 +2131,9 @@ export class Game {
       if (this.audio.isPlaying && this.selectedTrackStage.boost.resetDashCooldownOnBeat) {
         this.player.clearDashCooldownAfterOnBeatHit();
       }
+      return;
     }
+    this.damagePlayerForBeatMistake();
   }
 
   private onBeatReached(beat: BeatEvent): void {
@@ -2396,9 +2449,19 @@ export class Game {
 
     const now = this.audio.currentTime;
     const beats = this.beatmap.beats;
+    if (this.audio.isPlaying && this.runPhase === 'playing') {
+      for (let i = 0; i < beats.length; i++) {
+        const beat = beats[i]!;
+        if (now < beat.time + CONFIG.dashBeatWindowAfterSec) break;
+        if (this.beatHitIndices.has(i) || this.beatPenaltyIndices.has(i)) continue;
+        this.beatPenaltyIndices.add(i);
+        this.damagePlayerForBeatMistake();
+      }
+    }
     while (this.nextBeatIndex < beats.length && now >= beats[this.nextBeatIndex]!.time) {
       if (this.lightningChainActive && !this.beatHitIndices.has(this.nextBeatIndex)) {
         this.beatHitIndices.add(this.nextBeatIndex);
+        this.beatPenaltyIndices.add(this.nextBeatIndex);
         this.beatHitCount += 1;
         this.beatEffects.triggerOnBeatHitFlash();
       }
@@ -2464,7 +2527,9 @@ export class Game {
             e.canDashDamageFromOpenShieldSide(hitSeg, vaultShieldJoin);
           this.markDashImpactSfx();
           if (!canDamageAngel) {
-            e.tryBreakVaultShieldWithDash(hitSeg, vaultShieldJoin);
+            if (e.tryBreakVaultShieldWithDash(hitSeg, vaultShieldJoin)) {
+              this.queueShieldBloodSplash(e, this.getDashBloodImpact(tx, tz, e.bodyRadius, dashKillDir));
+            }
           }
           if (e.vaultLastClipDashSerial !== dashSerial) {
             this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
@@ -2477,7 +2542,9 @@ export class Game {
 
         if (e.isVault() && e.getActiveShieldCount() > 0) {
           this.markDashImpactSfx();
-          e.tryBreakVaultShieldWithDash(hitSeg, vaultShieldJoin);
+          if (e.tryBreakVaultShieldWithDash(hitSeg, vaultShieldJoin)) {
+            this.queueShieldBloodSplash(e, this.getDashBloodImpact(tx, tz, e.bodyRadius, dashKillDir));
+          }
           if (e.vaultLastClipDashSerial !== dashSerial) {
             this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
             e.vaultLastClipDashSerial = dashSerial;
@@ -2602,7 +2669,12 @@ export class Game {
       if (!hitSeg) continue;
       this.markDashImpactSfx();
       if ((e.isVault() || e.isAngel()) && e.getActiveShieldCount() > 0) {
-        e.tryBreakVaultShieldWithDash(hitSeg, vaultShieldJoin);
+        if (e.tryBreakVaultShieldWithDash(hitSeg, vaultShieldJoin)) {
+          this.queueShieldBloodSplash(
+            e,
+            this.getDashBloodImpact(e.mesh.position.x, e.mesh.position.z, e.bodyRadius, dir),
+          );
+        }
         continue;
       }
       const died = e.takeDashHit(e.isAngel());

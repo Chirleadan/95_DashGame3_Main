@@ -69,6 +69,7 @@ export class UI {
   private readonly dashEl: HTMLElement;
   private readonly fpsEl: HTMLElement;
   private readonly playBtn: HTMLButtonElement;
+  private readonly playTrackPromptEl: HTMLElement;
   private readonly audioTimeEl: HTMLElement;
   private readonly nextBeatEl: HTMLElement;
   private readonly beatmapStateEl: HTMLElement;
@@ -105,10 +106,13 @@ export class UI {
   private readonly mainMenuPanel: HTMLElement;
   private readonly upgradeMenuPanel: HTMLElement;
   private readonly trackMenuPanel: HTMLElement;
+  private readonly titlesMenuPanel: HTMLElement;
   private readonly trackMenuList: HTMLElement;
   private readonly currentTrackEl: HTMLElement;
   private readonly upgradeDashLen: HTMLInputElement;
   private readonly upgradeDashLenVal: HTMLElement;
+  private readonly upgradeDashCooldown: HTMLInputElement;
+  private readonly upgradeDashCooldownVal: HTMLElement;
   private readonly upgradeDashNomLen: HTMLInputElement;
   private readonly upgradeDashNomLenVal: HTMLElement;
   private readonly upgradeDashRadius: HTMLInputElement;
@@ -117,6 +121,7 @@ export class UI {
   private readonly upgradeMoveSpeedVal: HTMLElement;
   private readonly upgradeShields: HTMLInputElement;
   private readonly upgradeShieldsVal: HTMLElement;
+  private readonly upgradeStoragePointer: HTMLInputElement;
   private readonly deathScreenEl: HTMLElement;
   private readonly deathStatTimeEl: HTMLElement;
   private readonly deathStatKillsEl: HTMLElement;
@@ -240,6 +245,13 @@ export class UI {
       <div class="beat-debug-row"><span class="label">State</span> <span id="beat-state">Loading...</span></div>
     `;
     container.appendChild(beatUi);
+    this.playTrackPromptEl = document.createElement('div');
+    this.playTrackPromptEl.className = 'beat-play-prompt';
+    this.playTrackPromptEl.hidden = true;
+    this.playTrackPromptEl.innerHTML = `
+      <span>PRESS <span class="beat-play-prompt__key">E</span> TO PLAY TAPE</span>
+      <span>(ULTIMATE)</span>
+    `;
     this.playBtn = beatUi.querySelector('#beat-play-btn')!;
     this.audioTimeEl = beatUi.querySelector('#beat-audio-time')!;
     this.nextBeatEl = beatUi.querySelector('#beat-next-time')!;
@@ -271,6 +283,7 @@ export class UI {
     this.beatLaneCanvas = document.createElement('canvas');
     this.beatLaneCtx = this.beatLaneCanvas.getContext('2d');
     this.beatLaneHost.appendChild(this.beatLaneCanvas);
+    this.beatLaneHost.appendChild(this.playTrackPromptEl);
 
     this.beatRoundTimerEl = document.createElement('div');
     this.beatRoundTimerEl.className = 'beat-round-timer';
@@ -338,18 +351,28 @@ export class UI {
           <span class="track-summary__label">Track</span>
           <span id="main-menu-track-current" class="track-summary__value">Track 1 / Stage 3</span>
         </div>
-        <button id="main-menu-tracks" type="button" class="game-overlay__btn game-overlay__btn--secondary">Tracks</button>
-        <label class="main-menu-cheatmode">
-          <input id="main-menu-cheatmode" type="checkbox" />
-          <span>Cheat mode</span>
-        </label>
-        <button id="main-menu-play" type="button" class="game-overlay__btn">Play</button>
-        <button id="main-menu-upgrade" type="button" class="game-overlay__btn game-overlay__btn--secondary">Upgrade</button>
+        <div class="main-menu-actions">
+          <button id="main-menu-play" type="button" class="game-overlay__btn">PLAY</button>
+          <button id="main-menu-upgrade" type="button" class="game-overlay__btn game-overlay__btn--secondary">UPGRADES</button>
+          <button id="main-menu-tracks" type="button" class="game-overlay__btn game-overlay__btn--secondary">TAPES</button>
+        </div>
+        <div class="main-menu-side-links">
+          <button id="main-menu-titles" type="button" class="main-menu-titles-btn">TITLES</button>
+          <label class="main-menu-cheatmode" data-tooltip="Cheat mode shows every level-up perk choice instead of rolling 3 random options.">
+            <input id="main-menu-cheatmode" type="checkbox" />
+            <span>Cheat mode</span>
+          </label>
+        </div>
       </div>
       <div id="track-menu-panel" class="game-overlay__panel game-overlay__panel--tracks" hidden>
         <h2 class="game-overlay__subtitle">Tracks</h2>
         <div id="track-menu-list" class="track-menu"></div>
         <button id="track-back" type="button" class="game-overlay__btn game-overlay__btn--upgrade-back">Back</button>
+      </div>
+      <div id="titles-menu-panel" class="game-overlay__panel game-overlay__panel--titles" hidden>
+        <h2 class="game-overlay__subtitle">Titles</h2>
+        <div class="titles-menu"></div>
+        <button id="titles-back" type="button" class="game-overlay__btn game-overlay__btn--upgrade-back">Back</button>
       </div>
       <div id="upgrade-menu-panel" class="game-overlay__panel game-overlay__panel--upgrade" hidden>
         <h2 class="game-overlay__subtitle">Upgrade</h2>
@@ -359,6 +382,13 @@ export class UI {
             <span id="upgrade-dash-len-val" class="upgrade-menu__val">${b.dashDurationSec.toFixed(3)}</span>
           </div>
           <input id="upgrade-dash-len" type="range" min="${L.dashDurationSec.min}" max="${L.dashDurationSec.max}" step="0.001" value="${b.dashDurationSec}" disabled />
+        </div>
+        <div class="upgrade-menu__row">
+          <div class="upgrade-menu__head">
+            <span class="label">Dash cooldown (s)</span>
+            <span id="upgrade-dash-cooldown-val" class="upgrade-menu__val">${b.dashCooldownSec.toFixed(2)}</span>
+          </div>
+          <input id="upgrade-dash-cooldown" type="range" min="${L.dashCooldownSec.min}" max="${L.dashCooldownSec.max}" step="0.15" value="${b.dashCooldownSec}" />
         </div>
         <div class="upgrade-menu__row">
           <div class="upgrade-menu__head">
@@ -388,6 +418,10 @@ export class UI {
           </div>
           <input id="upgrade-shields" type="range" min="${L.playerMaxHp.min}" max="${L.playerMaxHp.max}" step="1" value="${b.playerMaxHp}" />
         </div>
+        <label class="upgrade-menu__toggle-row">
+          <span class="label">Storage pointer</span>
+          <input id="upgrade-storage-pointer" type="checkbox" ${isArtifactEnabled('vaultBearing') ? 'checked' : ''} />
+        </label>
         <button id="upgrade-back" type="button" class="game-overlay__btn game-overlay__btn--upgrade-back">Back</button>
       </div>
     `;
@@ -398,11 +432,14 @@ export class UI {
 
     this.mainMenuPanel = this.mainMenuEl.querySelector('#main-menu-panel')!;
     this.trackMenuPanel = this.mainMenuEl.querySelector('#track-menu-panel')!;
+    this.titlesMenuPanel = this.mainMenuEl.querySelector('#titles-menu-panel')!;
     this.trackMenuList = this.mainMenuEl.querySelector('#track-menu-list')!;
     this.currentTrackEl = this.mainMenuEl.querySelector('#main-menu-track-current')!;
     this.upgradeMenuPanel = this.mainMenuEl.querySelector('#upgrade-menu-panel')!;
     this.upgradeDashLen = this.mainMenuEl.querySelector('#upgrade-dash-len') as HTMLInputElement;
     this.upgradeDashLenVal = this.mainMenuEl.querySelector('#upgrade-dash-len-val')!;
+    this.upgradeDashCooldown = this.mainMenuEl.querySelector('#upgrade-dash-cooldown') as HTMLInputElement;
+    this.upgradeDashCooldownVal = this.mainMenuEl.querySelector('#upgrade-dash-cooldown-val')!;
     this.upgradeDashNomLen = this.mainMenuEl.querySelector('#upgrade-dash-nomlen') as HTMLInputElement;
     this.upgradeDashNomLenVal = this.mainMenuEl.querySelector('#upgrade-dash-nomlen-val')!;
     this.upgradeDashRadius = this.mainMenuEl.querySelector('#upgrade-dash-radius') as HTMLInputElement;
@@ -411,6 +448,7 @@ export class UI {
     this.upgradeMoveSpeedVal = this.mainMenuEl.querySelector('#upgrade-move-speed-val')!;
     this.upgradeShields = this.mainMenuEl.querySelector('#upgrade-shields') as HTMLInputElement;
     this.upgradeShieldsVal = this.mainMenuEl.querySelector('#upgrade-shields-val')!;
+    this.upgradeStoragePointer = this.mainMenuEl.querySelector('#upgrade-storage-pointer') as HTMLInputElement;
     this.buildTrackMenu();
     this.bindUpgradeMenuControls();
 
@@ -538,7 +576,10 @@ export class UI {
           const desc = document.createElement('span');
           desc.className = 'run-upgrade-card__desc';
           desc.textContent = choice.description ?? '';
-          button.append(title, desc);
+          const artSlot = document.createElement('span');
+          artSlot.className = 'run-upgrade-card__art';
+          artSlot.setAttribute('aria-hidden', 'true');
+          button.append(title, desc, artSlot);
         }
         return button;
       }),
@@ -598,6 +639,8 @@ export class UI {
     const b = getBalanceSnapshot();
     this.upgradeDashLen.value = String(b.dashDurationSec);
     this.upgradeDashLenVal.textContent = b.dashDurationSec.toFixed(3);
+    this.upgradeDashCooldown.value = String(b.dashCooldownSec);
+    this.upgradeDashCooldownVal.textContent = b.dashCooldownSec.toFixed(2);
     this.upgradeDashNomLen.value = String(b.dashNominalLengthWorld);
     this.upgradeDashNomLenVal.textContent = b.dashNominalLengthWorld.toFixed(0);
     this.upgradeDashRadius.value = String(b.dashKillRadiusScale);
@@ -606,11 +649,13 @@ export class UI {
     this.upgradeMoveSpeedVal.textContent = b.playerSpeed.toFixed(1);
     this.upgradeShields.value = String(b.playerMaxHp);
     this.upgradeShieldsVal.textContent = String(b.playerMaxHp);
+    this.upgradeStoragePointer.checked = isArtifactEnabled('vaultBearing');
   }
 
   private openUpgradeMenu(): void {
     this.syncUpgradeControlsFromBalance();
     this.trackMenuPanel.hidden = true;
+    this.titlesMenuPanel.hidden = true;
     this.mainMenuPanel.hidden = true;
     this.upgradeMenuPanel.hidden = false;
   }
@@ -618,6 +663,21 @@ export class UI {
   private closeUpgradeMenu(): void {
     this.upgradeMenuPanel.hidden = true;
     this.trackMenuPanel.hidden = true;
+    this.titlesMenuPanel.hidden = true;
+    this.mainMenuPanel.hidden = false;
+  }
+
+  private openTitlesMenu(): void {
+    this.trackMenuPanel.hidden = true;
+    this.upgradeMenuPanel.hidden = true;
+    this.mainMenuPanel.hidden = true;
+    this.titlesMenuPanel.hidden = false;
+  }
+
+  private closeTitlesMenu(): void {
+    this.titlesMenuPanel.hidden = true;
+    this.trackMenuPanel.hidden = true;
+    this.upgradeMenuPanel.hidden = true;
     this.mainMenuPanel.hidden = false;
   }
 
@@ -658,11 +718,13 @@ export class UI {
   private openTrackMenu(): void {
     this.mainMenuPanel.hidden = true;
     this.upgradeMenuPanel.hidden = true;
+    this.titlesMenuPanel.hidden = true;
     this.trackMenuPanel.hidden = false;
   }
 
   private closeTrackMenu(): void {
     this.trackMenuPanel.hidden = true;
+    this.titlesMenuPanel.hidden = true;
     this.mainMenuPanel.hidden = false;
   }
 
@@ -687,6 +749,14 @@ export class UI {
     this.mainMenuEl.querySelector('#track-back')!.addEventListener('click', (e) => {
       e.stopPropagation();
       this.closeTrackMenu();
+    });
+    this.mainMenuEl.querySelector('#main-menu-titles')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.openTitlesMenu();
+    });
+    this.mainMenuEl.querySelector('#titles-back')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closeTitlesMenu();
     });
     this.trackMenuList.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -717,6 +787,12 @@ export class UI {
       this.upgradeDashLenVal.textContent =
         getBalanceSnapshot().dashDurationSec.toFixed(3);
     });
+    this.upgradeDashCooldown.addEventListener('input', () => {
+      const v = parseFloat(this.upgradeDashCooldown.value);
+      setBalancePatch({ dashCooldownSec: v });
+      this.upgradeDashCooldownVal.textContent =
+        getBalanceSnapshot().dashCooldownSec.toFixed(2);
+    });
     this.upgradeDashNomLen.addEventListener('input', () => {
       const v = parseFloat(this.upgradeDashNomLen.value);
       setBalancePatch({ dashNominalLengthWorld: v });
@@ -741,6 +817,10 @@ export class UI {
       const b = getBalanceSnapshot();
       this.upgradeShieldsVal.textContent = String(b.playerMaxHp);
       this.rebuildHpBarSegments();
+    });
+    this.upgradeStoragePointer.addEventListener('change', () => {
+      setArtifactEnabled('vaultBearing', this.upgradeStoragePointer.checked);
+      this.artifactsChangeHandler?.();
     });
   }
 
@@ -1007,7 +1087,7 @@ export class UI {
       if (regen) {
         const active = !filled && i === cur && cur < maxHp && p > 0;
         regen.classList.toggle('hp-bar-segment__regen--active', active);
-        regen.style.height = active ? `${p * 100}%` : '0%';
+        regen.style.width = active ? `${p * 100}%` : '0%';
       }
     }
     this.enemiesEl.textContent = String(enemyCount);
@@ -1070,6 +1150,7 @@ export class UI {
   setPlayEnabled(enabled: boolean, disabledTitle = ''): void {
     this.playBtn.disabled = !enabled;
     this.playBtn.title = disabledTitle;
+    this.playTrackPromptEl.hidden = !enabled;
   }
 
   setBeatmapState(text: string): void {

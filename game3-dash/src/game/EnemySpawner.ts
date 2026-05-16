@@ -56,6 +56,16 @@ export class EnemySpawner {
     return 4;
   }
 
+  private pickAngelShieldLayers(runElapsedSec: number): number {
+    const maxLayers = Math.max(1, Math.floor(CONFIG.angelShieldLayerMax));
+    const elapsed = Math.max(0, Number.isFinite(runElapsedSec) ? runElapsedSec : 0);
+    let layers = 1;
+    if (elapsed >= CONFIG.angelShieldLayer2StartSec) layers = 2;
+    if (elapsed >= CONFIG.angelShieldLayer3StartSec) layers = 3;
+    if (elapsed >= CONFIG.angelShieldLayer4StartSec) layers = 4;
+    return Math.min(maxLayers, layers);
+  }
+
   private spawnOne(px: number, pz: number, runElapsedSec: number): void {
     const angle = Math.random() * Math.PI * 2;
     const dist =
@@ -92,9 +102,22 @@ export class EnemySpawner {
         kind = 'shooter';
       }
     }
-    if (kind === 'tank' || kind === 'angel') {
+    if (kind === 'tank') {
       this.enemies.push(
         new Enemy(this.scene, x, z, kind, this.pickTankHitsToKill(runElapsedSec)),
+      );
+      return;
+    }
+    if (kind === 'angel') {
+      this.enemies.push(
+        new Enemy(
+          this.scene,
+          x,
+          z,
+          kind,
+          undefined,
+          this.pickAngelShieldLayers(runElapsedSec),
+        ),
       );
       return;
     }
