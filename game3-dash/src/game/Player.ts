@@ -14,6 +14,12 @@ import type { Enemy } from './Enemy.ts';
 
 export type DashSweepSegment = { ax: number; az: number; bx: number; bz: number };
 
+const PLAYER_TEXTURE_LOADER = new THREE.TextureLoader();
+const PLAYER_IDLE_TEXTURE = PLAYER_TEXTURE_LOADER.load('/assets/player/player_idle_1.png');
+const PLAYER_DASH_TEXTURE = PLAYER_TEXTURE_LOADER.load('/assets/player/player_dash_1.png');
+PLAYER_IDLE_TEXTURE.colorSpace = THREE.SRGBColorSpace;
+PLAYER_DASH_TEXTURE.colorSpace = THREE.SRGBColorSpace;
+
 export class Player {
   readonly mesh: THREE.Group;
   private readonly body: THREE.Mesh;
@@ -21,6 +27,10 @@ export class Player {
   private readonly ring: THREE.Mesh;
   private readonly ringMat: THREE.MeshBasicMaterial;
   private readonly aimPivot: THREE.Group;
+  private readonly spritePivot: THREE.Group;
+  private readonly sprite: THREE.Mesh;
+  private readonly spriteMat: THREE.MeshBasicMaterial;
+  private currentSpriteMode: 'idle' | 'dash' = 'idle';
   readonly dash = new Dash();
 
   private readonly trailPoints: THREE.Vector3[] = [];
@@ -33,12 +43,20 @@ export class Player {
   private readonly tailRibbonPositions = new Float32Array(8 * 6 * 3);
   private readonly tailRibbonGeo: THREE.BufferGeometry;
   private readonly tailRibbon: THREE.Mesh;
+  private readonly secondTailPoint: THREE.Mesh;
+  private readonly secondTailRibbonPositions = new Float32Array(8 * 6 * 3);
+  private readonly secondTailRibbonGeo: THREE.BufferGeometry;
+  private readonly secondTailRibbon: THREE.Mesh;
   private readonly tailBase = new THREE.Vector3();
   private readonly tailVisual = new THREE.Vector3();
+  private readonly secondTailBase = new THREE.Vector3();
+  private readonly secondTailVisual = new THREE.Vector3();
   private tailDirX = 0;
   private tailDirZ = -1;
   private tailWagOffsetA = 0;
   private tailWagOffsetB = 0;
+  private tailMotionAmount = 0;
+  private secondTailMotionAmount = 0;
 
   hp: number = getPlayerMaxHp();
 
@@ -120,7 +138,28 @@ export class Player {
     });
     this.body = new THREE.Mesh(geo, this.bodyMat);
     this.body.castShadow = true;
+    this.body.renderOrder = 5;
+    this.body.visible = false;
     this.mesh.add(this.body);
+
+    this.spriteMat = new THREE.MeshBasicMaterial({
+      map: PLAYER_IDLE_TEXTURE,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const spriteSize = CONFIG.playerRadius * 6.4;
+    this.sprite = new THREE.Mesh(
+      new THREE.PlaneGeometry(spriteSize, spriteSize),
+      this.spriteMat,
+    );
+    this.sprite.rotation.x = -Math.PI / 2;
+    this.sprite.position.y = -CONFIG.playerRadius + 0.12;
+    this.sprite.renderOrder = 9;
+    this.spritePivot = new THREE.Group();
+    this.spritePivot.add(this.sprite);
+    this.mesh.add(this.spritePivot);
 
     this.ringMat = new THREE.MeshBasicMaterial({
       color: 0x66ccff,
@@ -133,6 +172,7 @@ export class Player {
     );
     this.ring.rotation.x = Math.PI / 2;
     this.ring.position.y = -CONFIG.playerRadius * 0.2;
+    this.ring.visible = false;
     this.mesh.add(this.ring);
 
     this.aimPivot = new THREE.Group();
@@ -147,6 +187,7 @@ export class Player {
       aimGeo,
       new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.92 }),
     );
+    aimLine.visible = false;
     this.aimPivot.add(aimLine);
     this.mesh.add(this.aimPivot);
 
@@ -184,6 +225,7 @@ export class Player {
     );
     this.tailPoint.frustumCulled = false;
     this.tailPoint.renderOrder = 8;
+    this.tailPoint.visible = false;
     scene.add(this.tailPoint);
 
     this.tailRibbonGeo = new THREE.BufferGeometry();
@@ -204,7 +246,38 @@ export class Player {
     );
     this.tailRibbon.frustumCulled = false;
     this.tailRibbon.renderOrder = 7;
+    this.tailRibbon.visible = false;
     scene.add(this.tailRibbon);
+
+    this.secondTailPoint = new THREE.Mesh(
+      new THREE.SphereGeometry(CONFIG.playerRadius * 0.11, 10, 8),
+      tailMat.clone(),
+    );
+    this.secondTailPoint.frustumCulled = false;
+    this.secondTailPoint.renderOrder = 8;
+    this.secondTailPoint.visible = false;
+    scene.add(this.secondTailPoint);
+
+    this.secondTailRibbonGeo = new THREE.BufferGeometry();
+    this.secondTailRibbonGeo.setAttribute(
+      'position',
+      new THREE.BufferAttribute(this.secondTailRibbonPositions, 3),
+    );
+    this.secondTailRibbon = new THREE.Mesh(
+      this.secondTailRibbonGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.78,
+        depthTest: false,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    this.secondTailRibbon.frustumCulled = false;
+    this.secondTailRibbon.renderOrder = 7;
+    this.secondTailRibbon.visible = false;
+    scene.add(this.secondTailRibbon);
     this.resetTailVisual();
 
     scene.add(this.mesh);
@@ -244,6 +317,32 @@ export class Player {
 
   getDashHitSerial(): number {
     return this.dashHitSerial;
+  }
+
+  forceStartAutoDashToward(targetX: number, targetZ: number, durationMult = 1): boolean {
+    if (this.hp <= 0 || this.isDashing || this.microDashTimeLeft > 0) return false;
+    let dx = targetX - this.mesh.position.x;
+    let dz = targetZ - this.mesh.position.z;
+    const len = Math.hypot(dx, dz);
+    if (len <= 1e-4) return false;
+    dx /= len;
+    dz /= len;
+    const mult = Number.isFinite(durationMult) && durationMult > 0 ? durationMult : 1;
+    this.dash.dirX = dx;
+    this.dash.dirZ = dz;
+    this.dash.timeLeft = getDashDurationSec() * mult;
+    this.dash.cooldownLeft = CONFIG.dashCooldown;
+    this.dashEnemyFreezeLeft = getDashDurationSec() * mult;
+    this.activeDashLenWidthMult = mult;
+    this.dashHitSerial += 1;
+    this.lastAimDirX = dx;
+    this.lastAimDirZ = dz;
+    this.mainDashStartedThisFrame = false;
+    this.artifactReverseDashInProgress = false;
+    this.microDashTimeLeft = 0;
+    this.dashTrailBuilding = false;
+    this.trailPoints.length = 0;
+    return true;
   }
 
   getProjectedDashEndXZ(): { x: number; z: number } {
@@ -644,19 +743,33 @@ export class Player {
   private resetTailVisual(): void {
     const x = this.mesh.position.x - this.tailDirX * CONFIG.playerTailFollowDistance;
     const z = this.mesh.position.z - this.tailDirZ * CONFIG.playerTailFollowDistance;
+    const sideX = -this.tailDirZ * CONFIG.playerRadius * 0.78;
+    const sideZ = this.tailDirX * CONFIG.playerRadius * 0.78;
     const y = CONFIG.floorY + 0.2;
     this.tailBase.set(x, y, z);
     this.tailVisual.copy(this.tailBase);
+    this.secondTailBase.set(
+      this.mesh.position.x - this.tailDirX * CONFIG.playerTailFollowDistance * 0.5 + sideX,
+      y,
+      this.mesh.position.z - this.tailDirZ * CONFIG.playerTailFollowDistance * 0.5 + sideZ,
+    );
+    this.secondTailVisual.copy(this.secondTailBase);
     this.tailPoint.position.copy(this.tailVisual);
+    this.secondTailPoint.position.copy(this.secondTailVisual);
     this.tailPoint.visible = this.hp > 0;
     this.tailRibbon.visible = this.hp > 0;
+    this.secondTailPoint.visible = this.hp > 0;
+    this.secondTailRibbon.visible = this.hp > 0;
     this.rebuildTailRibbon();
+    this.rebuildSecondTailRibbon();
   }
 
   private updateTailVisual(dt: number, prevX: number, prevZ: number): void {
     if (this.hp <= 0) {
       this.tailPoint.visible = false;
       this.tailRibbon.visible = false;
+      this.secondTailPoint.visible = false;
+      this.secondTailRibbon.visible = false;
       return;
     }
 
@@ -669,13 +782,35 @@ export class Player {
       this.tailDirX = dx / moveLen;
       this.tailDirZ = dz / moveLen;
     }
+    const moving = moveLen > 0.025;
+    const longTailSettle = 0.15;
+    const shortTailSettle = 0.1;
+    const longTarget = moving ? 1 : 0;
+    const shortTarget = moving ? 1 : 0;
+    const longFollow = moving
+      ? 1
+      : 1 - Math.exp(-Math.max(0.001, 4.6 / longTailSettle) * dt);
+    const shortFollow = moving
+      ? 1
+      : 1 - Math.exp(-Math.max(0.001, 4.6 / shortTailSettle) * dt);
+    this.tailMotionAmount += (longTarget - this.tailMotionAmount) * longFollow;
+    this.secondTailMotionAmount +=
+      (shortTarget - this.secondTailMotionAmount) * shortFollow;
 
     const targetX = px - this.tailDirX * CONFIG.playerTailFollowDistance;
     const targetZ = pz - this.tailDirZ * CONFIG.playerTailFollowDistance;
+    const sideX = -this.tailDirZ * CONFIG.playerRadius * 0.78;
+    const sideZ = this.tailDirX * CONFIG.playerRadius * 0.78;
+    const target2X = px - this.tailDirX * CONFIG.playerTailFollowDistance * 0.5 + sideX;
+    const target2Z = pz - this.tailDirZ * CONFIG.playerTailFollowDistance * 0.5 + sideZ;
     const follow = 1 - Math.exp(-Math.max(0.001, CONFIG.playerTailFollowSharpness) * dt);
     this.tailBase.x += (targetX - this.tailBase.x) * follow;
     this.tailBase.z += (targetZ - this.tailBase.z) * follow;
     this.tailBase.y = CONFIG.floorY + 0.2;
+    const follow2 = 1 - Math.exp(-Math.max(0.001, CONFIG.playerTailFollowSharpness * 1.25) * dt);
+    this.secondTailBase.x += (target2X - this.secondTailBase.x) * follow2;
+    this.secondTailBase.z += (target2Z - this.secondTailBase.z) * follow2;
+    this.secondTailBase.y = CONFIG.floorY + 0.2;
 
     const time = performance.now() * 0.001;
     const phase = Math.PI * 2 * CONFIG.playerTailWagHz * time;
@@ -684,15 +819,18 @@ export class Player {
         Math.sin(phase * 1.73 + 1.9) * 0.42 +
         Math.sin(phase * 0.57 + 4.1) * 0.28) *
       CONFIG.playerTailWagAmplitude *
-      0.72;
+      0.72 *
+      this.tailMotionAmount;
     this.tailWagOffsetA =
       (Math.sin(phase * 1.31 + 0.7) + Math.sin(phase * 2.11 + 2.6) * 0.35) *
       CONFIG.playerTailWagAmplitude *
-      0.85;
+      0.85 *
+      this.tailMotionAmount;
     this.tailWagOffsetB =
       (Math.sin(phase * 0.83 + 3.4) + Math.sin(phase * 1.91 + 0.2) * 0.48) *
       CONFIG.playerTailWagAmplitude *
-      0.9;
+      0.9 *
+      this.tailMotionAmount;
     const perpX = -this.tailDirZ;
     const perpZ = this.tailDirX;
     this.tailVisual.set(
@@ -700,10 +838,24 @@ export class Player {
       this.tailBase.y,
       this.tailBase.z + perpZ * wag,
     );
+    const wag2 =
+      (Math.sin(phase * 1.18 + 1.3) + Math.sin(phase * 1.9 + 3.2) * 0.32) *
+      CONFIG.playerTailWagAmplitude *
+      0.36 *
+      this.secondTailMotionAmount;
+    this.secondTailVisual.set(
+      this.secondTailBase.x + perpX * wag2,
+      this.secondTailBase.y,
+      this.secondTailBase.z + perpZ * wag2,
+    );
     this.tailPoint.position.copy(this.tailVisual);
+    this.secondTailPoint.position.copy(this.secondTailVisual);
     this.tailPoint.visible = true;
     this.tailRibbon.visible = true;
+    this.secondTailPoint.visible = true;
+    this.secondTailRibbon.visible = true;
     this.rebuildTailRibbon();
+    this.rebuildSecondTailRibbon();
   }
 
   private rebuildTailRibbon(): void {
@@ -743,8 +895,8 @@ export class Player {
         dx /= len;
         dz /= len;
       }
-      const edgeTaper = Math.sin(Math.PI * Math.max(0, Math.min(1, t)));
-      const w = (halfPlayer + (halfTail - halfPlayer) * t) * (0.45 + 0.55 * edgeTaper);
+      const endBloom = Math.pow(Math.max(0, Math.min(1, t)), 1.7);
+      const w = (halfPlayer + (halfTail - halfPlayer) * t) * (0.62 + 0.54 * endBloom);
       return { x, z, y, px: -dz, pz: dx, w };
     };
 
@@ -787,6 +939,76 @@ export class Player {
     this.tailRibbonGeo.computeBoundingSphere();
   }
 
+  private rebuildSecondTailRibbon(): void {
+    const sideX = -this.tailDirZ * CONFIG.playerRadius * 0.46;
+    const sideZ = this.tailDirX * CONFIG.playerRadius * 0.46;
+    const px = this.mesh.position.x - this.tailDirX * CONFIG.playerRadius * 0.16 + sideX;
+    const pz = this.mesh.position.z - this.tailDirZ * CONFIG.playerRadius * 0.16 + sideZ;
+    const tx = this.secondTailVisual.x;
+    const tz = this.secondTailVisual.z;
+    const curvePerpX = -this.tailDirZ;
+    const curvePerpZ = this.tailDirX;
+    const bendA = this.tailWagOffsetA * CONFIG.playerTailCurveBendMult * 0.42;
+    const bendB = this.tailWagOffsetB * CONFIG.playerTailCurveBendMult * 0.42;
+    const c1x = px + (tx - px) * 0.33 + curvePerpX * bendA;
+    const c1z = pz + (tz - pz) * 0.33 + curvePerpZ * bendA;
+    const c2x = px + (tx - px) * 0.66 + curvePerpX * bendB;
+    const c2z = pz + (tz - pz) * 0.66 + curvePerpZ * bendB;
+    const halfPlayer = CONFIG.playerTailRibbonWidth * 0.34;
+    const halfTail = CONFIG.playerTailRibbonWidth * 0.5;
+    const y0 = CONFIG.floorY + 0.16;
+    const y1 = CONFIG.floorY + 0.2;
+    const arr = this.secondTailRibbonPositions;
+    let o = 0;
+
+    const sample = (t: number): { x: number; z: number; y: number; px: number; pz: number; w: number } => {
+      const inv = 1 - t;
+      const inv2 = inv * inv;
+      const t2 = t * t;
+      const x = inv2 * inv * px + 3 * inv2 * t * c1x + 3 * inv * t2 * c2x + t2 * t * tx;
+      const z = inv2 * inv * pz + 3 * inv2 * t * c1z + 3 * inv * t2 * c2z + t2 * t * tz;
+      const y = y0 + (y1 - y0) * t;
+      let dx = 3 * inv2 * (c1x - px) + 6 * inv * t * (c2x - c1x) + 3 * t2 * (tx - c2x);
+      let dz = 3 * inv2 * (c1z - pz) + 6 * inv * t * (c2z - c1z) + 3 * t2 * (tz - c2z);
+      const len = Math.hypot(dx, dz);
+      if (len < 1e-5) {
+        dx = -this.tailDirX;
+        dz = -this.tailDirZ;
+      } else {
+        dx /= len;
+        dz /= len;
+      }
+      const endBloom = Math.pow(Math.max(0, Math.min(1, t)), 1.7);
+      const w = (halfPlayer + (halfTail - halfPlayer) * t) * (0.62 + 0.54 * endBloom);
+      return { x, z, y, px: -dz, pz: dx, w };
+    };
+
+    for (let i = 0; i < this.tailRibbonSegmentCount; i++) {
+      const a = sample(i / this.tailRibbonSegmentCount);
+      const b = sample((i + 1) / this.tailRibbonSegmentCount);
+      const alx = a.x - a.px * a.w;
+      const alz = a.z - a.pz * a.w;
+      const arx = a.x + a.px * a.w;
+      const arz = a.z + a.pz * a.w;
+      const blx = b.x - b.px * b.w;
+      const blz = b.z - b.pz * b.w;
+      const brx = b.x + b.px * b.w;
+      const brz = b.z + b.pz * b.w;
+
+      arr[o++] = alx; arr[o++] = a.y; arr[o++] = alz;
+      arr[o++] = brx; arr[o++] = b.y; arr[o++] = brz;
+      arr[o++] = arx; arr[o++] = a.y; arr[o++] = arz;
+      arr[o++] = alx; arr[o++] = a.y; arr[o++] = alz;
+      arr[o++] = blx; arr[o++] = b.y; arr[o++] = blz;
+      arr[o++] = brx; arr[o++] = b.y; arr[o++] = brz;
+    }
+
+    const posAttr = this.secondTailRibbonGeo.attributes.position as THREE.BufferAttribute;
+    posAttr.needsUpdate = true;
+    this.secondTailRibbonGeo.setDrawRange(0, this.tailRibbonSegmentCount * 6);
+    this.secondTailRibbonGeo.computeBoundingSphere();
+  }
+
   update(
     dt: number,
     input: Input,
@@ -798,6 +1020,7 @@ export class Player {
   ): void {
     if (this.tankClipSlideActive) {
       this.advanceTankClipSlide();
+      this.syncSpriteState();
       return;
     }
 
@@ -807,9 +1030,13 @@ export class Player {
       this.activeDashLenWidthMult = 1;
       this.tailPoint.visible = false;
       this.tailRibbon.visible = false;
+      this.secondTailPoint.visible = false;
+      this.secondTailRibbon.visible = false;
+      this.sprite.visible = false;
       this.applyNormalColors();
       return;
     }
+    this.sprite.visible = true;
 
     const inMicro = this.microDashTimeLeft > 0;
     const prevDashTimeLeft = this.dash.timeLeft;
@@ -834,7 +1061,9 @@ export class Player {
       }
     }
 
-    this.aimPivot.rotation.y = Math.atan2(aimX, aimZ);
+    const facingY = Math.atan2(aimX, aimZ);
+    this.aimPivot.rotation.y = facingY;
+    this.spritePivot.rotation.y = facingY;
 
     const dashTrigger = input.consumeDashTrigger();
     const mult =
@@ -932,6 +1161,7 @@ export class Player {
       this.trailRibbonGeo.setDrawRange(0, 0);
       this.trailRibbon.visible = false;
     }
+    this.syncSpriteState();
   }
 
   /**
@@ -991,6 +1221,14 @@ export class Player {
     this.bodyMat.emissiveIntensity = 0.85;
     this.ringMat.color.setHex(0x66ccff);
     this.ringMat.opacity = 0.5;
+  }
+
+  private syncSpriteState(): void {
+    const mode = this.isDashing ? 'dash' : 'idle';
+    if (mode === this.currentSpriteMode) return;
+    this.currentSpriteMode = mode;
+    this.spriteMat.map = mode === 'dash' ? PLAYER_DASH_TEXTURE : PLAYER_IDLE_TEXTURE;
+    this.spriteMat.needsUpdate = true;
   }
 
   /** World XZ on floor, shifted slightly behind dash direction (trail “behind” the hero). */

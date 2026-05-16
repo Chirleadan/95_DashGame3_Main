@@ -237,6 +237,8 @@ export class Enemy {
     const r =
       kind === 'tank'
         ? CONFIG.enemyRadius * CONFIG.tankRadiusScale
+        : kind === 'normal'
+          ? CONFIG.enemyRadius * CONFIG.normalEnemyRadiusScale
         : CONFIG.enemyRadius;
 
     const mat = new THREE.MeshBasicMaterial({
@@ -314,6 +316,9 @@ export class Enemy {
     }
     if (this.kind === 'tank') {
       return CONFIG.enemyRadius * CONFIG.tankRadiusScale;
+    }
+    if (this.kind === 'normal') {
+      return CONFIG.enemyRadius * CONFIG.normalEnemyRadiusScale;
     }
     return CONFIG.enemyRadius;
   }

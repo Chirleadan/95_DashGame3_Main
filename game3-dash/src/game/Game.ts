@@ -9,13 +9,14 @@ import { Player, type DashSweepSegment } from './Player.ts';
 import { Enemy } from './Enemy.ts';
 import { EnemySpawner } from './EnemySpawner.ts';
 import { circlesOverlap, segmentHitsCircle } from './Collision.ts';
-import { UI } from './UI.ts';
+import { UI, type RunUpgradeChoiceView } from './UI.ts';
 import { CameraController } from './CameraController.ts';
 import { screenToGroundXZ } from './screenToGround.ts';
 import { loadBeatmap, type Beatmap, type BeatEvent } from './Beatmap.ts';
 import { AudioManager } from './AudioManager.ts';
 import { BeatEffects } from './BeatEffects.ts';
 import { LensDistortionPass } from './render/LensDistortionPass.ts';
+import { DitherPass } from './render/DitherPass.ts';
 import { getConfiguredStorageObstacleDisk } from './ObstacleAvoidance.ts';
 import {
   addRunDashNominalLengthBonus,
@@ -32,6 +33,24 @@ import {
   getDefaultTrackStage,
   type TrackStage,
 } from './TrackCatalog.ts';
+import type { DitherUiSettings } from './UI.ts';
+
+type BloodPalette = readonly [number, number, number];
+const BLOOD_PALETTE_DEFAULT: BloodPalette = [0x45d684, 0xe8f799, 0xba1470];
+const BLOOD_PALETTE_GOLD_SACK: BloodPalette = [0xffd154, 0xe0e897, 0xbf934b];
+const BLOOD_PALETTE_MANA_SACK: BloodPalette = [0x322f8f, 0xe4c3e8, 0x34389e];
+const BLOOD_PALETTE_VAULT: BloodPalette = [0xd8d8e3, 0xd8d8e3, 0xc3e8d1];
+const BLOOD_SPLASH_DELAY_SEC = 0.15;
+const TRACK_3_PHANTOM_SPLASH_DELAY_SEC = 0.1;
+const PHANTOM_SPLASH_TRAIL_LIFE_SEC = 0.18;
+const RUN_UPGRADE_MAX_LEVEL = 5;
+const SIDE_DASH_MAX_LEVEL = 2;
+const ORBIT_SHIELD_RADIUS = 1.45;
+const ORBIT_SHIELD_THETA = Math.PI * 0.2;
+const SIDE_DASH_TRAIL_LIFE_SEC = 0.16;
+const SIDE_DASH_DELAY_SEC = 0.15;
+const LIGHTNING_AUTO_DASH_DELAY_SEC = 0.1;
+const LIGHTNING_COLOR = 0xa36eff;
 
 export class Game {
   /** Outer radius of `RingGeometry` used for damage pulse (local units). */
@@ -55,6 +74,7 @@ export class Game {
   private readonly composer: EffectComposer;
   private readonly bloomPass: UnrealBloomPass;
   private readonly lensPass: LensDistortionPass;
+  private readonly ditherPass: DitherPass;
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.OrthographicCamera;
   /** Wider frustum for off-screen RT; gameplay + raycast still use `camera`. */
@@ -72,6 +92,9 @@ export class Game {
     age: number;
   }[] = [];
   private readonly comboEl: HTMLDivElement;
+  private readonly cssDitherOverlay: HTMLDivElement;
+  private readonly canvasDitherOverlay: HTMLCanvasElement;
+  private readonly canvasDitherCtx: CanvasRenderingContext2D | null;
   private comboCount = 0;
   private comboTimeLeftSec = 0;
   private comboWorldX = 0;
@@ -112,6 +135,17 @@ export class Game {
   private wasTrackPlayingLastFrame = false;
   /** Active run time (seconds), only while `playing`; resets each new run. */
   private runElapsedSec = 0;
+  private runEnemySlowLevel = 0;
+  private runRocketLevel = 0;
+  private runRocketTimerSec = 0;
+  private runLightningLevel = 0;
+  private runLightningDashCounter = 0;
+  private pendingLightningAutoDashes = 0;
+  private lightningAutoDashDelaySec = 0;
+  private lightningChainActive = false;
+  private lightningAutoDashInProgress = false;
+  private runSideDashLevel = 0;
+  private runOrbitShieldLevel = 0;
   /** Enemies killed this run (removed from arena by dash/tank resolve/damage pulse). */
   private runEnemiesKilled = 0;
   /** Gold picked up this run (мешки золота); пока ни на что не тратится. */
@@ -144,6 +178,7 @@ export class Game {
     age: number;
     life: number;
     baseScale: number;
+    shimmerSeed: number;
   }[] = [];
   private readonly bloodParticles: {
     mesh: THREE.Mesh;
@@ -153,10 +188,39 @@ export class Game {
     age: number;
     life: number;
   }[] = [];
+  private readonly pendingBloodSplashes: {
+    delay: number;
+    x: number;
+    z: number;
+    bodyRadius: number;
+    palette: BloodPalette;
+    dashDir?: { x: number; z: number; passPower?: number };
+  }[] = [];
+  private readonly pendingPhantomSplashes: { delay: number }[] = [];
+  private readonly phantomSplashTrails: {
+    mesh: THREE.Mesh;
+    mat: THREE.MeshBasicMaterial;
+    age: number;
+    life: number;
+  }[] = [];
+  private readonly sideDashTrails: {
+    mesh: THREE.Mesh;
+    mat: THREE.MeshBasicMaterial;
+    age: number;
+    life: number;
+  }[] = [];
+  private readonly pendingSideDashes: {
+    delay: number;
+    segs: DashSweepSegment[];
+    dir: { x: number; z: number };
+  }[] = [];
 
   /** Dash sweep consumed in `resolveDashKills` this frame (debug overlay / logs). */
   private dashDebugSweepThisFrame: DashSweepSegment | null = null;
   private debugDashTankGroup: THREE.Group | null = null;
+  private readonly orbitShieldGroup = new THREE.Group();
+  private readonly orbitShieldSegments: THREE.Mesh[] = [];
+  private readonly lightningMeterEl: HTMLDivElement;
 
   constructor(mount: HTMLElement) {
     this.mount = mount;
@@ -201,9 +265,19 @@ export class Game {
     const vignette = document.createElement('div');
     vignette.className = 'game-vignette';
     mount.appendChild(vignette);
+    this.cssDitherOverlay = document.createElement('div');
+    this.cssDitherOverlay.className = 'dither-overlay dither-overlay--css';
+    mount.appendChild(this.cssDitherOverlay);
+    this.canvasDitherOverlay = document.createElement('canvas');
+    this.canvasDitherOverlay.className = 'dither-overlay dither-overlay--canvas';
+    this.canvasDitherCtx = this.canvasDitherOverlay.getContext('2d');
+    mount.appendChild(this.canvasDitherOverlay);
     this.comboEl = document.createElement('div');
     this.comboEl.className = 'combo-pop combo-pop--hidden';
     mount.appendChild(this.comboEl);
+    this.lightningMeterEl = document.createElement('div');
+    this.lightningMeterEl.className = 'lightning-meter lightning-meter--hidden';
+    mount.appendChild(this.lightningMeterEl);
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.renderCamera));
@@ -216,11 +290,14 @@ export class Game {
     this.composer.addPass(this.bloomPass);
     this.lensPass = new LensDistortionPass();
     this.composer.addPass(this.lensPass);
+    this.ditherPass = new DitherPass();
+    this.composer.addPass(this.ditherPass);
     this.composer.addPass(new OutputPass());
     this.composer.setSize(w, h);
 
     this.addLights();
     this.addArena();
+    this.createOrbitShieldVisuals();
 
     loadBalanceSettings();
 
@@ -272,6 +349,9 @@ export class Game {
       this.bloomStrength = v;
       this.bloomPass.strength = v;
     });
+    this.ui.onDitherSettingsChange((settings) => {
+      this.applyDitherSettings(settings);
+    });
     this.ui.onArtifactsChange(() => {
       if (!isArtifactEnabled('vaultBearing')) {
         this.ui.setVaultBearingAngle(null);
@@ -311,6 +391,92 @@ export class Game {
     dir.shadow.camera.bottom = -sh;
     dir.shadow.camera.far = sh * 2.5;
     this.scene.add(dir);
+  }
+
+  private createOrbitShieldVisuals(): void {
+    this.orbitShieldGroup.visible = false;
+    this.orbitShieldGroup.position.y = CONFIG.floorY + 0.42;
+    for (let i = 0; i < RUN_UPGRADE_MAX_LEVEL; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xe8f799,
+        transparent: true,
+        opacity: 0.86,
+        depthTest: false,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(
+        new THREE.RingGeometry(
+          ORBIT_SHIELD_RADIUS - 0.08,
+          ORBIT_SHIELD_RADIUS + 0.08,
+          24,
+          1,
+          i * ORBIT_SHIELD_THETA * 1.22,
+          ORBIT_SHIELD_THETA,
+        ),
+        mat,
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.renderOrder = 11;
+      mesh.visible = false;
+      this.orbitShieldGroup.add(mesh);
+      this.orbitShieldSegments.push(mesh);
+    }
+    this.scene.add(this.orbitShieldGroup);
+  }
+
+  private applyDitherSettings(settings: DitherUiSettings): void {
+    this.cssDitherOverlay.classList.toggle(
+      'dither-overlay--enabled',
+      settings.cssDotsEnabled && settings.cssDotsOpacity > 0,
+    );
+    this.cssDitherOverlay.style.setProperty(
+      '--dither-css-opacity',
+      String(settings.cssDotsOpacity),
+    );
+
+    this.canvasDitherOverlay.classList.toggle(
+      'dither-overlay--enabled',
+      settings.canvasDotsEnabled && settings.canvasDotsOpacity > 0,
+    );
+    this.canvasDitherOverlay.style.opacity = String(settings.canvasDotsOpacity);
+    if (settings.canvasDotsEnabled) {
+      this.paintCanvasDitherOverlay();
+    }
+
+    this.ditherPass.setEnabled(settings.shaderDitherEnabled);
+    this.ditherPass.setStrength(settings.shaderDitherStrength);
+    this.ditherPass.setDotStrength(settings.shaderDotStrength);
+  }
+
+  private resizeCanvasDitherOverlay(width: number, height: number): void {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.canvasDitherOverlay.width = Math.max(1, Math.floor(width * dpr));
+    this.canvasDitherOverlay.height = Math.max(1, Math.floor(height * dpr));
+    this.canvasDitherOverlay.style.width = `${width}px`;
+    this.canvasDitherOverlay.style.height = `${height}px`;
+    this.paintCanvasDitherOverlay();
+  }
+
+  private paintCanvasDitherOverlay(): void {
+    const ctx = this.canvasDitherCtx;
+    if (!ctx) return;
+    const w = this.canvasDitherOverlay.width;
+    const h = this.canvasDitherOverlay.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+    const step = 4;
+    for (let y = 0; y < h; y += step) {
+      for (let x = 0; x < w; x += step) {
+        const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+        const f = n - Math.floor(n);
+        if (f < 0.68) continue;
+        const r = f > 0.9 ? 1.2 : 0.7;
+        ctx.beginPath();
+        ctx.arc(x + step * 0.5, y + step * 0.5, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
   }
 
   private applyLensDistortionEffective(): void {
@@ -526,6 +692,22 @@ export class Game {
     this.backgroundPauseTimer = null;
   }
 
+  private resetRunUpgradeBonuses(): void {
+    this.runEnemySlowLevel = 0;
+    this.runRocketLevel = 0;
+    this.runRocketTimerSec = 0;
+    this.runLightningLevel = 0;
+    this.runLightningDashCounter = 0;
+    this.pendingLightningAutoDashes = 0;
+    this.lightningAutoDashDelaySec = 0;
+    this.lightningChainActive = false;
+    this.lightningAutoDashInProgress = false;
+    this.runSideDashLevel = 0;
+    this.runOrbitShieldLevel = 0;
+    this.syncOrbitShieldVisuals();
+    this.syncLightningMeter();
+  }
+
   private syncRenderCamera(): void {
     const os = this.lensOverscan;
     this.renderCamera.position.copy(this.camera.position);
@@ -554,6 +736,8 @@ export class Game {
     this.renderer.setSize(w, h, false);
     this.composer.setSize(w, h);
     this.bloomPass.setSize(w, h);
+    this.ditherPass.setSize(w, h);
+    this.resizeCanvasDitherOverlay(w, h);
     this.ui.resizeBeatLane();
   };
 
@@ -571,6 +755,9 @@ export class Game {
     this.syncBeatPlayButton();
     this.updateDamagePulseRings(dt);
     this.updateBloodEffects(dt);
+    this.updatePhantomSplashEffects(dt);
+    this.updatePendingSideDashes(dt);
+    this.updateSideDashTrails(dt);
     this.updateDyingEnemies(dt);
     this.applyLensDistortionEffective();
 
@@ -687,9 +874,11 @@ export class Game {
       this.getActivePlayerSpeedMult(),
       this.enemies,
     );
+    this.updateLightningAutoDashChain(dt);
     const mainDashStarted = this.player.consumeMainDashStarted();
     if (mainDashStarted) {
       this.pendingDashSfx = true;
+      this.handleRunLightningDashStart();
     }
     this.tryRegisterDashBeatHit(mainDashStarted);
 
@@ -724,6 +913,8 @@ export class Game {
     if (this.player.tickShieldRegen(dt)) {
       this.ui.rebuildHpBarSegments();
     }
+    this.updateRunRockets(dt);
+    this.updateOrbitShield(dt);
     this.syncBeatLaneUi();
     this.syncDashPastTankDebug();
     if (dashKills > 0) {
@@ -744,7 +935,13 @@ export class Game {
           getConfiguredStorageObstacleDisk(e.mesh.position.x, e.mesh.position.z),
         );
       for (const e of this.enemies) {
-        e.update(dt, this.player.x, this.player.z, diffMult, storageNav);
+        e.update(
+          dt,
+          this.player.x,
+          this.player.z,
+          diffMult / this.getRunEnemySlowFactor(),
+          storageNav,
+        );
         if (e.tickShooterShotCooldown(dt)) {
           this.spawnEnemyProjectile(e);
         }
@@ -866,10 +1063,28 @@ export class Game {
     this.damagePulseRings.length = 0;
   }
 
+  private clearPhantomSplashEffects(): void {
+    this.pendingPhantomSplashes.length = 0;
+    for (const p of this.phantomSplashTrails) {
+      this.scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mat.dispose();
+    }
+    this.phantomSplashTrails.length = 0;
+    this.pendingSideDashes.length = 0;
+    for (const p of this.sideDashTrails) {
+      this.scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mat.dispose();
+    }
+    this.sideDashTrails.length = 0;
+  }
+
   private clearBloodEffects(): void {
     for (const p of this.bloodPuddles) {
       this.scene.remove(p.mesh);
       p.mesh.geometry.dispose();
+      p.mat.map?.dispose();
       p.mat.dispose();
     }
     this.bloodPuddles.length = 0;
@@ -879,6 +1094,7 @@ export class Game {
       p.mat.dispose();
     }
     this.bloodParticles.length = 0;
+    this.pendingBloodSplashes.length = 0;
   }
 
   private clearAllEnemies(): void {
@@ -901,10 +1117,11 @@ export class Game {
     this.enemies.splice(index, 1);
     this.registerComboKill(enemy.mesh.position.x, enemy.mesh.position.z);
     this.playDeathSfx();
-    this.spawnBloodSplash(
+    this.queueBloodSplash(
       enemy.mesh.position.x,
       enemy.mesh.position.z,
       enemy.bodyRadius,
+      this.getBloodPaletteForEnemy(enemy),
       dashDir,
     );
     enemy.showDeathSprite();
@@ -935,9 +1152,11 @@ export class Game {
     const growT = Math.max(0, Math.min(1, (this.comboCount - 2) / 8));
     const comboSize = 21 + growT * 4;
     const countSize = 21 + growT * 14;
+    const countColor = this.mixHexColor(0xf7fbff, 0xfa2367, growT);
     this.comboEl.innerHTML = `<span class="combo-pop__label">COMBO</span> <span class="combo-pop__count">x${this.comboCount}</span>`;
     this.comboEl.style.setProperty('--combo-label-size', `${comboSize}px`);
     this.comboEl.style.setProperty('--combo-count-size', `${countSize}px`);
+    this.comboEl.style.setProperty('--combo-count-color', countColor);
     this.comboEl.classList.remove('combo-pop--hidden');
     this.comboEl.classList.remove('combo-pop--hit');
     void this.comboEl.offsetWidth;
@@ -971,10 +1190,49 @@ export class Game {
     this.comboEl.classList.remove('combo-pop--hit');
   }
 
+  private mixHexColor(from: number, to: number, t: number): string {
+    const u = Math.max(0, Math.min(1, t));
+    const fr = (from >> 16) & 0xff;
+    const fg = (from >> 8) & 0xff;
+    const fb = from & 0xff;
+    const tr = (to >> 16) & 0xff;
+    const tg = (to >> 8) & 0xff;
+    const tb = to & 0xff;
+    const r = Math.round(fr + (tr - fr) * u);
+    const g = Math.round(fg + (tg - fg) * u);
+    const b = Math.round(fb + (tb - fb) * u);
+    return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+  }
+
+  private getBloodPaletteForEnemy(enemy: Enemy): BloodPalette {
+    if (enemy.isGoldSack()) return BLOOD_PALETTE_GOLD_SACK;
+    if (enemy.isManaSack()) return BLOOD_PALETTE_MANA_SACK;
+    if (enemy.isVault()) return BLOOD_PALETTE_VAULT;
+    return BLOOD_PALETTE_DEFAULT;
+  }
+
+  private queueBloodSplash(
+    x: number,
+    z: number,
+    bodyRadius: number,
+    palette: BloodPalette,
+    dashDir?: { x: number; z: number; passPower?: number },
+  ): void {
+    this.pendingBloodSplashes.push({
+      delay: BLOOD_SPLASH_DELAY_SEC,
+      x,
+      z,
+      bodyRadius,
+      palette,
+      dashDir,
+    });
+  }
+
   private spawnBloodSplash(
     x: number,
     z: number,
     bodyRadius: number,
+    palette: BloodPalette,
     dashDir?: { x: number; z: number; passPower?: number },
   ): void {
     const radius = Math.max(0.25, bodyRadius * CONFIG.enemyBloodPuddleRadiusMult);
@@ -1005,7 +1263,7 @@ export class Game {
       const forwardScale = stretchActive
         ? (forward >= 0 ? 1 + 3.5 * passPower : 1 - 0.35 * passPower)
         : 1;
-      const forwardOffset = stretchActive ? radius * 1.08 * passPower : 0;
+      const forwardOffset = stretchActive ? radius * 0.68 * passPower : 0;
       const along = forward * radius * wobble * forwardScale + forwardOffset;
       const across = lateral * radius * wobble * (stretchActive ? 0.95 : 1);
       const worldX = stretchActive ? dirX * along + sideX * across : along;
@@ -1018,9 +1276,10 @@ export class Game {
     shape.closePath();
 
     const mat = new THREE.MeshBasicMaterial({
-      color: 0x5c0f3e,
+      map: this.createBloodPuddleTexture(bodyRadius, palette),
+      color: 0xffffff,
       transparent: true,
-      opacity: 0.72,
+      opacity: 0.82,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
@@ -1036,6 +1295,7 @@ export class Game {
       age: 0,
       life: Math.max(0.1, CONFIG.enemyBloodPuddleLifeSec),
       baseScale: 1 + Math.random() * 0.18,
+      shimmerSeed: Math.random() * Math.PI * 2,
     });
 
     const count = Math.max(0, Math.floor(CONFIG.enemyBloodParticleCount));
@@ -1050,7 +1310,7 @@ export class Game {
         (1 + 0.75 * passPower);
       const size = 0.24 + Math.random() * 0.28;
       const pMat = new THREE.MeshBasicMaterial({
-        color: 0x5c0f3e,
+        color: palette[Math.floor(Math.random() * palette.length)]!,
         transparent: true,
         opacity: 0.9,
         depthWrite: false,
@@ -1082,6 +1342,63 @@ export class Game {
     }
   }
 
+  private createBloodPuddleTexture(
+    bodyRadius: number,
+    palette: BloodPalette,
+  ): THREE.CanvasTexture {
+    const size = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('Could not create blood texture canvas');
+    }
+
+    const base = ctx.createLinearGradient(0, 0, size, size);
+    base.addColorStop(0, `#${palette[0].toString(16).padStart(6, '0')}`);
+    base.addColorStop(0.52, `#${palette[1].toString(16).padStart(6, '0')}`);
+    base.addColorStop(1, `#${palette[2].toString(16).padStart(6, '0')}`);
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, size, size);
+
+    for (let i = 0; i < 38; i++) {
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const r = size * (0.06 + Math.random() * 0.22);
+      const c0 = `#${palette[Math.floor(Math.random() * palette.length)]!.toString(16).padStart(6, '0')}`;
+      const c1 = `#${palette[Math.floor(Math.random() * palette.length)]!.toString(16).padStart(6, '0')}`;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, c0);
+      g.addColorStop(1, c1);
+      ctx.globalAlpha = 0.32 + Math.random() * 0.42;
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(
+        x,
+        y,
+        r * (0.7 + Math.random() * 0.8),
+        r * (0.35 + Math.random() * 0.65),
+        Math.random() * Math.PI,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    const bodyScale = Math.max(0.001, bodyRadius / CONFIG.enemyRadius);
+    const repeat = 0.17 / bodyScale;
+    texture.repeat.set(repeat, repeat);
+    texture.rotation = Math.random() * Math.PI * 2;
+    texture.needsUpdate = true;
+    return texture;
+  }
+
   private getDashBloodImpact(
     enemyX: number,
     enemyZ: number,
@@ -1101,6 +1418,14 @@ export class Game {
   }
 
   private updateBloodEffects(dt: number): void {
+    for (let i = this.pendingBloodSplashes.length - 1; i >= 0; i--) {
+      const p = this.pendingBloodSplashes[i]!;
+      p.delay -= dt;
+      if (p.delay > 0) continue;
+      this.spawnBloodSplash(p.x, p.z, p.bodyRadius, p.palette, p.dashDir);
+      this.pendingBloodSplashes.splice(i, 1);
+    }
+
     for (let i = this.bloodPuddles.length - 1; i >= 0; i--) {
       const p = this.bloodPuddles[i]!;
       p.age += dt;
@@ -1108,10 +1433,16 @@ export class Game {
       const spreadT = Math.min(1, t / 0.16);
       const spread = p.baseScale * (0.86 + 0.14 * (1 - Math.pow(1 - spreadT, 3)));
       p.mesh.scale.setScalar(spread);
-      p.mat.opacity = 0.72 * (1 - Math.max(0, t - 0.28) / 0.72);
+      const map = p.mat.map;
+      if (map) {
+        map.offset.x = Math.sin(p.age * 3.1 + p.shimmerSeed) * 0.04;
+        map.offset.y = Math.cos(p.age * 2.4 + p.shimmerSeed) * 0.04;
+      }
+      p.mat.opacity = 0.82 * (1 - Math.max(0, t - 0.28) / 0.72);
       if (p.age < p.life) continue;
       this.scene.remove(p.mesh);
       p.mesh.geometry.dispose();
+      p.mat.map?.dispose();
       p.mat.dispose();
       this.bloodPuddles.splice(i, 1);
     }
@@ -1181,6 +1512,10 @@ export class Game {
       p.age += dt;
       p.mesh.position.x += p.vx * dt;
       p.mesh.position.z += p.vz * dt;
+      if (this.projectileHitsOrbitShield(p.mesh.position.x, p.mesh.position.z)) {
+        this.removeEnemyProjectileAt(i);
+        continue;
+      }
       if (
         this.player.hp > 0 &&
         !this.player.isInvulnerable() &&
@@ -1212,6 +1547,138 @@ export class Game {
     this.enemyProjectiles.splice(index, 1);
   }
 
+  private updatePhantomSplashEffects(dt: number): void {
+    for (let i = this.pendingPhantomSplashes.length - 1; i >= 0; i--) {
+      const p = this.pendingPhantomSplashes[i]!;
+      p.delay -= dt;
+      if (p.delay > 0) continue;
+      this.pendingPhantomSplashes.splice(i, 1);
+      this.triggerTrack3PhantomSplash();
+    }
+
+    for (let i = this.phantomSplashTrails.length - 1; i >= 0; i--) {
+      const p = this.phantomSplashTrails[i]!;
+      p.age += dt;
+      const t = Math.min(1, p.age / Math.max(0.001, p.life));
+      p.mat.opacity = 0.9 * (1 - t);
+      if (p.age < p.life) continue;
+      this.scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mat.dispose();
+      this.phantomSplashTrails.splice(i, 1);
+    }
+  }
+
+  private triggerTrack3PhantomSplash(): void {
+    this.triggerNearestEnemyStrike(0xe8f799, 'phantom');
+  }
+
+  private triggerNearestEnemyStrike(
+    color: number,
+    source: 'phantom' | 'lightning',
+  ): void {
+    if (this.runPhase !== 'playing' || this.enemies.length <= 0 || this.player.hp <= 0) {
+      return;
+    }
+
+    let bestIndex = -1;
+    let bestD2 = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i]!;
+      const dx = e.mesh.position.x - this.player.x;
+      const dz = e.mesh.position.z - this.player.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= bestD2) continue;
+      bestD2 = d2;
+      bestIndex = i;
+    }
+    if (bestIndex < 0) return;
+
+    const e = this.enemies[bestIndex]!;
+    const sx = this.player.x;
+    const sz = this.player.z;
+    const tx = e.mesh.position.x;
+    const tz = e.mesh.position.z;
+    this.spawnPhantomSplashTrail(sx, sz, tx, tz, color, source);
+
+    const dx = tx - sx;
+    const dz = tz - sz;
+    const len = Math.hypot(dx, dz);
+    const dir = len > 1e-4 ? { x: dx / len, z: dz / len, passPower: 1 } : undefined;
+    const seg = { ax: sx, az: sz, bx: tx, bz: tz };
+    let died = false;
+
+    if ((e.isVault() || e.isAngel()) && e.getActiveShieldCount() > 0) {
+      e.tryBreakVaultShieldWithDash(seg, CONFIG.vaultShieldDashJoinRadius);
+      this.markDashImpactSfx();
+    } else {
+      died = e.takeDashHit(e.isAngel());
+      this.markDashImpactSfx();
+    }
+
+    if (!died) return;
+    this.grantResourceLootFromSack(e);
+    this.awardEnemyKillXp(e);
+    this.removeEnemyFromGameplayAt(bestIndex, dir);
+    this.runEnemiesKilled += 1;
+  }
+
+  private spawnPhantomSplashTrail(
+    sx: number,
+    sz: number,
+    tx: number,
+    tz: number,
+    color = 0xe8f799,
+    source: 'phantom' | 'lightning' = 'phantom',
+  ): void {
+    const y = CONFIG.floorY + 0.34;
+    const dx = tx - sx;
+    const dz = tz - sz;
+    const len = Math.hypot(dx, dz);
+    if (len <= 1e-4) return;
+    const nx = -dz / len;
+    const nz = dx / len;
+    const midX = sx + dx * 0.62;
+    const midZ = sz + dz * 0.62;
+    const startHalfW = 0.035;
+    const midHalfW = source === 'lightning' ? 0.18 : 0.28;
+    const endHalfW = 0.05;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute(
+      'position',
+      new THREE.BufferAttribute(
+        new Float32Array([
+          sx + nx * startHalfW, y, sz + nz * startHalfW,
+          sx - nx * startHalfW, y, sz - nz * startHalfW,
+          midX + nx * midHalfW, y, midZ + nz * midHalfW,
+          midX - nx * midHalfW, y, midZ - nz * midHalfW,
+          tx + nx * endHalfW, y, tz + nz * endHalfW,
+          tx - nx * endHalfW, y, tz - nz * endHalfW,
+        ]),
+        3,
+      ),
+    );
+    geo.setIndex([0, 1, 2, 2, 1, 3, 2, 3, 4, 4, 3, 5]);
+    geo.computeBoundingSphere();
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.9,
+      depthTest: false,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder = 12;
+    this.scene.add(mesh);
+    this.phantomSplashTrails.push({
+      mesh,
+      mat,
+      age: 0,
+      life: PHANTOM_SPLASH_TRAIL_LIFE_SEC,
+    });
+  }
+
   private damagePlayerAndPulse(amount: number): void {
     if (this.player.hp <= 0) return;
     const hpBefore = this.player.hp;
@@ -1240,7 +1707,9 @@ export class Game {
     this.runPendingUpgradeMilestones.length = 0;
     this.wasTrackPlayingLastFrame = false;
     this.pendingDashSfx = false;
+    this.resetRunUpgradeBonuses();
     this.clearDamagePulseRings();
+    this.clearPhantomSplashEffects();
     this.clearBloodEffects();
     this.clearAllEnemies();
     this.clearEnemyProjectiles();
@@ -1284,9 +1753,11 @@ export class Game {
     this.runPendingUpgradeMilestones.length = 0;
     this.wasTrackPlayingLastFrame = false;
     this.pendingDashSfx = false;
+    this.resetRunUpgradeBonuses();
     clearRunBalanceBonuses();
     this.ui.hideRunUpgradeModal();
     this.clearDamagePulseRings();
+    this.clearPhantomSplashEffects();
     this.clearBloodEffects();
     this.clearAllEnemies();
     this.clearEnemyProjectiles();
@@ -1360,6 +1831,47 @@ export class Game {
     return Number.isFinite(mult) && mult > 0 ? mult : 1;
   }
 
+  private getRunEnemySlowFactor(): number {
+    if (this.runEnemySlowLevel <= 0) return 1;
+    const t = (Math.min(RUN_UPGRADE_MAX_LEVEL, this.runEnemySlowLevel) - 1) / 4;
+    return 1.2 + t * 0.8;
+  }
+
+  private getRunRocketIntervalSec(): number {
+    if (this.runRocketLevel <= 0) return Number.POSITIVE_INFINITY;
+    const t = (Math.min(RUN_UPGRADE_MAX_LEVEL, this.runRocketLevel) - 1) / 4;
+    return 10 - t * 5;
+  }
+
+  private getRunLightningStats(): { threshold: number; count: number } | null {
+    if (this.runLightningLevel <= 0) return null;
+    const lv = Math.min(RUN_UPGRADE_MAX_LEVEL, this.runLightningLevel);
+    const thresholds = [10, 8, 6, 4, 3] as const;
+    const counts = [1, 1, 2, 2, 3] as const;
+    return { threshold: thresholds[lv - 1]!, count: counts[lv - 1]! };
+  }
+
+  private syncLightningMeter(): void {
+    const stats = this.getRunLightningStats();
+    if (!stats || this.runPhase === 'menu') {
+      this.lightningMeterEl.classList.add('lightning-meter--hidden');
+      this.lightningMeterEl.replaceChildren();
+      return;
+    }
+    this.lightningMeterEl.classList.remove('lightning-meter--hidden');
+    const filled = Math.max(0, Math.min(stats.threshold, this.runLightningDashCounter));
+    this.lightningMeterEl.replaceChildren(
+      ...Array.from({ length: stats.threshold }, (_, i) => {
+        const bar = document.createElement('div');
+        bar.className = 'lightning-meter__bar';
+        bar.classList.toggle('lightning-meter__bar--filled', i < filled);
+        const t = stats.threshold <= 1 ? 1 : i / (stats.threshold - 1);
+        bar.style.width = `${16 + t * 44}px`;
+        return bar;
+      }),
+    );
+  }
+
   private getActiveDashLandingPulseRadiusMult(): number {
     if (!this.audio.isPlaying) return 0;
     const mult = this.selectedTrackStage.boost.dashLandingPulseRadiusMult;
@@ -1368,6 +1880,139 @@ export class Game {
 
   private shouldPulseForSuccessfulBeatDash(): boolean {
     return this.dashSerialsWithBeatHit.delete(this.player.getDashHitSerial());
+  }
+
+  private isTrack3PhantomSplashEnabled(): boolean {
+    return this.audio.isPlaying && this.selectedTrackStage.id.startsWith('track-3-');
+  }
+
+  private queueTrack3PhantomSplash(): void {
+    this.pendingPhantomSplashes.push({ delay: TRACK_3_PHANTOM_SPLASH_DELAY_SEC });
+  }
+
+  private handleRunLightningDashStart(): void {
+    const stats = this.getRunLightningStats();
+    if (!stats) return;
+    this.runLightningDashCounter += 1;
+    this.syncLightningMeter();
+    if (this.runLightningDashCounter < stats.threshold) return;
+    this.runLightningDashCounter = 0;
+    this.pendingLightningAutoDashes += stats.count;
+    this.lightningChainActive = true;
+    this.syncLightningMeter();
+  }
+
+  private updateLightningAutoDashChain(dt: number): void {
+    if (!this.lightningChainActive) return;
+    if (this.lightningAutoDashInProgress && !this.player.isDashing) {
+      this.lightningAutoDashInProgress = false;
+      if (this.pendingLightningAutoDashes > 0) {
+        this.lightningAutoDashDelaySec = LIGHTNING_AUTO_DASH_DELAY_SEC;
+      } else {
+        this.lightningChainActive = false;
+        this.lightningAutoDashDelaySec = 0;
+        this.player.clearDashCooldownAfterOnBeatHit();
+      }
+    }
+    if (this.lightningAutoDashDelaySec > 0) {
+      this.lightningAutoDashDelaySec = Math.max(0, this.lightningAutoDashDelaySec - dt);
+      if (this.lightningAutoDashDelaySec > 0) return;
+    }
+    this.tryStartPendingLightningAutoDash();
+  }
+
+  private tryStartPendingLightningAutoDash(): void {
+    if (this.pendingLightningAutoDashes <= 0) return;
+    if (this.runPhase !== 'playing' || this.player.hp <= 0 || this.player.isDashing) return;
+    const target = this.findNearestEnemyToPlayer();
+    if (!target) {
+      this.pendingLightningAutoDashes = 0;
+      this.lightningChainActive = false;
+      this.lightningAutoDashInProgress = false;
+      this.lightningAutoDashDelaySec = 0;
+      this.player.clearDashCooldownAfterOnBeatHit();
+      return;
+    }
+    if (this.player.forceStartAutoDashToward(target.mesh.position.x, target.mesh.position.z, 1)) {
+      this.pendingLightningAutoDashes -= 1;
+      this.lightningAutoDashInProgress = true;
+      this.pendingDashSfx = true;
+      this.spawnPhantomSplashTrail(
+        this.player.x,
+        this.player.z,
+        target.mesh.position.x,
+        target.mesh.position.z,
+        LIGHTNING_COLOR,
+        'lightning',
+      );
+    }
+  }
+
+  private findNearestEnemyToPlayer(): Enemy | null {
+    let best: Enemy | null = null;
+    let bestD2 = Number.POSITIVE_INFINITY;
+    for (const e of this.enemies) {
+      const dx = e.mesh.position.x - this.player.x;
+      const dz = e.mesh.position.z - this.player.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= bestD2) continue;
+      bestD2 = d2;
+      best = e;
+    }
+    return best;
+  }
+
+  private updateRunRockets(dt: number): void {
+    if (this.runRocketLevel <= 0 || this.runPhase !== 'playing') return;
+    this.runRocketTimerSec -= dt;
+    if (this.runRocketTimerSec > 0) return;
+    this.runRocketTimerSec += this.getRunRocketIntervalSec();
+    if (this.runRocketTimerSec <= 0) {
+      this.runRocketTimerSec = this.getRunRocketIntervalSec();
+    }
+    const aspect = (this.renderer.domElement.clientWidth || 1) /
+      Math.max(1, this.renderer.domElement.clientHeight || 1);
+    const halfH = this.cameraViewHalfExtentCurrent * 0.5;
+    const halfW = halfH * aspect;
+    const x = this.player.x + (Math.random() * 2 - 1) * halfW;
+    const z = this.player.z + (Math.random() * 2 - 1) * halfH;
+    this.spawnDamagePulseRingAt(x, z, 0.6);
+    this.runEnemiesKilled += this.applyPlayerDamagePulseToEnemiesAt(x, z, 0.6);
+  }
+
+  private syncOrbitShieldVisuals(): void {
+    this.orbitShieldGroup.visible = this.runOrbitShieldLevel > 0;
+    for (let i = 0; i < this.orbitShieldSegments.length; i++) {
+      this.orbitShieldSegments[i]!.visible = i < this.runOrbitShieldLevel;
+    }
+  }
+
+  private updateOrbitShield(dt: number): void {
+    if (this.runOrbitShieldLevel <= 0 || this.player.hp <= 0) {
+      this.orbitShieldGroup.visible = false;
+      return;
+    }
+    this.orbitShieldGroup.visible = true;
+    this.orbitShieldGroup.position.x = this.player.x;
+    this.orbitShieldGroup.position.z = this.player.z;
+    this.orbitShieldGroup.rotation.y += dt * 1.7;
+  }
+
+  private projectileHitsOrbitShield(x: number, z: number): boolean {
+    if (this.runOrbitShieldLevel <= 0) return false;
+    const dx = x - this.player.x;
+    const dz = z - this.player.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < ORBIT_SHIELD_RADIUS - 0.28 || dist > ORBIT_SHIELD_RADIUS + 0.28) {
+      return false;
+    }
+    const tau = Math.PI * 2;
+    const angle = ((Math.atan2(dz, dx) - this.orbitShieldGroup.rotation.y) % tau + tau) % tau;
+    for (let i = 0; i < this.runOrbitShieldLevel; i++) {
+      const start = (i * ORBIT_SHIELD_THETA * 1.22) % tau;
+      if (angle >= start && angle <= start + ORBIT_SHIELD_THETA) return true;
+    }
+    return false;
   }
 
   private playSfx(source: HTMLAudioElement, rateVariance: number): void {
@@ -1420,6 +2065,9 @@ export class Game {
       this.dashSerialsWithBeatHit.add(this.player.getDashHitSerial());
       this.beatHitCount += 1;
       this.beatEffects.triggerOnBeatHitFlash();
+      if (this.isTrack3PhantomSplashEnabled()) {
+        this.queueTrack3PhantomSplash();
+      }
       if (this.audio.isPlaying && this.selectedTrackStage.boost.resetDashCooldownOnBeat) {
         this.player.clearDashCooldownAfterOnBeatHit();
       }
@@ -1545,18 +2193,78 @@ export class Game {
   private openNextRunUpgradeModal(): void {
     if (this.runPendingUpgradeMilestones.length <= 0) return;
     this.runPhase = 'runUpgrade';
+    const choices = this.getRunUpgradeChoices();
     this.ui.showRunUpgradeModal({
       milestoneXp: this.runPendingUpgradeMilestones[0]!,
-      onDash: () => this.applyRunUpgradeChoice('dash'),
-      onSpeed: () => this.applyRunUpgradeChoice('speed'),
-      onShields: () => this.applyRunUpgradeChoice('shields'),
-      onShieldRegen: () => this.applyRunUpgradeChoice('shieldRegen'),
+      choices: this.ui.isCheatModeEnabled() ? choices : this.pickRandomRunUpgradeChoices(choices, 3),
+      onChoice: (id) => this.applyRunUpgradeChoice(id),
     });
   }
 
-  private applyRunUpgradeChoice(
-    kind: 'dash' | 'speed' | 'shields' | 'shieldRegen',
-  ): void {
+  private pickRandomRunUpgradeChoices(
+    choices: readonly RunUpgradeChoiceView[],
+    count: number,
+  ): RunUpgradeChoiceView[] {
+    const pool = [...choices];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = pool[i]!;
+      pool[i] = pool[j]!;
+      pool[j] = tmp;
+    }
+    return pool.slice(0, Math.max(1, Math.min(count, pool.length)));
+  }
+
+  private getRunUpgradeChoices(): RunUpgradeChoiceView[] {
+    const choices: RunUpgradeChoiceView[] = [
+      { id: 'dash', label: 'Дальность дэша +1' },
+      { id: 'speed', label: 'Скорость персонажа +1', secondary: true },
+      { id: 'shields', label: 'Щиты +1', secondary: true },
+      {
+        id: 'shieldRegen',
+        label: `Реген щитов -0.5 с (до ${CONFIG.shieldRegenMinIntervalSec} с)`,
+        secondary: true,
+      },
+    ];
+    if (this.runEnemySlowLevel < RUN_UPGRADE_MAX_LEVEL) {
+      choices.push({
+        id: 'enemySlow',
+        label: `Замедление врагов ${this.runEnemySlowLevel + 1}/5`,
+        secondary: true,
+      });
+    }
+    if (this.runRocketLevel < RUN_UPGRADE_MAX_LEVEL) {
+      choices.push({
+        id: 'rockets',
+        label: `Ракеты ${this.runRocketLevel + 1}/5`,
+        secondary: true,
+      });
+    }
+    if (this.runLightningLevel < RUN_UPGRADE_MAX_LEVEL) {
+      choices.push({
+        id: 'artifactLightning',
+        label: `Артефакт: Молния ${this.runLightningLevel + 1}/5`,
+        secondary: true,
+      });
+    }
+    if (this.runSideDashLevel < SIDE_DASH_MAX_LEVEL) {
+      choices.push({
+        id: 'artifactSideDashes',
+        label: `Артефакт: Сайддеши ${this.runSideDashLevel + 1}/2`,
+        secondary: true,
+      });
+    }
+    if (this.runOrbitShieldLevel < RUN_UPGRADE_MAX_LEVEL) {
+      choices.push({
+        id: 'artifactOrbitShield',
+        label: `Артефакт: Щит ${this.runOrbitShieldLevel + 1}/5`,
+        secondary: true,
+      });
+    }
+    return choices;
+  }
+
+  private applyRunUpgradeChoice(kind: string): void {
     if (this.runPhase !== 'runUpgrade') return;
     if (kind === 'dash') {
       addRunDashNominalLengthBonus(CONFIG.runUpgradeDashLengthDeltaWorld);
@@ -1569,8 +2277,23 @@ export class Game {
         getPlayerMaxHp(),
       );
       this.ui.rebuildHpBarSegments();
-    } else {
+    } else if (kind === 'shieldRegen') {
       this.player.accelerateShieldRegenFromUpgrade();
+    } else if (kind === 'enemySlow') {
+      this.runEnemySlowLevel = Math.min(RUN_UPGRADE_MAX_LEVEL, this.runEnemySlowLevel + 1);
+    } else if (kind === 'rockets') {
+      this.runRocketLevel = Math.min(RUN_UPGRADE_MAX_LEVEL, this.runRocketLevel + 1);
+      this.runRocketTimerSec = Math.min(this.runRocketTimerSec, this.getRunRocketIntervalSec());
+    } else if (kind === 'artifactLightning') {
+      this.runLightningLevel = Math.min(RUN_UPGRADE_MAX_LEVEL, this.runLightningLevel + 1);
+      this.syncLightningMeter();
+    } else if (kind === 'artifactSideDashes') {
+      this.runSideDashLevel = Math.min(SIDE_DASH_MAX_LEVEL, this.runSideDashLevel + 1);
+    } else if (kind === 'artifactOrbitShield') {
+      this.runOrbitShieldLevel = Math.min(RUN_UPGRADE_MAX_LEVEL, this.runOrbitShieldLevel + 1);
+      this.syncOrbitShieldVisuals();
+    } else {
+      return;
     }
     if (this.runPendingUpgradeMilestones.length > 0) {
       this.runPendingUpgradeMilestones.shift();
@@ -1591,6 +2314,11 @@ export class Game {
     const now = this.audio.currentTime;
     const beats = this.beatmap.beats;
     while (this.nextBeatIndex < beats.length && now >= beats[this.nextBeatIndex]!.time) {
+      if (this.lightningChainActive && !this.beatHitIndices.has(this.nextBeatIndex)) {
+        this.beatHitIndices.add(this.nextBeatIndex);
+        this.beatHitCount += 1;
+        this.beatEffects.triggerOnBeatHitFlash();
+      }
       this.onBeatReached(beats[this.nextBeatIndex]!);
       this.nextBeatIndex += 1;
     }
@@ -1624,6 +2352,10 @@ export class Game {
       dashLen > 1e-4
         ? { x: dashDx / dashLen, z: dashDz / dashLen }
         : { x: this.player.dash.dirX, z: this.player.dash.dirZ };
+    const sideDashSegs = this.getSideDashSegments(seg, dashKillDir.x, dashKillDir.z);
+    if (sideDashSegs.length > 0) {
+      this.queueSideDashes(sideDashSegs, dashKillDir);
+    }
     const dashSerial = this.player.getDashHitSerial();
     const scaledPlayer = CONFIG.playerRadius * getDashKillRadiusScale();
     let kills = 0;
@@ -1632,16 +2364,13 @@ export class Game {
       const e = this.enemies[i];
       if (e.isVault() || e.isAngel()) {
         const hitR = scaledPlayer + e.bodyRadius;
-        const bodyHit = segmentHitsCircle(
-          seg.ax,
-          seg.az,
-          seg.bx,
-          seg.bz,
+        const hitSeg = this.pickDashHitSegment(
+          [seg],
           e.mesh.position.x,
           e.mesh.position.z,
           hitR,
         );
-        if (!bodyHit) continue;
+        if (!hitSeg) continue;
 
         const tx = e.mesh.position.x;
         const tz = e.mesh.position.z;
@@ -1649,10 +2378,10 @@ export class Game {
 
         if (e.isAngel()) {
           const canDamageAngel =
-            e.canDashDamageFromOpenShieldSide(seg, vaultShieldJoin);
+            e.canDashDamageFromOpenShieldSide(hitSeg, vaultShieldJoin);
           this.markDashImpactSfx();
           if (!canDamageAngel) {
-            e.tryBreakVaultShieldWithDash(seg, vaultShieldJoin);
+            e.tryBreakVaultShieldWithDash(hitSeg, vaultShieldJoin);
           }
           if (e.vaultLastClipDashSerial !== dashSerial) {
             this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
@@ -1665,7 +2394,7 @@ export class Game {
 
         if (e.isVault() && e.getActiveShieldCount() > 0) {
           this.markDashImpactSfx();
-          e.tryBreakVaultShieldWithDash(seg, vaultShieldJoin);
+          e.tryBreakVaultShieldWithDash(hitSeg, vaultShieldJoin);
           if (e.vaultLastClipDashSerial !== dashSerial) {
             this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
             e.vaultLastClipDashSerial = dashSerial;
@@ -1694,11 +2423,8 @@ export class Game {
 
       const hitR = scaledPlayer + e.bodyRadius;
       if (
-        segmentHitsCircle(
-          seg.ax,
-          seg.az,
-          seg.bx,
-          seg.bz,
+        this.pickDashHitSegment(
+          [seg],
           e.mesh.position.x,
           e.mesh.position.z,
           hitR,
@@ -1730,6 +2456,155 @@ export class Game {
       }
     }
     return kills;
+  }
+
+  private getSideDashSegments(
+    seg: DashSweepSegment,
+    dirX: number,
+    dirZ: number,
+  ): DashSweepSegment[] {
+    if (this.runSideDashLevel <= 0) return [];
+    const sideX = -dirZ;
+    const sideZ = dirX;
+    const offset = CONFIG.playerRadius * 3.2;
+    const sides = this.runSideDashLevel >= 2 ? [-1, 1] : [-1];
+    return sides.map((side) => ({
+      ax: seg.ax + sideX * offset * side,
+      az: seg.az + sideZ * offset * side,
+      bx: seg.bx + sideX * offset * side,
+      bz: seg.bz + sideZ * offset * side,
+    }));
+  }
+
+  private queueSideDashes(
+    segs: readonly DashSweepSegment[],
+    dir: { x: number; z: number },
+  ): void {
+    this.pendingSideDashes.push({
+      delay: SIDE_DASH_DELAY_SEC,
+      segs: segs.map((seg) => ({ ...seg })),
+      dir,
+    });
+  }
+
+  private updatePendingSideDashes(dt: number): void {
+    for (let i = this.pendingSideDashes.length - 1; i >= 0; i--) {
+      const p = this.pendingSideDashes[i]!;
+      p.delay -= dt;
+      if (p.delay > 0) continue;
+      this.pendingSideDashes.splice(i, 1);
+      this.spawnSideDashTrails(p.segs);
+      this.runEnemiesKilled += this.resolveSideDashHits(p.segs, p.dir);
+    }
+  }
+
+  private resolveSideDashHits(
+    segs: readonly DashSweepSegment[],
+    dir: { x: number; z: number },
+  ): number {
+    const scaledPlayer = CONFIG.playerRadius * getDashKillRadiusScale();
+    const vaultShieldJoin = CONFIG.vaultShieldDashJoinRadius;
+    let kills = 0;
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      const e = this.enemies[i]!;
+      const hitR = scaledPlayer + e.bodyRadius;
+      const hitSeg = this.pickDashHitSegment(segs, e.mesh.position.x, e.mesh.position.z, hitR);
+      if (!hitSeg) continue;
+      this.markDashImpactSfx();
+      if ((e.isVault() || e.isAngel()) && e.getActiveShieldCount() > 0) {
+        e.tryBreakVaultShieldWithDash(hitSeg, vaultShieldJoin);
+        continue;
+      }
+      const died = e.takeDashHit(e.isAngel());
+      if (!died) continue;
+      this.grantResourceLootFromSack(e);
+      this.awardEnemyKillXp(e);
+      this.removeEnemyFromGameplayAt(
+        i,
+        this.getDashBloodImpact(e.mesh.position.x, e.mesh.position.z, e.bodyRadius, dir),
+      );
+      kills += 1;
+    }
+    return kills;
+  }
+
+  private pickDashHitSegment(
+    segs: readonly DashSweepSegment[],
+    x: number,
+    z: number,
+    hitR: number,
+  ): DashSweepSegment | null {
+    for (const seg of segs) {
+      if (segmentHitsCircle(seg.ax, seg.az, seg.bx, seg.bz, x, z, hitR)) {
+        return seg;
+      }
+    }
+    return null;
+  }
+
+  private spawnSideDashTrails(segs: readonly DashSweepSegment[]): void {
+    for (const seg of segs) {
+      const dx = seg.bx - seg.ax;
+      const dz = seg.bz - seg.az;
+      const len = Math.hypot(dx, dz);
+      if (len <= 1e-4) continue;
+      const nx = -dz / len;
+      const nz = dx / len;
+      const startHalfW = CONFIG.dashTrailWidth * 0.12;
+      const midHalfW = CONFIG.dashTrailWidth * 1.05;
+      const endHalfW = CONFIG.dashTrailWidth * 0.12;
+      const midX = seg.ax + dx * 0.5;
+      const midZ = seg.az + dz * 0.5;
+      const y = CONFIG.floorY + 0.235;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute(
+        'position',
+        new THREE.BufferAttribute(
+          new Float32Array([
+            seg.ax + nx * startHalfW, y, seg.az + nz * startHalfW,
+            seg.ax - nx * startHalfW, y, seg.az - nz * startHalfW,
+            midX + nx * midHalfW, y, midZ + nz * midHalfW,
+            midX - nx * midHalfW, y, midZ - nz * midHalfW,
+            seg.bx + nx * endHalfW, y, seg.bz + nz * endHalfW,
+            seg.bx - nx * endHalfW, y, seg.bz - nz * endHalfW,
+          ]),
+          3,
+        ),
+      );
+      geo.setIndex([0, 1, 2, 2, 1, 3, 2, 3, 4, 4, 3, 5]);
+      geo.computeBoundingSphere();
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xe8f799,
+        transparent: true,
+        opacity: 0.72,
+        depthTest: false,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.renderOrder = 9;
+      this.scene.add(mesh);
+      this.sideDashTrails.push({
+        mesh,
+        mat,
+        age: 0,
+        life: SIDE_DASH_TRAIL_LIFE_SEC,
+      });
+    }
+  }
+
+  private updateSideDashTrails(dt: number): void {
+    for (let i = this.sideDashTrails.length - 1; i >= 0; i--) {
+      const p = this.sideDashTrails[i]!;
+      p.age += dt;
+      const t = Math.min(1, p.age / Math.max(0.001, p.life));
+      p.mat.opacity = 0.72 * (1 - t);
+      if (p.age < p.life) continue;
+      this.scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mat.dispose();
+      this.sideDashTrails.splice(i, 1);
+    }
   }
 
   /** Apply tank dash hits that were deferred after clip/slide (see `CONFIG.tankDashDamageDelayMs`). */
@@ -1985,6 +2860,7 @@ export class Game {
     this.clearBackgroundPauseTimer();
     window.removeEventListener('resize', this.onResize);
     this.clearDamagePulseRings();
+    this.clearPhantomSplashEffects();
     this.clearBloodEffects();
     if (this.debugDashTankGroup) {
       this.disposeDebugDashTankChildren(this.debugDashTankGroup);

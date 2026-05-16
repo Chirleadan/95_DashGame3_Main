@@ -21,6 +21,22 @@ import {
   type TrackStage,
 } from './TrackCatalog.ts';
 
+export type DitherUiSettings = {
+  cssDotsEnabled: boolean;
+  cssDotsOpacity: number;
+  canvasDotsEnabled: boolean;
+  canvasDotsOpacity: number;
+  shaderDitherEnabled: boolean;
+  shaderDitherStrength: number;
+  shaderDotStrength: number;
+};
+
+export type RunUpgradeChoiceView = {
+  id: string;
+  label: string;
+  secondary?: boolean;
+};
+
 function lowerBeatIndex(beats: readonly BeatEvent[], minTime: number): number {
   let lo = 0;
   let hi = beats.length;
@@ -70,6 +86,18 @@ export class UI {
   private readonly bloomStrengthSlider: HTMLInputElement;
   private readonly bloomStrengthValEl: HTMLElement;
   private bloomStrengthHandler: ((strength: number) => void) | null = null;
+  private readonly cssDotsToggle: HTMLInputElement;
+  private readonly cssDotsOpacitySlider: HTMLInputElement;
+  private readonly cssDotsOpacityValEl: HTMLElement;
+  private readonly canvasDotsToggle: HTMLInputElement;
+  private readonly canvasDotsOpacitySlider: HTMLInputElement;
+  private readonly canvasDotsOpacityValEl: HTMLElement;
+  private readonly shaderDitherToggle: HTMLInputElement;
+  private readonly shaderDitherStrengthSlider: HTMLInputElement;
+  private readonly shaderDitherStrengthValEl: HTMLElement;
+  private readonly shaderDotStrengthSlider: HTMLInputElement;
+  private readonly shaderDotStrengthValEl: HTMLElement;
+  private ditherSettingsHandler: ((settings: DitherUiSettings) => void) | null = null;
   private readonly mainMenuEl: HTMLElement;
   private readonly mainMenuPanel: HTMLElement;
   private readonly upgradeMenuPanel: HTMLElement;
@@ -92,10 +120,9 @@ export class UI {
   private readonly deathStatLevelEl: HTMLElement;
   private readonly runUpgradeOverlayEl: HTMLElement;
   private readonly runUpgradeMilestoneEl: HTMLElement;
-  private runUpgradeOnDash: (() => void) | null = null;
-  private runUpgradeOnShields: (() => void) | null = null;
-  private runUpgradeOnShieldRegen: (() => void) | null = null;
-  private runUpgradeOnSpeed: (() => void) | null = null;
+  private readonly runUpgradeChoicesEl: HTMLElement;
+  private runUpgradeChoiceHandler: ((id: string) => void) | null = null;
+  private runUpgradeClickEnableAtMs = 0;
   /** Full-viewport white flash on player damage (covers canvas + HUD). */
   private readonly damageFlashEl: HTMLElement;
   private readonly vaultBearingHost: HTMLElement;
@@ -178,6 +205,35 @@ export class UI {
         </div>
         <input id="bloom-strength" type="range" min="0" max="3" step="0.01" value="0.30" />
       </div>
+      <div class="beat-lens-row beat-lens-row--toggle">
+        <label class="beat-toggle"><input id="css-dots-enabled" type="checkbox" /> CSS Dots</label>
+        <div class="beat-lens-head">
+          <span class="label">Dot Opacity</span>
+          <span id="css-dots-opacity-val" class="beat-lens-val">0.18</span>
+        </div>
+        <input id="css-dots-opacity" type="range" min="0" max="0.6" step="0.01" value="0.18" />
+      </div>
+      <div class="beat-lens-row beat-lens-row--toggle">
+        <label class="beat-toggle"><input id="canvas-dots-enabled" type="checkbox" /> Canvas Dither</label>
+        <div class="beat-lens-head">
+          <span class="label">Canvas Opacity</span>
+          <span id="canvas-dots-opacity-val" class="beat-lens-val">0.20</span>
+        </div>
+        <input id="canvas-dots-opacity" type="range" min="0" max="0.7" step="0.01" value="0.20" />
+      </div>
+      <div class="beat-lens-row beat-lens-row--toggle">
+        <label class="beat-toggle"><input id="shader-dither-enabled" type="checkbox" /> Shader Dither</label>
+        <div class="beat-lens-head">
+          <span class="label">Shader Strength</span>
+          <span id="shader-dither-strength-val" class="beat-lens-val">0.35</span>
+        </div>
+        <input id="shader-dither-strength" type="range" min="0" max="1" step="0.01" value="0.35" />
+        <div class="beat-lens-head">
+          <span class="label">Shader Dots</span>
+          <span id="shader-dot-strength-val" class="beat-lens-val">0.25</span>
+        </div>
+        <input id="shader-dot-strength" type="range" min="0" max="1" step="0.01" value="0.25" />
+      </div>
       <div class="beat-debug-row"><span class="label">State</span> <span id="beat-state">Loading...</span></div>
     `;
     container.appendChild(beatUi);
@@ -194,6 +250,17 @@ export class UI {
     this.bloomThresholdValEl = beatUi.querySelector('#bloom-threshold-val')!;
     this.bloomStrengthSlider = beatUi.querySelector('#bloom-strength') as HTMLInputElement;
     this.bloomStrengthValEl = beatUi.querySelector('#bloom-strength-val')!;
+    this.cssDotsToggle = beatUi.querySelector('#css-dots-enabled') as HTMLInputElement;
+    this.cssDotsOpacitySlider = beatUi.querySelector('#css-dots-opacity') as HTMLInputElement;
+    this.cssDotsOpacityValEl = beatUi.querySelector('#css-dots-opacity-val')!;
+    this.canvasDotsToggle = beatUi.querySelector('#canvas-dots-enabled') as HTMLInputElement;
+    this.canvasDotsOpacitySlider = beatUi.querySelector('#canvas-dots-opacity') as HTMLInputElement;
+    this.canvasDotsOpacityValEl = beatUi.querySelector('#canvas-dots-opacity-val')!;
+    this.shaderDitherToggle = beatUi.querySelector('#shader-dither-enabled') as HTMLInputElement;
+    this.shaderDitherStrengthSlider = beatUi.querySelector('#shader-dither-strength') as HTMLInputElement;
+    this.shaderDitherStrengthValEl = beatUi.querySelector('#shader-dither-strength-val')!;
+    this.shaderDotStrengthSlider = beatUi.querySelector('#shader-dot-strength') as HTMLInputElement;
+    this.shaderDotStrengthValEl = beatUi.querySelector('#shader-dot-strength-val')!;
 
     this.beatLaneHost = document.createElement('div');
     this.beatLaneHost.className = 'beat-lane-host';
@@ -247,6 +314,13 @@ export class UI {
     this.overscanSlider.addEventListener('input', () => this.emitLensOverscan());
     this.bloomThresholdSlider.addEventListener('input', () => this.emitBloomThreshold());
     this.bloomStrengthSlider.addEventListener('input', () => this.emitBloomStrength());
+    this.cssDotsToggle.addEventListener('change', () => this.emitDitherSettings());
+    this.cssDotsOpacitySlider.addEventListener('input', () => this.emitDitherSettings());
+    this.canvasDotsToggle.addEventListener('change', () => this.emitDitherSettings());
+    this.canvasDotsOpacitySlider.addEventListener('input', () => this.emitDitherSettings());
+    this.shaderDitherToggle.addEventListener('change', () => this.emitDitherSettings());
+    this.shaderDitherStrengthSlider.addEventListener('input', () => this.emitDitherSettings());
+    this.shaderDotStrengthSlider.addEventListener('input', () => this.emitDitherSettings());
 
     this.mainMenuEl = document.createElement('div');
     this.mainMenuEl.className = 'game-overlay game-overlay--menu';
@@ -262,6 +336,10 @@ export class UI {
           <span id="main-menu-track-current" class="track-summary__value">Track 1 / Stage 3</span>
         </div>
         <button id="main-menu-tracks" type="button" class="game-overlay__btn game-overlay__btn--secondary">Tracks</button>
+        <label class="main-menu-cheatmode">
+          <input id="main-menu-cheatmode" type="checkbox" />
+          <span>Читмод</span>
+        </label>
         <button id="main-menu-play" type="button" class="game-overlay__btn">Play</button>
         <button id="main-menu-upgrade" type="button" class="game-overlay__btn game-overlay__btn--secondary">Апгрейд</button>
       </div>
@@ -277,28 +355,28 @@ export class UI {
             <span class="label">Длительность деша (с)</span>
             <span id="upgrade-dash-len-val" class="upgrade-menu__val">${b.dashDurationSec.toFixed(3)}</span>
           </div>
-          <input id="upgrade-dash-len" type="range" min="${L.dashDurationSec.min}" max="${L.dashDurationSec.max}" step="0.005" value="${b.dashDurationSec}" />
+          <input id="upgrade-dash-len" type="range" min="${L.dashDurationSec.min}" max="${L.dashDurationSec.max}" step="0.001" value="${b.dashDurationSec}" disabled />
         </div>
         <div class="upgrade-menu__row">
           <div class="upgrade-menu__head">
             <span class="label">Длина деша (мир)</span>
-            <span id="upgrade-dash-nomlen-val" class="upgrade-menu__val">${b.dashNominalLengthWorld.toFixed(2)}</span>
+            <span id="upgrade-dash-nomlen-val" class="upgrade-menu__val">${b.dashNominalLengthWorld.toFixed(0)}</span>
           </div>
-          <input id="upgrade-dash-nomlen" type="range" min="${L.dashNominalLengthWorld.min}" max="${L.dashNominalLengthWorld.max}" step="0.05" value="${b.dashNominalLengthWorld}" />
+          <input id="upgrade-dash-nomlen" type="range" min="${L.dashNominalLengthWorld.min}" max="${L.dashNominalLengthWorld.max}" step="1" value="${b.dashNominalLengthWorld}" />
         </div>
         <div class="upgrade-menu__row">
           <div class="upgrade-menu__head">
             <span class="label">Радиус деша по умолчанию</span>
             <span id="upgrade-dash-radius-val" class="upgrade-menu__val">${b.dashKillRadiusScale.toFixed(2)}</span>
           </div>
-          <input id="upgrade-dash-radius" type="range" min="${L.dashKillRadiusScale.min}" max="${L.dashKillRadiusScale.max}" step="0.05" value="${b.dashKillRadiusScale}" />
+          <input id="upgrade-dash-radius" type="range" min="${L.dashKillRadiusScale.min}" max="${L.dashKillRadiusScale.max}" step="1.25" value="${b.dashKillRadiusScale}" />
         </div>
         <div class="upgrade-menu__row">
           <div class="upgrade-menu__head">
             <span class="label">Скорость передвижения по умолчанию</span>
             <span id="upgrade-move-speed-val" class="upgrade-menu__val">${b.playerSpeed.toFixed(1)}</span>
           </div>
-          <input id="upgrade-move-speed" type="range" min="${L.playerSpeed.min}" max="${L.playerSpeed.max}" step="0.5" value="${b.playerSpeed}" />
+          <input id="upgrade-move-speed" type="range" min="${L.playerSpeed.min}" max="${L.playerSpeed.max}" step="1.5" value="${b.playerSpeed}" />
         </div>
         <div class="upgrade-menu__row">
           <div class="upgrade-menu__head">
@@ -369,10 +447,7 @@ export class UI {
         <p class="game-overlay__run-upgrade-hint">
           Набрано <span id="run-upgrade-milestone">10</span> XP (уровень). Выберите один бонус до конца рана:
         </p>
-        <button id="run-upgrade-dash" type="button" class="game-overlay__btn">Дальность дэша +1</button>
-        <button id="run-upgrade-speed" type="button" class="game-overlay__btn game-overlay__btn--secondary">Скорость персонажа +1</button>
-        <button id="run-upgrade-shields" type="button" class="game-overlay__btn game-overlay__btn--secondary">Щиты +1</button>
-        <button id="run-upgrade-shield-regen" type="button" class="game-overlay__btn game-overlay__btn--secondary">Реген щитов −0.5 с (до ${CONFIG.shieldRegenMinIntervalSec} с)</button>
+        <div id="run-upgrade-choices" class="game-overlay__upgrade-choices"></div>
       </div>
     `;
     this.runUpgradeOverlayEl.addEventListener('pointerdown', (e) => {
@@ -382,21 +457,17 @@ export class UI {
     this.runUpgradeMilestoneEl = this.runUpgradeOverlayEl.querySelector(
       '#run-upgrade-milestone',
     )!;
-    this.runUpgradeOverlayEl.querySelector('#run-upgrade-dash')!.addEventListener('click', (e) => {
+    this.runUpgradeChoicesEl = this.runUpgradeOverlayEl.querySelector(
+      '#run-upgrade-choices',
+    )!;
+    this.runUpgradeChoicesEl.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.runUpgradeOnDash?.();
-    });
-    this.runUpgradeOverlayEl.querySelector('#run-upgrade-speed')!.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.runUpgradeOnSpeed?.();
-    });
-    this.runUpgradeOverlayEl.querySelector('#run-upgrade-shields')!.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.runUpgradeOnShields?.();
-    });
-    this.runUpgradeOverlayEl.querySelector('#run-upgrade-shield-regen')!.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.runUpgradeOnShieldRegen?.();
+      const button = (e.target as HTMLElement).closest<HTMLButtonElement>(
+        '[data-run-upgrade-id]',
+      );
+      if (!button) return;
+      if (performance.now() < this.runUpgradeClickEnableAtMs) return;
+      this.runUpgradeChoiceHandler?.(button.dataset.runUpgradeId ?? '');
     });
 
     this.damageFlashEl = document.createElement('div');
@@ -427,16 +498,24 @@ export class UI {
 
   showRunUpgradeModal(opts: {
     milestoneXp: number;
-    onDash: () => void;
-    onSpeed: () => void;
-    onShields: () => void;
-    onShieldRegen: () => void;
+    choices: RunUpgradeChoiceView[];
+    onChoice: (id: string) => void;
   }): void {
     this.runUpgradeMilestoneEl.textContent = String(opts.milestoneXp);
-    this.runUpgradeOnDash = opts.onDash;
-    this.runUpgradeOnSpeed = opts.onSpeed;
-    this.runUpgradeOnShields = opts.onShields;
-    this.runUpgradeOnShieldRegen = opts.onShieldRegen;
+    this.runUpgradeChoiceHandler = opts.onChoice;
+    this.runUpgradeClickEnableAtMs = performance.now() + 1000;
+    this.runUpgradeChoicesEl.replaceChildren(
+      ...opts.choices.map((choice) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = choice.secondary
+          ? 'game-overlay__btn game-overlay__btn--secondary'
+          : 'game-overlay__btn';
+        button.dataset.runUpgradeId = choice.id;
+        button.textContent = choice.label;
+        return button;
+      }),
+    );
     this.runUpgradeOverlayEl.hidden = false;
   }
 
@@ -464,10 +543,9 @@ export class UI {
 
   hideRunUpgradeModal(): void {
     this.runUpgradeOverlayEl.hidden = true;
-    this.runUpgradeOnDash = null;
-    this.runUpgradeOnSpeed = null;
-    this.runUpgradeOnShields = null;
-    this.runUpgradeOnShieldRegen = null;
+    this.runUpgradeChoiceHandler = null;
+    this.runUpgradeClickEnableAtMs = 0;
+    this.runUpgradeChoicesEl.replaceChildren();
   }
 
   /** Rebuild bottom HP bar segments when max shields change (upgrade menu). */
@@ -494,7 +572,7 @@ export class UI {
     this.upgradeDashLen.value = String(b.dashDurationSec);
     this.upgradeDashLenVal.textContent = b.dashDurationSec.toFixed(3);
     this.upgradeDashNomLen.value = String(b.dashNominalLengthWorld);
-    this.upgradeDashNomLenVal.textContent = b.dashNominalLengthWorld.toFixed(2);
+    this.upgradeDashNomLenVal.textContent = b.dashNominalLengthWorld.toFixed(0);
     this.upgradeDashRadius.value = String(b.dashKillRadiusScale);
     this.upgradeDashRadiusVal.textContent = b.dashKillRadiusScale.toFixed(2);
     this.upgradeMoveSpeed.value = String(b.playerSpeed);
@@ -608,8 +686,7 @@ export class UI {
     });
 
     this.upgradeDashLen.addEventListener('input', () => {
-      const v = parseFloat(this.upgradeDashLen.value);
-      setBalancePatch({ dashDurationSec: v });
+      setBalancePatch({ dashDurationSec: getBalanceSnapshot().dashDurationSec });
       this.upgradeDashLenVal.textContent =
         getBalanceSnapshot().dashDurationSec.toFixed(3);
     });
@@ -617,7 +694,7 @@ export class UI {
       const v = parseFloat(this.upgradeDashNomLen.value);
       setBalancePatch({ dashNominalLengthWorld: v });
       this.upgradeDashNomLenVal.textContent =
-        getBalanceSnapshot().dashNominalLengthWorld.toFixed(2);
+        getBalanceSnapshot().dashNominalLengthWorld.toFixed(0);
     });
     this.upgradeDashRadius.addEventListener('input', () => {
       const v = parseFloat(this.upgradeDashRadius.value);
@@ -664,6 +741,26 @@ export class UI {
     this.bloomStrengthHandler?.(v);
   }
 
+  private emitDitherSettings(): void {
+    const cssDotsOpacity = parseFloat(this.cssDotsOpacitySlider.value);
+    const canvasDotsOpacity = parseFloat(this.canvasDotsOpacitySlider.value);
+    const shaderDitherStrength = parseFloat(this.shaderDitherStrengthSlider.value);
+    const shaderDotStrength = parseFloat(this.shaderDotStrengthSlider.value);
+    this.cssDotsOpacityValEl.textContent = cssDotsOpacity.toFixed(2);
+    this.canvasDotsOpacityValEl.textContent = canvasDotsOpacity.toFixed(2);
+    this.shaderDitherStrengthValEl.textContent = shaderDitherStrength.toFixed(2);
+    this.shaderDotStrengthValEl.textContent = shaderDotStrength.toFixed(2);
+    this.ditherSettingsHandler?.({
+      cssDotsEnabled: this.cssDotsToggle.checked,
+      cssDotsOpacity,
+      canvasDotsEnabled: this.canvasDotsToggle.checked,
+      canvasDotsOpacity,
+      shaderDitherEnabled: this.shaderDitherToggle.checked,
+      shaderDitherStrength,
+      shaderDotStrength,
+    });
+  }
+
   onLensDistortionChange(handler: (amount: number) => void): void {
     this.lensDistortionHandler = handler;
     this.emitLensDistortion();
@@ -682,6 +779,11 @@ export class UI {
   onBloomStrengthChange(handler: (strength: number) => void): void {
     this.bloomStrengthHandler = handler;
     this.emitBloomStrength();
+  }
+
+  onDitherSettingsChange(handler: (settings: DitherUiSettings) => void): void {
+    this.ditherSettingsHandler = handler;
+    this.emitDitherSettings();
   }
 
   onArtifactsChange(handler: () => void): void {
@@ -914,6 +1016,11 @@ export class UI {
       e.stopPropagation();
       handler();
     });
+  }
+
+  isCheatModeEnabled(): boolean {
+    const input = this.mainMenuEl.querySelector('#main-menu-cheatmode') as HTMLInputElement | null;
+    return input?.checked ?? false;
   }
 
   showMainMenu(): void {

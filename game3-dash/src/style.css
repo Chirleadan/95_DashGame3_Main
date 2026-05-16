@@ -49,6 +49,7 @@ body {
 .game-vignette {
   position: absolute;
   inset: 0;
+  z-index: 20;
   pointer-events: none;
   background:
     radial-gradient(
@@ -57,6 +58,34 @@ body {
       rgba(0, 0, 0, 0.6) 68%,
       rgba(0, 0, 0, 0.96) 100%
     );
+}
+
+.dither-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.dither-overlay--enabled {
+  opacity: 1;
+}
+
+.dither-overlay--css {
+  --dither-css-opacity: 0.18;
+  background-image:
+    radial-gradient(
+      circle at center,
+      rgba(255, 255, 255, var(--dither-css-opacity)) 0 1px,
+      transparent 1.3px
+    );
+  background-size: 4px 4px;
+  mix-blend-mode: overlay;
+}
+
+.dither-overlay--canvas {
+  mix-blend-mode: soft-light;
 }
 
 .combo-pop {
@@ -68,6 +97,7 @@ body {
   font-family: 'Pulsewidth Combo', 'FA-1 Game', monospace;
   --combo-label-size: 21px;
   --combo-count-size: 21px;
+  --combo-count-color: #f7fbff;
   color: #f7fbff;
   font-weight: 900;
   line-height: 1;
@@ -87,6 +117,7 @@ body {
 
 .combo-pop__count {
   font-size: var(--combo-count-size);
+  color: var(--combo-count-color);
 }
 
 .combo-pop--hit {
@@ -95,6 +126,36 @@ body {
 
 .combo-pop--hidden {
   opacity: 0;
+}
+
+.lightning-meter {
+  position: absolute;
+  left: 18px;
+  bottom: 22px;
+  z-index: 42;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.lightning-meter--hidden {
+  display: none;
+}
+
+.lightning-meter__bar {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+
+.lightning-meter__bar--filled {
+  background: #a36eff;
+  box-shadow:
+    0 0 8px rgba(163, 110, 255, 0.7),
+    0 1px 4px rgba(0, 0, 0, 0.45);
 }
 
 @keyframes combo-pop-hit {
@@ -231,6 +292,7 @@ body {
   position: absolute;
   left: 16px;
   top: 16px;
+  z-index: 40;
   padding: 12px 16px;
   border-radius: 10px;
   background: rgba(8, 10, 16, 0.72);
@@ -320,6 +382,7 @@ body {
   position: absolute;
   right: 16px;
   top: 16px;
+  z-index: 40;
   padding: 8px 12px;
   border-radius: 8px;
   background: rgba(8, 10, 16, 0.72);
@@ -347,6 +410,7 @@ body {
   position: absolute;
   right: 16px;
   top: 64px;
+  z-index: 40;
   width: 248px;
   padding: 10px 12px;
   border-radius: 8px;
@@ -392,6 +456,28 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.beat-lens-row--toggle {
+  margin-top: 10px;
+}
+
+.beat-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: #e8ecf5;
+  font-size: 12px;
+  line-height: 1.2;
+  user-select: none;
+}
+
+.beat-toggle input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #66ccff;
+}
+
 .beat-lens-head {
   display: flex;
   justify-content: space-between;
@@ -434,7 +520,7 @@ body {
   left: 50%;
   top: 0;
   transform: translateX(-50%);
-  z-index: 12;
+  z-index: 40;
   pointer-events: none;
   user-select: none;
   display: flex;
@@ -472,7 +558,7 @@ body {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  z-index: 11;
+  z-index: 40;
   width: min(42vmin, 280px);
   height: min(42vmin, 280px);
   pointer-events: none;
@@ -565,6 +651,24 @@ body {
 .track-summary__value {
   color: #e8ecf5;
   font-weight: 700;
+}
+
+.main-menu-cheatmode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 4px;
+  color: #c8d0e8;
+  user-select: none;
+  cursor: pointer;
+}
+
+.main-menu-cheatmode input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #66ccff;
 }
 
 .game-overlay__panel--tracks {
@@ -723,6 +827,12 @@ body {
   line-height: 1.45;
   color: rgba(200, 210, 230, 0.92);
   max-width: 340px;
+}
+
+.game-overlay__upgrade-choices {
+  display: grid;
+  gap: 10px;
+  width: 100%;
 }
 
 .game-overlay__death-title {

@@ -144,6 +144,8 @@ export const CONFIG = {
 
   enemySpeed: 4.2,
   enemyRadius: 1.14,
+  /** Visual + collision radius multiplier for default normal enemies only. */
+  normalEnemyRadiusScale: 1.25,
   /** Shooter preferred center-to-center distance from player (world units). */
   shooterKeepDistance: 12,
   /** Shooter projectile cadence (seconds). */

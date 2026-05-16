@@ -1,6 +1,14 @@
 import { CONFIG } from './config.ts';
 
 const STORAGE_KEY = 'game3-dash-upgrades-v1';
+const FIXED_DASH_DURATION_SEC = 0.115;
+
+const DISCRETE_LEVELS = {
+  dashNominalLengthWorld: [6, 7, 8, 9, 10],
+  dashKillRadiusScale: [1.5, 2.75, 4, 5.25, 6.5],
+  playerSpeed: [7, 8.5, 10, 11.5, 13],
+  playerMaxHp: [1, 2, 3, 4, 5],
+} as const;
 
 export type BalanceSettingsState = {
   /** Main dash active time (seconds); enemy freeze matches this in gameplay. */
@@ -17,20 +25,26 @@ export type BalanceSettingsState = {
 };
 
 const LIMITS = {
-  dashDurationSec: { min: 0.08, max: 0.35 },
-  dashNominalLengthWorld: { min: 2, max: 45 },
-  dashKillRadiusScale: { min: 1, max: 10 },
-  playerSpeed: { min: 6, max: 30 },
-  playerMaxHp: { min: 1, max: 10 },
+  dashDurationSec: { min: FIXED_DASH_DURATION_SEC, max: FIXED_DASH_DURATION_SEC },
+  dashNominalLengthWorld: { min: 6, max: 10 },
+  dashKillRadiusScale: { min: 1.5, max: 6.5 },
+  playerSpeed: { min: 7, max: 13 },
+  playerMaxHp: { min: 1, max: 5 },
 } as const;
 
 function defaults(): BalanceSettingsState {
   return {
-    dashDurationSec: CONFIG.dashDuration,
-    dashNominalLengthWorld: CONFIG.dashSpeed * CONFIG.dashDuration,
-    dashKillRadiusScale: CONFIG.dashKillPlayerRadiusScale,
-    playerSpeed: CONFIG.playerSpeed,
-    playerMaxHp: CONFIG.playerMaxHp,
+    dashDurationSec: FIXED_DASH_DURATION_SEC,
+    dashNominalLengthWorld: snapToDiscreteLevel(
+      CONFIG.dashSpeed * FIXED_DASH_DURATION_SEC,
+      DISCRETE_LEVELS.dashNominalLengthWorld,
+    ),
+    dashKillRadiusScale: snapToDiscreteLevel(
+      CONFIG.dashKillPlayerRadiusScale,
+      DISCRETE_LEVELS.dashKillRadiusScale,
+    ),
+    playerSpeed: snapToDiscreteLevel(CONFIG.playerSpeed, DISCRETE_LEVELS.playerSpeed),
+    playerMaxHp: snapToDiscreteLevel(CONFIG.playerMaxHp, DISCRETE_LEVELS.playerMaxHp),
   };
 }
 
@@ -47,26 +61,47 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
 }
 
+function snapToDiscreteLevel<T extends readonly number[]>(n: number, levels: T): T[number] {
+  const fallback = levels[0]!;
+  if (!Number.isFinite(n)) return fallback;
+  let best = fallback;
+  let bestDist = Math.abs(n - best);
+  for (const level of levels) {
+    const dist = Math.abs(n - level);
+    if (dist < bestDist) {
+      best = level;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
 function sanitize(p: BalanceSettingsState): BalanceSettingsState {
   return {
-    dashDurationSec: clamp(
-      p.dashDurationSec,
-      LIMITS.dashDurationSec.min,
-      LIMITS.dashDurationSec.max,
+    dashDurationSec: FIXED_DASH_DURATION_SEC,
+    dashNominalLengthWorld: snapToDiscreteLevel(
+      clamp(
+        p.dashNominalLengthWorld,
+        LIMITS.dashNominalLengthWorld.min,
+        LIMITS.dashNominalLengthWorld.max,
+      ),
+      DISCRETE_LEVELS.dashNominalLengthWorld,
     ),
-    dashNominalLengthWorld: clamp(
-      p.dashNominalLengthWorld,
-      LIMITS.dashNominalLengthWorld.min,
-      LIMITS.dashNominalLengthWorld.max,
+    dashKillRadiusScale: snapToDiscreteLevel(
+      clamp(
+        p.dashKillRadiusScale,
+        LIMITS.dashKillRadiusScale.min,
+        LIMITS.dashKillRadiusScale.max,
+      ),
+      DISCRETE_LEVELS.dashKillRadiusScale,
     ),
-    dashKillRadiusScale: clamp(
-      p.dashKillRadiusScale,
-      LIMITS.dashKillRadiusScale.min,
-      LIMITS.dashKillRadiusScale.max,
+    playerSpeed: snapToDiscreteLevel(
+      clamp(p.playerSpeed, LIMITS.playerSpeed.min, LIMITS.playerSpeed.max),
+      DISCRETE_LEVELS.playerSpeed,
     ),
-    playerSpeed: clamp(p.playerSpeed, LIMITS.playerSpeed.min, LIMITS.playerSpeed.max),
-    playerMaxHp: Math.round(
+    playerMaxHp: snapToDiscreteLevel(
       clamp(p.playerMaxHp, LIMITS.playerMaxHp.min, LIMITS.playerMaxHp.max),
+      DISCRETE_LEVELS.playerMaxHp,
     ),
   };
 }
@@ -85,7 +120,7 @@ export function loadBalanceSettings(): void {
       typeof o.dashNominalLengthWorld !== 'number' ||
       !Number.isFinite(o.dashNominalLengthWorld)
     ) {
-      merged.dashNominalLengthWorld = CONFIG.dashSpeed * merged.dashDurationSec;
+      merged.dashNominalLengthWorld = CONFIG.dashSpeed * FIXED_DASH_DURATION_SEC;
     }
     current = sanitize(merged);
   } catch {
