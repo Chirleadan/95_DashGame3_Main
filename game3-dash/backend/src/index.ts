@@ -1,6 +1,10 @@
 import 'dotenv/config';
 import cors from 'cors';
-import express from 'express';
+import express, {
+  type NextFunction,
+  type Request,
+  type Response,
+} from 'express';
 import { getDbDriver, getSqliteFilePath, pingDatabase, runMigrations } from './db.js';
 import { leaderboardRouter } from './routes/leaderboard.js';
 import { playerRouter } from './routes/player.js';
@@ -19,7 +23,7 @@ app.use(
 );
 app.use(express.json({ limit: '32kb' }));
 
-app.get('/health', (_req, res) => {
+app.get('/health', (_req: Request, res: Response) => {
   res.json({
     ok: true,
     db: getDbDriver(),
@@ -30,12 +34,7 @@ app.use('/api/player', playerRouter);
 app.use('/api/leaderboard', leaderboardRouter);
 
 app.use(
-  (
-    err: unknown,
-    _req: express.Request,
-    res: express.Response,
-    _next: express.NextFunction,
-  ) => {
+  (err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     console.error('[server]', err);
     res.status(500).json({ error: 'Server error' });
   },

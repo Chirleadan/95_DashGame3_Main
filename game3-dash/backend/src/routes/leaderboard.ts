@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { getDbDriver, newRowId, query, toIsoTimestamp } from '../db.js';
 
 export const leaderboardRouter = Router();
@@ -32,7 +32,7 @@ function nowSql(): string {
   return getDbDriver() === 'postgres' ? 'NOW()' : `datetime('now')`;
 }
 
-leaderboardRouter.post('/submit', async (req, res) => {
+leaderboardRouter.post('/submit', async (req: Request, res: Response) => {
   const playerId = parseUuid(req.body?.playerId);
   const score = parseScore(req.body?.score);
   const cheatMode = Boolean(req.body?.cheatMode);
@@ -110,7 +110,7 @@ leaderboardRouter.post('/submit', async (req, res) => {
   }
 });
 
-leaderboardRouter.get('/', async (req, res) => {
+leaderboardRouter.get('/', async (req: Request, res: Response) => {
   const cheatMode = req.query.cheatMode === 'true';
   const limit = parsePositiveInt(req.query.limit, 50, 100);
 

@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import {
   getDbDriver,
   newPlayerId,
@@ -33,7 +33,7 @@ function parseUuid(raw: unknown): string | null {
   return id;
 }
 
-playerRouter.post('/create', async (req, res) => {
+playerRouter.post('/create', async (req: Request, res: Response) => {
   const nickname = sanitizeNickname(req.body?.nickname);
   if (!nickname) {
     res.status(400).json({ error: 'Invalid nickname' });
@@ -67,7 +67,7 @@ playerRouter.post('/create', async (req, res) => {
   }
 });
 
-playerRouter.patch('/nickname', async (req, res) => {
+playerRouter.patch('/nickname', async (req: Request, res: Response) => {
   const playerId = parseUuid(req.body?.playerId);
   const nickname = sanitizeNickname(req.body?.nickname);
   if (!playerId || !nickname) {
@@ -99,7 +99,7 @@ playerRouter.patch('/nickname', async (req, res) => {
   }
 });
 
-playerRouter.get('/me', async (req, res) => {
+playerRouter.get('/me', async (req: Request, res: Response) => {
   const playerId = parseUuid(req.query.playerId);
   if (!playerId) {
     res.status(400).json({ error: 'Invalid playerId' });
