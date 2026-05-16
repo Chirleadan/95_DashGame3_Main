@@ -1,4 +1,9 @@
 import { CONFIG } from './config.ts';
+import {
+  getPlayerGold,
+  loadPlayerGold,
+  trySpendPlayerGold,
+} from './PlayerGold.ts';
 import type { BeatEvent } from './Beatmap.ts';
 import {
   ARTIFACT_IDS,
@@ -8,18 +13,57 @@ import {
   setArtifactEnabled,
 } from './Artifacts.ts';
 import {
-  balanceLimits,
+  type BalanceDiscreteStatKey,
   getBalanceSnapshot,
+  getDiscreteLevelIndex,
+  getDiscreteLevelValue,
+  getDiscreteLevels,
+  getMaxUnlockedLevelIndex,
   getPlayerMaxHp,
+  getVaultMaxUnlockedLevel,
+  setMaxUnlockedLevelIndex,
+  unlockVaultMaxLevel,
   loadBalanceSettings,
   setBalancePatch,
 } from './BalanceSettings.ts';
+import {
+  formatHighScoreTape,
+  formatHighScoreTime,
+  getHighScore,
+  type HighScoreBoardId,
+} from './HighScores.ts';
 import {
   findTrackStage,
   findTrackForStage,
   TRACK_CATALOG,
   type TrackStage,
 } from './TrackCatalog.ts';
+
+type UpgradeCellVisualState = 'selected' | 'open' | 'buyable' | 'locked';
+
+type UpgradeCellRowConfig = {
+  statKey: BalanceDiscreteStatKey;
+  label: string;
+};
+
+const UPGRADE_CELL_ROWS: readonly UpgradeCellRowConfig[] = [
+  { statKey: 'dashCooldownSec', label: 'Dash cooldown' },
+  { statKey: 'dashNominalLengthWorld', label: 'Dash length' },
+  { statKey: 'dashKillRadiusScale', label: 'Dash radius' },
+  { statKey: 'playerSpeed', label: 'Move speed' },
+  { statKey: 'playerMaxHp', label: 'Hero shields' },
+];
+
+function upgradeCellState(
+  cellIndex: number,
+  selectedIndex: number,
+  maxUnlockedIndex: number,
+): UpgradeCellVisualState {
+  if (cellIndex === selectedIndex) return 'selected';
+  if (cellIndex <= maxUnlockedIndex && cellIndex !== selectedIndex) return 'open';
+  if (cellIndex === maxUnlockedIndex + 1) return 'buyable';
+  return 'locked';
+}
 
 export type DitherUiSettings = {
   cssDotsEnabled: boolean;
@@ -56,6 +100,12 @@ function lowerBeatIndex(beats: readonly BeatEvent[], minTime: number): number {
 
 export class UI {
   private readonly mount: HTMLElement;
+  private readonly walletEl: HTMLElement;
+  private readonly walletGoldEl: HTMLElement;
+  private readonly hudEl: HTMLElement;
+  private readonly hudExtraEl: HTMLElement;
+  private readonly beatUiEl: HTMLElement;
+  private artifactsPanelEl!: HTMLElement;
   private readonly hpBarsBottom: HTMLElement;
   private readonly hpBarSegments: HTMLElement[] = [];
   private readonly hpBarRegenFills: HTMLElement[] = [];
@@ -67,6 +117,7 @@ export class UI {
   private readonly runXpFillEl: HTMLElement;
   private readonly runLevelEl: HTMLElement;
   private readonly dashEl: HTMLElement;
+  private readonly fpsMeterEl: HTMLElement;
   private readonly fpsEl: HTMLElement;
   private readonly playBtn: HTMLButtonElement;
   private readonly playTrackPromptEl: HTMLElement;
@@ -107,21 +158,12 @@ export class UI {
   private readonly upgradeMenuPanel: HTMLElement;
   private readonly trackMenuPanel: HTMLElement;
   private readonly titlesMenuPanel: HTMLElement;
+  private readonly highScoreMenuPanel: HTMLElement;
+  private readonly highScoreMenuList: HTMLElement;
   private readonly trackMenuList: HTMLElement;
   private readonly currentTrackEl: HTMLElement;
-  private readonly upgradeDashLen: HTMLInputElement;
-  private readonly upgradeDashLenVal: HTMLElement;
-  private readonly upgradeDashCooldown: HTMLInputElement;
-  private readonly upgradeDashCooldownVal: HTMLElement;
-  private readonly upgradeDashNomLen: HTMLInputElement;
-  private readonly upgradeDashNomLenVal: HTMLElement;
-  private readonly upgradeDashRadius: HTMLInputElement;
-  private readonly upgradeDashRadiusVal: HTMLElement;
-  private readonly upgradeMoveSpeed: HTMLInputElement;
-  private readonly upgradeMoveSpeedVal: HTMLElement;
-  private readonly upgradeShields: HTMLInputElement;
-  private readonly upgradeShieldsVal: HTMLElement;
-  private readonly upgradeStoragePointer: HTMLInputElement;
+  private readonly upgradeMenuRows: HTMLElement;
+  private readonly upgradeVaultRow: HTMLElement;
   private readonly deathScreenEl: HTMLElement;
   private readonly deathStatTimeEl: HTMLElement;
   private readonly deathStatKillsEl: HTMLElement;
@@ -140,11 +182,26 @@ export class UI {
 
   constructor(container: HTMLElement) {
     loadBalanceSettings();
+    loadPlayerGold();
     loadArtifacts();
+    if (isArtifactEnabled('vaultBearing') && getVaultMaxUnlockedLevel() < 1) {
+      unlockVaultMaxLevel();
+    }
     this.mount = container;
-    const hud = document.createElement('div');
-    hud.className = 'hud';
-    hud.innerHTML = `
+
+    this.walletEl = document.createElement('div');
+    this.walletEl.className = 'hud-wallet';
+    this.walletEl.innerHTML = `
+      <span class="label">Gold</span>
+      <span id="hud-wallet-gold" class="hud-xp-num">0</span>
+    `;
+    container.appendChild(this.walletEl);
+    this.walletGoldEl = this.walletEl.querySelector('#hud-wallet-gold')!;
+    this.setWalletGold(getPlayerGold());
+
+    this.hudEl = document.createElement('div');
+    this.hudEl.className = 'hud';
+    this.hudEl.innerHTML = `
       <div class="hud-xp">
         <div class="hud-xp-row">
           <span class="hud-xp-meta__group"><span class="label">Lvl.</span> <span id="hud-run-level" class="hud-xp-num">1</span></span>
@@ -152,20 +209,23 @@ export class UI {
         </div>
         <div class="hud-xp-bar" aria-hidden="true"><div id="hud-run-xp-fill" class="hud-xp-bar__fill"></div></div>
       </div>
-      <div class="hud-row"><span class="label">Kills</span> <span id="hud-run-kills">0</span></div>
+      <div class="hud__extra">
+        <div class="hud-row"><span class="label">Kills</span> <span id="hud-run-kills">0</span></div>
       <div class="hud-row hud-row--loot"><span class="label">Gold</span> <span id="hud-run-gold" class="hud-xp-num">0</span><span class="hud-loot-sep" aria-hidden="true">·</span><span class="label">Mana</span> <span id="hud-run-mana" class="hud-xp-num">0</span></div>
       <div class="hud-row"><span class="label">Enemies</span> <span id="hud-enemies">0</span></div>
       <div class="hud-row"><span class="label">Dash CD</span> <span id="hud-dash">Ready</span></div>
+      </div>
     `;
-    container.appendChild(hud);
-    this.runKillsEl = hud.querySelector('#hud-run-kills')!;
-    this.runGoldEl = hud.querySelector('#hud-run-gold')!;
-    this.runManaEl = hud.querySelector('#hud-run-mana')!;
-    this.runXpTextEl = hud.querySelector('#hud-run-xp-text')!;
-    this.runXpFillEl = hud.querySelector('#hud-run-xp-fill')!;
-    this.runLevelEl = hud.querySelector('#hud-run-level')!;
-    this.enemiesEl = hud.querySelector('#hud-enemies')!;
-    this.dashEl = hud.querySelector('#hud-dash')!;
+    this.hudExtraEl = this.hudEl.querySelector('.hud__extra')!;
+    container.appendChild(this.hudEl);
+    this.runKillsEl = this.hudEl.querySelector('#hud-run-kills')!;
+    this.runGoldEl = this.hudEl.querySelector('#hud-run-gold')!;
+    this.runManaEl = this.hudEl.querySelector('#hud-run-mana')!;
+    this.runXpTextEl = this.hudEl.querySelector('#hud-run-xp-text')!;
+    this.runXpFillEl = this.hudEl.querySelector('#hud-run-xp-fill')!;
+    this.runLevelEl = this.hudEl.querySelector('#hud-run-level')!;
+    this.enemiesEl = this.hudEl.querySelector('#hud-enemies')!;
+    this.dashEl = this.hudEl.querySelector('#hud-dash')!;
 
     this.hpBarsBottom = document.createElement('div');
     this.hpBarsBottom.className = 'hp-bars-bottom';
@@ -176,6 +236,7 @@ export class UI {
     fps.className = 'fps-meter';
     fps.innerHTML = `<span class="fps-label">FPS</span> <span id="hud-fps">0</span>`;
     container.appendChild(fps);
+    this.fpsMeterEl = fps;
     this.fpsEl = fps.querySelector('#hud-fps')!;
 
     const beatUi = document.createElement('div');
@@ -245,6 +306,7 @@ export class UI {
       <div class="beat-debug-row"><span class="label">State</span> <span id="beat-state">Loading...</span></div>
     `;
     container.appendChild(beatUi);
+    this.beatUiEl = beatUi;
     this.playTrackPromptEl = document.createElement('div');
     this.playTrackPromptEl.className = 'beat-play-prompt';
     this.playTrackPromptEl.hidden = true;
@@ -324,7 +386,7 @@ export class UI {
       `M ${s} ${-s} A ${R} ${R} 0 0 1 ${s} ${s}`,
     );
 
-    this.buildArtifactsPanel(container);
+    this.artifactsPanelEl = this.buildArtifactsPanel(container);
 
     this.lensSlider.addEventListener('input', () => this.emitLensDistortion());
     this.overscanSlider.addEventListener('input', () => this.emitLensOverscan());
@@ -342,8 +404,6 @@ export class UI {
     this.mainMenuEl.className = 'game-overlay game-overlay--menu';
     this.mainMenuEl.setAttribute('role', 'dialog');
     this.mainMenuEl.setAttribute('aria-modal', 'true');
-    const L = balanceLimits();
-    const b = getBalanceSnapshot();
     this.mainMenuEl.innerHTML = `
       <div id="main-menu-panel" class="game-overlay__panel">
         <h1 class="game-overlay__title">Arena</h1>
@@ -357,7 +417,8 @@ export class UI {
           <button id="main-menu-tracks" type="button" class="game-overlay__btn game-overlay__btn--secondary">TAPES</button>
         </div>
         <div class="main-menu-side-links">
-          <button id="main-menu-titles" type="button" class="main-menu-titles-btn">TITLES</button>
+          <button id="main-menu-highscore" type="button" class="main-menu-side-btn">HIGH SCORE</button>
+          <button id="main-menu-titles" type="button" class="main-menu-side-btn">TITLES</button>
           <label class="main-menu-cheatmode" data-tooltip="Cheat mode shows every level-up perk choice instead of rolling 3 random options.">
             <input id="main-menu-cheatmode" type="checkbox" />
             <span>Cheat mode</span>
@@ -369,6 +430,12 @@ export class UI {
         <div id="track-menu-list" class="track-menu"></div>
         <button id="track-back" type="button" class="game-overlay__btn game-overlay__btn--upgrade-back">Back</button>
       </div>
+      <div id="highscore-menu-panel" class="game-overlay__panel game-overlay__panel--highscores" hidden>
+        <h2 class="game-overlay__subtitle">High score</h2>
+        <p class="highscore-menu__hint">Longest survival time. Normal and cheat runs are saved separately.</p>
+        <div id="highscore-menu-list" class="highscore-menu"></div>
+        <button id="highscore-back" type="button" class="game-overlay__btn game-overlay__btn--upgrade-back">Back</button>
+      </div>
       <div id="titles-menu-panel" class="game-overlay__panel game-overlay__panel--titles" hidden>
         <h2 class="game-overlay__subtitle">Titles</h2>
         <div class="titles-menu"></div>
@@ -376,52 +443,9 @@ export class UI {
       </div>
       <div id="upgrade-menu-panel" class="game-overlay__panel game-overlay__panel--upgrade" hidden>
         <h2 class="game-overlay__subtitle">Upgrade</h2>
-        <div class="upgrade-menu__row">
-          <div class="upgrade-menu__head">
-            <span class="label">Dash duration (s)</span>
-            <span id="upgrade-dash-len-val" class="upgrade-menu__val">${b.dashDurationSec.toFixed(3)}</span>
-          </div>
-          <input id="upgrade-dash-len" type="range" min="${L.dashDurationSec.min}" max="${L.dashDurationSec.max}" step="0.001" value="${b.dashDurationSec}" disabled />
-        </div>
-        <div class="upgrade-menu__row">
-          <div class="upgrade-menu__head">
-            <span class="label">Dash cooldown (s)</span>
-            <span id="upgrade-dash-cooldown-val" class="upgrade-menu__val">${b.dashCooldownSec.toFixed(2)}</span>
-          </div>
-          <input id="upgrade-dash-cooldown" type="range" min="${L.dashCooldownSec.min}" max="${L.dashCooldownSec.max}" step="0.15" value="${b.dashCooldownSec}" />
-        </div>
-        <div class="upgrade-menu__row">
-          <div class="upgrade-menu__head">
-            <span class="label">Dash length (world)</span>
-            <span id="upgrade-dash-nomlen-val" class="upgrade-menu__val">${b.dashNominalLengthWorld.toFixed(0)}</span>
-          </div>
-          <input id="upgrade-dash-nomlen" type="range" min="${L.dashNominalLengthWorld.min}" max="${L.dashNominalLengthWorld.max}" step="1" value="${b.dashNominalLengthWorld}" />
-        </div>
-        <div class="upgrade-menu__row">
-          <div class="upgrade-menu__head">
-            <span class="label">Default dash radius</span>
-            <span id="upgrade-dash-radius-val" class="upgrade-menu__val">${b.dashKillRadiusScale.toFixed(2)}</span>
-          </div>
-          <input id="upgrade-dash-radius" type="range" min="${L.dashKillRadiusScale.min}" max="${L.dashKillRadiusScale.max}" step="1.25" value="${b.dashKillRadiusScale}" />
-        </div>
-        <div class="upgrade-menu__row">
-          <div class="upgrade-menu__head">
-            <span class="label">Default move speed</span>
-            <span id="upgrade-move-speed-val" class="upgrade-menu__val">${b.playerSpeed.toFixed(1)}</span>
-          </div>
-          <input id="upgrade-move-speed" type="range" min="${L.playerSpeed.min}" max="${L.playerSpeed.max}" step="1.5" value="${b.playerSpeed}" />
-        </div>
-        <div class="upgrade-menu__row">
-          <div class="upgrade-menu__head">
-            <span class="label">Hero shields</span>
-            <span id="upgrade-shields-val" class="upgrade-menu__val">${b.playerMaxHp}</span>
-          </div>
-          <input id="upgrade-shields" type="range" min="${L.playerMaxHp.min}" max="${L.playerMaxHp.max}" step="1" value="${b.playerMaxHp}" />
-        </div>
-        <label class="upgrade-menu__toggle-row">
-          <span class="label">Storage pointer</span>
-          <input id="upgrade-storage-pointer" type="checkbox" ${isArtifactEnabled('vaultBearing') ? 'checked' : ''} />
-        </label>
+        <p class="upgrade-menu__cost-hint">Next cell costs ${CONFIG.upgradeGoldCost} gold. White = active, gray = unlocked, gold = next buy.</p>
+        <div id="upgrade-menu-rows" class="upgrade-menu__rows"></div>
+        <div id="upgrade-vault-row" class="upgrade-menu__row"></div>
         <button id="upgrade-back" type="button" class="game-overlay__btn game-overlay__btn--upgrade-back">Back</button>
       </div>
     `;
@@ -433,22 +457,16 @@ export class UI {
     this.mainMenuPanel = this.mainMenuEl.querySelector('#main-menu-panel')!;
     this.trackMenuPanel = this.mainMenuEl.querySelector('#track-menu-panel')!;
     this.titlesMenuPanel = this.mainMenuEl.querySelector('#titles-menu-panel')!;
+    this.highScoreMenuPanel = this.mainMenuEl.querySelector('#highscore-menu-panel')!;
+    this.highScoreMenuList = this.mainMenuEl.querySelector('#highscore-menu-list')!;
+    this.buildTitlesMenu();
+    this.buildHighScoreMenu();
     this.trackMenuList = this.mainMenuEl.querySelector('#track-menu-list')!;
     this.currentTrackEl = this.mainMenuEl.querySelector('#main-menu-track-current')!;
     this.upgradeMenuPanel = this.mainMenuEl.querySelector('#upgrade-menu-panel')!;
-    this.upgradeDashLen = this.mainMenuEl.querySelector('#upgrade-dash-len') as HTMLInputElement;
-    this.upgradeDashLenVal = this.mainMenuEl.querySelector('#upgrade-dash-len-val')!;
-    this.upgradeDashCooldown = this.mainMenuEl.querySelector('#upgrade-dash-cooldown') as HTMLInputElement;
-    this.upgradeDashCooldownVal = this.mainMenuEl.querySelector('#upgrade-dash-cooldown-val')!;
-    this.upgradeDashNomLen = this.mainMenuEl.querySelector('#upgrade-dash-nomlen') as HTMLInputElement;
-    this.upgradeDashNomLenVal = this.mainMenuEl.querySelector('#upgrade-dash-nomlen-val')!;
-    this.upgradeDashRadius = this.mainMenuEl.querySelector('#upgrade-dash-radius') as HTMLInputElement;
-    this.upgradeDashRadiusVal = this.mainMenuEl.querySelector('#upgrade-dash-radius-val')!;
-    this.upgradeMoveSpeed = this.mainMenuEl.querySelector('#upgrade-move-speed') as HTMLInputElement;
-    this.upgradeMoveSpeedVal = this.mainMenuEl.querySelector('#upgrade-move-speed-val')!;
-    this.upgradeShields = this.mainMenuEl.querySelector('#upgrade-shields') as HTMLInputElement;
-    this.upgradeShieldsVal = this.mainMenuEl.querySelector('#upgrade-shields-val')!;
-    this.upgradeStoragePointer = this.mainMenuEl.querySelector('#upgrade-storage-pointer') as HTMLInputElement;
+    this.upgradeMenuRows = this.mainMenuEl.querySelector('#upgrade-menu-rows')!;
+    this.upgradeVaultRow = this.mainMenuEl.querySelector('#upgrade-vault-row')!;
+    this.buildUpgradeCellRows();
     this.buildTrackMenu();
     this.bindUpgradeMenuControls();
 
@@ -635,50 +653,277 @@ export class UI {
     }
   }
 
+  private buildUpgradeCellRows(): void {
+    this.upgradeMenuRows.replaceChildren();
+    for (const row of UPGRADE_CELL_ROWS) {
+      this.upgradeMenuRows.appendChild(this.createUpgradeStatRow(row));
+    }
+    this.refreshUpgradeVaultRow();
+  }
+
+  private createUpgradeStatRow(row: UpgradeCellRowConfig): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'upgrade-menu__row';
+    wrap.dataset.upgradeRow = row.statKey;
+
+    const head = document.createElement('div');
+    head.className = 'upgrade-menu__head';
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = row.label;
+    head.appendChild(label);
+    wrap.appendChild(head);
+
+    const cells = document.createElement('div');
+    cells.className = 'upgrade-cells';
+    cells.dataset.upgradeCells = row.statKey;
+    wrap.appendChild(cells);
+    return wrap;
+  }
+
+  private refreshUpgradeCellRows(): void {
+    const snap = getBalanceSnapshot();
+    for (const row of UPGRADE_CELL_ROWS) {
+      const host = this.upgradeMenuRows.querySelector<HTMLElement>(
+        `[data-upgrade-cells="${row.statKey}"]`,
+      );
+      if (!host) continue;
+      host.replaceChildren();
+      const levels = getDiscreteLevels(row.statKey);
+      const selectedIndex = getDiscreteLevelIndex(row.statKey, snap[row.statKey]);
+      const maxUnlockedIndex = getMaxUnlockedLevelIndex(row.statKey);
+      levels.forEach((_value, index) => {
+        host.appendChild(
+          this.createUpgradeCellButton(row.statKey, index, selectedIndex, maxUnlockedIndex, row.label),
+        );
+      });
+    }
+    this.refreshUpgradeVaultRow();
+  }
+
+  private refreshUpgradeVaultRow(): void {
+    const enabled = isArtifactEnabled('vaultBearing');
+    const selectedIndex = enabled ? 1 : 0;
+    const maxUnlockedIndex = getVaultMaxUnlockedLevel();
+    this.upgradeVaultRow.replaceChildren();
+    this.upgradeVaultRow.dataset.upgradeRow = 'vaultBearing';
+
+    const head = document.createElement('div');
+    head.className = 'upgrade-menu__head';
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = 'Storage pointer';
+    head.appendChild(label);
+    this.upgradeVaultRow.appendChild(head);
+
+    const cells = document.createElement('div');
+    cells.className = 'upgrade-cells';
+    cells.dataset.upgradeCells = 'vaultBearing';
+    for (const index of [0, 1]) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'upgrade-cell';
+      btn.dataset.upgradeKind = 'vault';
+      btn.dataset.cellIndex = String(index);
+      btn.setAttribute('aria-label', `${index === 0 ? 'Off' : 'On'} storage pointer`);
+      const state = upgradeCellState(index, selectedIndex, maxUnlockedIndex);
+      btn.classList.add(`upgrade-cell--${state}`);
+      btn.disabled = state === 'locked' || state === 'selected';
+      if (state === 'buyable') {
+        btn.title = `${CONFIG.upgradeGoldCost} gold`;
+      }
+      cells.appendChild(btn);
+    }
+    this.upgradeVaultRow.appendChild(cells);
+  }
+
+  private createUpgradeCellButton(
+    statKey: BalanceDiscreteStatKey,
+    index: number,
+    selectedIndex: number,
+    maxUnlockedIndex: number,
+    rowLabel: string,
+  ): HTMLButtonElement {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'upgrade-cell';
+    btn.dataset.upgradeStat = statKey;
+    btn.dataset.cellIndex = String(index);
+    btn.setAttribute('aria-label', `${rowLabel} tier ${index + 1}`);
+    const state = upgradeCellState(index, selectedIndex, maxUnlockedIndex);
+    btn.classList.add(`upgrade-cell--${state}`);
+    btn.disabled = state === 'locked' || state === 'selected';
+    if (state === 'buyable') {
+      btn.title = `${CONFIG.upgradeGoldCost} gold`;
+    }
+    return btn;
+  }
+
+  private onUpgradeCellClick(target: HTMLElement): void {
+    const btn = target.closest<HTMLButtonElement>('.upgrade-cell');
+    if (!btn || btn.disabled) return;
+
+    const cellIndex = Number(btn.dataset.cellIndex);
+    if (!Number.isFinite(cellIndex)) return;
+
+    if (btn.dataset.upgradeKind === 'vault') {
+      this.onUpgradeVaultCellClick(cellIndex);
+      return;
+    }
+
+    const statKey = btn.dataset.upgradeStat as BalanceDiscreteStatKey | undefined;
+    if (!statKey) return;
+
+    const snap = getBalanceSnapshot();
+    const selectedIndex = getDiscreteLevelIndex(statKey, snap[statKey]);
+    const maxUnlockedIndex = getMaxUnlockedLevelIndex(statKey);
+    if (cellIndex === selectedIndex) return;
+
+    if (cellIndex <= maxUnlockedIndex) {
+      setBalancePatch({ [statKey]: getDiscreteLevelValue(statKey, cellIndex) });
+      if (statKey === 'playerMaxHp') {
+        this.rebuildHpBarSegments();
+      }
+      this.refreshUpgradeCellRows();
+      return;
+    }
+
+    if (cellIndex === maxUnlockedIndex + 1) {
+      if (!trySpendPlayerGold()) return;
+      setMaxUnlockedLevelIndex(statKey, cellIndex);
+      setBalancePatch({ [statKey]: getDiscreteLevelValue(statKey, cellIndex) });
+      if (statKey === 'playerMaxHp') {
+        this.rebuildHpBarSegments();
+      }
+      this.setWalletGold(getPlayerGold());
+      this.refreshUpgradeCellRows();
+    }
+  }
+
+  private onUpgradeVaultCellClick(cellIndex: number): void {
+    const enabled = isArtifactEnabled('vaultBearing');
+    const selectedIndex = enabled ? 1 : 0;
+    const maxUnlockedIndex = getVaultMaxUnlockedLevel();
+    if (cellIndex === selectedIndex) return;
+
+    if (cellIndex <= maxUnlockedIndex) {
+      setArtifactEnabled('vaultBearing', cellIndex === 1);
+      this.artifactsChangeHandler?.();
+      this.refreshUpgradeVaultRow();
+      return;
+    }
+
+    if (cellIndex === maxUnlockedIndex + 1) {
+      if (!trySpendPlayerGold()) return;
+      unlockVaultMaxLevel();
+      setArtifactEnabled('vaultBearing', true);
+      this.setWalletGold(getPlayerGold());
+      this.artifactsChangeHandler?.();
+      this.refreshUpgradeVaultRow();
+    }
+  }
+
   private syncUpgradeControlsFromBalance(): void {
-    const b = getBalanceSnapshot();
-    this.upgradeDashLen.value = String(b.dashDurationSec);
-    this.upgradeDashLenVal.textContent = b.dashDurationSec.toFixed(3);
-    this.upgradeDashCooldown.value = String(b.dashCooldownSec);
-    this.upgradeDashCooldownVal.textContent = b.dashCooldownSec.toFixed(2);
-    this.upgradeDashNomLen.value = String(b.dashNominalLengthWorld);
-    this.upgradeDashNomLenVal.textContent = b.dashNominalLengthWorld.toFixed(0);
-    this.upgradeDashRadius.value = String(b.dashKillRadiusScale);
-    this.upgradeDashRadiusVal.textContent = b.dashKillRadiusScale.toFixed(2);
-    this.upgradeMoveSpeed.value = String(b.playerSpeed);
-    this.upgradeMoveSpeedVal.textContent = b.playerSpeed.toFixed(1);
-    this.upgradeShields.value = String(b.playerMaxHp);
-    this.upgradeShieldsVal.textContent = String(b.playerMaxHp);
-    this.upgradeStoragePointer.checked = isArtifactEnabled('vaultBearing');
+    this.refreshUpgradeCellRows();
+  }
+
+  private hideAllMenuSubpanels(): void {
+    this.trackMenuPanel.hidden = true;
+    this.upgradeMenuPanel.hidden = true;
+    this.titlesMenuPanel.hidden = true;
+    this.highScoreMenuPanel.hidden = true;
   }
 
   private openUpgradeMenu(): void {
     this.syncUpgradeControlsFromBalance();
-    this.trackMenuPanel.hidden = true;
-    this.titlesMenuPanel.hidden = true;
+    this.setWalletGold(getPlayerGold());
+    this.hideAllMenuSubpanels();
     this.mainMenuPanel.hidden = true;
     this.upgradeMenuPanel.hidden = false;
   }
 
   private closeUpgradeMenu(): void {
-    this.upgradeMenuPanel.hidden = true;
-    this.trackMenuPanel.hidden = true;
-    this.titlesMenuPanel.hidden = true;
+    this.hideAllMenuSubpanels();
+    this.mainMenuPanel.hidden = false;
+  }
+
+  private openHighScoreMenu(): void {
+    this.buildHighScoreMenu();
+    this.hideAllMenuSubpanels();
+    this.mainMenuPanel.hidden = true;
+    this.highScoreMenuPanel.hidden = false;
+  }
+
+  private closeHighScoreMenu(): void {
+    this.hideAllMenuSubpanels();
     this.mainMenuPanel.hidden = false;
   }
 
   private openTitlesMenu(): void {
-    this.trackMenuPanel.hidden = true;
-    this.upgradeMenuPanel.hidden = true;
+    this.hideAllMenuSubpanels();
     this.mainMenuPanel.hidden = true;
     this.titlesMenuPanel.hidden = false;
   }
 
   private closeTitlesMenu(): void {
-    this.titlesMenuPanel.hidden = true;
-    this.trackMenuPanel.hidden = true;
-    this.upgradeMenuPanel.hidden = true;
+    this.hideAllMenuSubpanels();
     this.mainMenuPanel.hidden = false;
+  }
+
+  private buildHighScoreMenu(): void {
+    this.highScoreMenuList.replaceChildren();
+    const boards: { id: HighScoreBoardId; title: string }[] = [
+      { id: 'normal', title: 'Normal' },
+      { id: 'cheat', title: 'Cheat mode' },
+    ];
+    for (const board of boards) {
+      const section = document.createElement('section');
+      section.className = 'highscore-board';
+
+      const heading = document.createElement('h3');
+      heading.className = 'highscore-board__title';
+      heading.textContent = board.title;
+      section.appendChild(heading);
+
+      const rec = getHighScore(board.id);
+      const time = document.createElement('p');
+      time.className = 'highscore-board__time';
+      time.textContent = rec ? formatHighScoreTime(rec.survivedSec) : '—';
+      section.appendChild(time);
+
+      const tape = document.createElement('p');
+      tape.className = 'highscore-board__tape';
+      tape.textContent = rec ? formatHighScoreTape(rec) : 'No run yet';
+      section.appendChild(tape);
+
+      this.highScoreMenuList.appendChild(section);
+    }
+  }
+
+  private buildTitlesMenu(): void {
+    const root = this.titlesMenuPanel.querySelector('.titles-menu');
+    if (!root) return;
+    root.replaceChildren();
+    const blocks: { heading: string; lines: string[] }[] = [
+      { heading: 'Soundtrack by:', lines: ['Varia.fx', 'Ohota'] },
+      { heading: 'VibeCoded by', lines: ['Larik (Codex, Cursor)'] },
+      { heading: 'Art by', lines: ['Larik / Nastya Trems'] },
+    ];
+    for (const block of blocks) {
+      const section = document.createElement('section');
+      section.className = 'titles-credits__block';
+      const heading = document.createElement('div');
+      heading.className = 'titles-credits__heading';
+      heading.textContent = block.heading;
+      section.appendChild(heading);
+      for (const line of block.lines) {
+        const p = document.createElement('p');
+        p.className = 'titles-credits__line';
+        p.textContent = line;
+        section.appendChild(p);
+      }
+      root.appendChild(section);
+    }
   }
 
   private buildTrackMenu(): void {
@@ -716,15 +961,13 @@ export class UI {
   }
 
   private openTrackMenu(): void {
+    this.hideAllMenuSubpanels();
     this.mainMenuPanel.hidden = true;
-    this.upgradeMenuPanel.hidden = true;
-    this.titlesMenuPanel.hidden = true;
     this.trackMenuPanel.hidden = false;
   }
 
   private closeTrackMenu(): void {
-    this.trackMenuPanel.hidden = true;
-    this.titlesMenuPanel.hidden = true;
+    this.hideAllMenuSubpanels();
     this.mainMenuPanel.hidden = false;
   }
 
@@ -749,6 +992,14 @@ export class UI {
     this.mainMenuEl.querySelector('#track-back')!.addEventListener('click', (e) => {
       e.stopPropagation();
       this.closeTrackMenu();
+    });
+    this.mainMenuEl.querySelector('#main-menu-highscore')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.openHighScoreMenu();
+    });
+    this.mainMenuEl.querySelector('#highscore-back')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closeHighScoreMenu();
     });
     this.mainMenuEl.querySelector('#main-menu-titles')!.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -782,45 +1033,11 @@ export class UI {
       this.closeUpgradeMenu();
     });
 
-    this.upgradeDashLen.addEventListener('input', () => {
-      setBalancePatch({ dashDurationSec: getBalanceSnapshot().dashDurationSec });
-      this.upgradeDashLenVal.textContent =
-        getBalanceSnapshot().dashDurationSec.toFixed(3);
-    });
-    this.upgradeDashCooldown.addEventListener('input', () => {
-      const v = parseFloat(this.upgradeDashCooldown.value);
-      setBalancePatch({ dashCooldownSec: v });
-      this.upgradeDashCooldownVal.textContent =
-        getBalanceSnapshot().dashCooldownSec.toFixed(2);
-    });
-    this.upgradeDashNomLen.addEventListener('input', () => {
-      const v = parseFloat(this.upgradeDashNomLen.value);
-      setBalancePatch({ dashNominalLengthWorld: v });
-      this.upgradeDashNomLenVal.textContent =
-        getBalanceSnapshot().dashNominalLengthWorld.toFixed(0);
-    });
-    this.upgradeDashRadius.addEventListener('input', () => {
-      const v = parseFloat(this.upgradeDashRadius.value);
-      setBalancePatch({ dashKillRadiusScale: v });
-      this.upgradeDashRadiusVal.textContent =
-        getBalanceSnapshot().dashKillRadiusScale.toFixed(2);
-    });
-    this.upgradeMoveSpeed.addEventListener('input', () => {
-      const v = parseFloat(this.upgradeMoveSpeed.value);
-      setBalancePatch({ playerSpeed: v });
-      this.upgradeMoveSpeedVal.textContent =
-        getBalanceSnapshot().playerSpeed.toFixed(1);
-    });
-    this.upgradeShields.addEventListener('input', () => {
-      const v = Math.round(parseFloat(this.upgradeShields.value));
-      setBalancePatch({ playerMaxHp: v });
-      const b = getBalanceSnapshot();
-      this.upgradeShieldsVal.textContent = String(b.playerMaxHp);
-      this.rebuildHpBarSegments();
-    });
-    this.upgradeStoragePointer.addEventListener('change', () => {
-      setArtifactEnabled('vaultBearing', this.upgradeStoragePointer.checked);
-      this.artifactsChangeHandler?.();
+    this.upgradeMenuPanel.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      this.onUpgradeCellClick(target);
     });
   }
 
@@ -897,7 +1114,7 @@ export class UI {
     this.artifactsChangeHandler = handler;
   }
 
-  private buildArtifactsPanel(container: HTMLElement): void {
+  private buildArtifactsPanel(container: HTMLElement): HTMLElement {
     const panel = document.createElement('aside');
     panel.className = 'artifacts-panel';
     panel.setAttribute('aria-label', 'Artifacts');
@@ -924,6 +1141,35 @@ export class UI {
       panel.appendChild(row);
     }
     container.appendChild(panel);
+    return panel;
+  }
+
+  /**
+   * During a run: minimal HUD (XP only) unless cheat mode (full dev panels).
+   * Main menu: hide gameplay HUD.
+   */
+  setWalletGold(total: number): void {
+    const g = Math.max(0, Math.floor(Number.isFinite(total) ? total : 0));
+    this.walletGoldEl.textContent = String(g);
+  }
+
+  syncRunHudLayout(layout: 'menu' | 'run', cheatMode: boolean): void {
+    const inMenu = layout === 'menu';
+    const showDev = !inMenu && cheatMode;
+    this.walletEl.hidden = false;
+    this.hudEl.hidden = inMenu;
+    this.hpBarsBottom.hidden = inMenu;
+    if (inMenu) {
+      this.beatUiEl.hidden = true;
+      this.artifactsPanelEl.hidden = true;
+      this.fpsMeterEl.hidden = true;
+      return;
+    }
+    this.hudExtraEl.hidden = !showDev;
+    this.beatUiEl.hidden = !showDev;
+    this.artifactsPanelEl.hidden = !showDev;
+    this.fpsMeterEl.hidden = !showDev;
+    this.hudEl.classList.toggle('hud--compact', !showDev);
   }
 
   /** Run totals: gold / mana from resource sacks (no spend yet). */
@@ -1133,10 +1379,13 @@ export class UI {
   showMainMenu(): void {
     this.mainMenuEl.hidden = false;
     this.closeUpgradeMenu();
+    this.setWalletGold(getPlayerGold());
+    this.syncRunHudLayout('menu', false);
   }
 
   hideMainMenu(): void {
     this.mainMenuEl.hidden = true;
+    this.syncRunHudLayout('run', this.isCheatModeEnabled());
   }
 
   showDeathScreen(): void {

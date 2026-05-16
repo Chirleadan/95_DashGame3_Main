@@ -18,6 +18,11 @@ export type TrackStageBoost = {
   resetDashCooldownOnBeat: boolean;
   /** Creates a pulse on every dash landing; `0` disables it. `3` = 3x reference pulse size. */
   dashLandingPulseRadiusMult: number;
+  /**
+   * Track 3: on-beat dash spawns this many phantom strikes (`0` = off).
+   * Fired sequentially in-game with a short delay between each.
+   */
+  phantomBeatDashCount: number;
 };
 
 export type TrackStage = {
@@ -48,24 +53,63 @@ const TRACK_1_STAGE_3_BOOST: TrackStageBoost = {
   onBeatDashLengthWidthMult: CONFIG.dashOnBeatLengthWidthMult,
   resetDashCooldownOnBeat: true,
   dashLandingPulseRadiusMult: 0,
+  phantomBeatDashCount: 0,
 };
 
-const TRACK_2_BOOST: TrackStageBoost = {
+const TRACK_2_BASE_BOOST = {
   lensDistortionWhilePlaying: 0.08,
   dashLengthMultWhilePlaying: 0.25,
   playerSpeedMultWhilePlaying: 0.5,
   onBeatDashLengthWidthMult: 1,
   resetDashCooldownOnBeat: true,
-  dashLandingPulseRadiusMult: 3,
+} as const;
+
+const TRACK_2_STAGE_BOOSTS: Record<number, TrackStageBoost> = {
+  1: {
+    ...TRACK_2_BASE_BOOST,
+    dashLandingPulseRadiusMult: 1.75,
+    phantomBeatDashCount: 0,
+  },
+  2: {
+    ...TRACK_2_BASE_BOOST,
+    dashLandingPulseRadiusMult: 2.25,
+    phantomBeatDashCount: 0,
+  },
+  3: {
+    ...TRACK_2_BASE_BOOST,
+    dashLandingPulseRadiusMult: 3,
+    phantomBeatDashCount: 0,
+  },
 };
 
-const TRACK_3_PLACEHOLDER_BOOST: TrackStageBoost = {
-  lensDistortionWhilePlaying: 0,
-  dashLengthMultWhilePlaying: 1,
-  playerSpeedMultWhilePlaying: 1,
-  onBeatDashLengthWidthMult: 1,
-  resetDashCooldownOnBeat: true,
-  dashLandingPulseRadiusMult: 0,
+const TRACK_3_STAGE_BOOSTS: Record<number, TrackStageBoost> = {
+  1: {
+    lensDistortionWhilePlaying: 0,
+    dashLengthMultWhilePlaying: 1,
+    playerSpeedMultWhilePlaying: 1,
+    onBeatDashLengthWidthMult: 1,
+    resetDashCooldownOnBeat: true,
+    dashLandingPulseRadiusMult: 0,
+    phantomBeatDashCount: 1,
+  },
+  2: {
+    lensDistortionWhilePlaying: 0,
+    dashLengthMultWhilePlaying: 1,
+    playerSpeedMultWhilePlaying: 1,
+    onBeatDashLengthWidthMult: 1,
+    resetDashCooldownOnBeat: true,
+    dashLandingPulseRadiusMult: 0,
+    phantomBeatDashCount: 2,
+  },
+  3: {
+    lensDistortionWhilePlaying: 0,
+    dashLengthMultWhilePlaying: 1,
+    playerSpeedMultWhilePlaying: 1,
+    onBeatDashLengthWidthMult: 1,
+    resetDashCooldownOnBeat: true,
+    dashLandingPulseRadiusMult: 0,
+    phantomBeatDashCount: 3,
+  },
 };
 
 const STAGE_PLACEHOLDER_BOOSTS: Record<number, TrackStageBoost> = {
@@ -76,6 +120,7 @@ const STAGE_PLACEHOLDER_BOOSTS: Record<number, TrackStageBoost> = {
     onBeatDashLengthWidthMult: 1.25,
     resetDashCooldownOnBeat: true,
     dashLandingPulseRadiusMult: 0,
+    phantomBeatDashCount: 0,
   },
   2: {
     lensDistortionWhilePlaying: 0.14,
@@ -84,6 +129,7 @@ const STAGE_PLACEHOLDER_BOOSTS: Record<number, TrackStageBoost> = {
     onBeatDashLengthWidthMult: 1.6,
     resetDashCooldownOnBeat: true,
     dashLandingPulseRadiusMult: 0,
+    phantomBeatDashCount: 0,
   },
   3: TRACK_1_STAGE_3_BOOST,
 };
@@ -126,9 +172,9 @@ export const TRACK_CATALOG: readonly TrackEntry[] = [
     id: 'track-2',
     label: 'Track 2',
     stages: [
-      makeStage(2, 1, { enabled: true, boost: TRACK_2_BOOST }),
-      makeStage(2, 2, { enabled: true, boost: TRACK_2_BOOST }),
-      makeStage(2, 3, { enabled: true, boost: TRACK_2_BOOST }),
+      makeStage(2, 1, { enabled: true, boost: TRACK_2_STAGE_BOOSTS[1]! }),
+      makeStage(2, 2, { enabled: true, boost: TRACK_2_STAGE_BOOSTS[2]! }),
+      makeStage(2, 3, { enabled: true, boost: TRACK_2_STAGE_BOOSTS[3]! }),
     ],
   },
   {
@@ -138,10 +184,10 @@ export const TRACK_CATALOG: readonly TrackEntry[] = [
       makeStage(3, 1, {
         audioUrl: '/audio/track-3-stage-1.mp3.OPUS',
         enabled: true,
-        boost: TRACK_3_PLACEHOLDER_BOOST,
+        boost: TRACK_3_STAGE_BOOSTS[1]!,
       }),
-      makeStage(3, 2, { boost: TRACK_3_PLACEHOLDER_BOOST }),
-      makeStage(3, 3, { boost: TRACK_3_PLACEHOLDER_BOOST }),
+      makeStage(3, 2, { boost: TRACK_3_STAGE_BOOSTS[2]! }),
+      makeStage(3, 3, { boost: TRACK_3_STAGE_BOOSTS[3]! }),
     ],
   },
 ];

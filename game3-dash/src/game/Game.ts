@@ -5,7 +5,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { CONFIG, isDebugDashPastTankEnabled } from './config.ts';
 import { Input } from './Input.ts';
-import { Player, type DashSweepSegment } from './Player.ts';
+import { Player, type DashSweepSegment, type SpiralDashInput } from './Player.ts';
 import { Enemy } from './Enemy.ts';
 import { EnemySpawner } from './EnemySpawner.ts';
 import { circlesOverlap, segmentHitsCircle } from './Collision.ts';
@@ -15,6 +15,8 @@ import { screenToGroundXZ } from './screenToGround.ts';
 import { loadBeatmap, type Beatmap, type BeatEvent } from './Beatmap.ts';
 import { AudioManager } from './AudioManager.ts';
 import { BeatEffects } from './BeatEffects.ts';
+import { addPlayerGold, getPlayerGold } from './PlayerGold.ts';
+import { submitHighScore } from './HighScores.ts';
 import { LensDistortionPass } from './render/LensDistortionPass.ts';
 import { DitherPass } from './render/DitherPass.ts';
 import { getConfiguredStorageObstacleDisk } from './ObstacleAvoidance.ts';
@@ -30,6 +32,7 @@ import {
 import { isArtifactEnabled } from './Artifacts.ts';
 import { rollResourceSackDropAmount } from './Loot.ts';
 import {
+  findTrackForStage,
   getDefaultTrackStage,
   type TrackStage,
 } from './TrackCatalog.ts';
@@ -41,7 +44,7 @@ const BLOOD_PALETTE_GOLD_SACK: BloodPalette = [0xffd154, 0xe0e897, 0xbf934b];
 const BLOOD_PALETTE_MANA_SACK: BloodPalette = [0x322f8f, 0xe4c3e8, 0x34389e];
 const BLOOD_PALETTE_VAULT: BloodPalette = [0xd8d8e3, 0xd8d8e3, 0xc3e8d1];
 const BLOOD_SPLASH_DELAY_SEC = 0.15;
-const TRACK_3_PHANTOM_SPLASH_DELAY_SEC = 0.1;
+const TRACK_3_PHANTOM_BEAT_DASH_STEP_SEC = 0.05;
 const PHANTOM_SPLASH_TRAIL_LIFE_SEC = 0.18;
 const RUN_UPGRADE_MAX_LEVEL = 5;
 const SIDE_DASH_MAX_LEVEL = 2;
@@ -57,6 +60,10 @@ const RUN_UPGRADE_COLOR_UTILITY = '#a36eff';
 const RUN_UPGRADE_COLOR_ARTIFACT = '#ffd35c';
 const RUN_UPGRADE_COLOR_RARE_ARTIFACT = '#e00b3d';
 const RUN_UPGRADE_STARTED_WEIGHT_BONUS = 0.15;
+const SPIRAL_PREVIEW_MAX_POINTS = 256;
+const SPIRAL_PREVIEW_WIDTH = 0.38;
+const SPIRAL_DRAG_CLICK_MAX_PX = 14;
+const SPIRAL_PATH_SMOOTH_SAMPLES_PER_SPAN = 6;
 
 export class Game {
   /** Outer radius of `RingGeometry` used for damage pulse (local units). */
@@ -114,6 +121,8 @@ export class Game {
   private readonly deathSfx = new Audio(Game.DEATH_SFX_URL);
   private readonly hitSfxPool = Game.HIT_SFX_URLS.map((url) => new Audio(url));
   private backgroundPauseTimer: number | null = null;
+  /** Which ambient loop is loaded on `backgroundAudio` (menu vs in-run). */
+  private ambientMusicMode: 'menu' | 'game' = 'menu';
   private readonly beatEffects: BeatEffects;
   private beatmap: Beatmap | null = null;
   private nextBeatIndex = 0;
@@ -130,6 +139,8 @@ export class Game {
   private readonly vaultBearingProj = new THREE.Vector3();
   private fpsSmoothed = 0;
   private runPhase: 'menu' | 'playing' | 'death' | 'runUpgrade' = 'menu';
+  /** Cheat mode checkbox at run start — used only for high-score board selection. */
+  private runCheatModeActive = false;
   private deathScreenTimer = 0;
   /** Total combat XP this run (mob / tank / pulse / vault kills). */
   private runXpTotal = 0;
@@ -155,10 +166,11 @@ export class Game {
   private runSideDashLevel = 0;
   private runOrbitShieldLevel = 0;
   private runPhaseDashUnlocked = false;
+  private runSpiralDashUnlocked = false;
   private readonly runUpgradePickCounts = new Map<string, number>();
   /** Enemies killed this run (removed from arena by dash/tank resolve/damage pulse). */
   private runEnemiesKilled = 0;
-  /** Gold picked up this run (мешки золота); пока ни на что не тратится. */
+  /** Gold picked up this run; deposited into the wallet when the run ends. */
   private runGold = 0;
   /** Mana picked up this run (мешки маны); пока ни на что не тратится. */
   private runMana = 0;
@@ -224,6 +236,12 @@ export class Game {
     segs: DashSweepSegment[];
     dir: { x: number; z: number };
   }[] = [];
+  private readonly spiralPreviewMaxSegs = SPIRAL_PREVIEW_MAX_POINTS - 1;
+  private readonly spiralPreviewRibbonPositions = new Float32Array(
+    this.spiralPreviewMaxSegs * 6 * 3,
+  );
+  private readonly spiralPreviewGeo = new THREE.BufferGeometry();
+  private readonly spiralPreviewRibbon: THREE.Mesh;
 
   /** Dash sweep consumed in `resolveDashKills` this frame (debug overlay / logs). */
   private dashDebugSweepThisFrame: DashSweepSegment | null = null;
@@ -308,6 +326,26 @@ export class Game {
     this.addLights();
     this.addArena();
     this.createOrbitShieldVisuals();
+    this.spiralPreviewGeo.setAttribute(
+      'position',
+      new THREE.BufferAttribute(this.spiralPreviewRibbonPositions, 3),
+    );
+    this.spiralPreviewGeo.setDrawRange(0, 0);
+    this.spiralPreviewRibbon = new THREE.Mesh(
+      this.spiralPreviewGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.96,
+        depthTest: false,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    this.spiralPreviewRibbon.visible = false;
+    this.spiralPreviewRibbon.frustumCulled = false;
+    this.spiralPreviewRibbon.renderOrder = 12;
+    this.scene.add(this.spiralPreviewRibbon);
 
     loadBalanceSettings();
 
@@ -330,8 +368,8 @@ export class Game {
       hitSfx.volume = 0.78 * Game.SFX_VOLUME_MULT;
       hitSfx.load();
     }
-    void this.backgroundAudio.setTrack(CONFIG.backgroundMusicUrl).catch((e) => {
-      console.error('[BackgroundAudio] init failed:', e instanceof Error ? e.message : e, e);
+    void this.backgroundAudio.setTrack(CONFIG.menuMusicUrl).catch((e) => {
+      console.error('[MenuAudio] init failed:', e instanceof Error ? e.message : e, e);
     });
     this.ui.onPlayRequested(() => {
       void this.requestStartAudioPlayback();
@@ -378,6 +416,8 @@ export class Game {
       }
     });
     this.ui.showMainMenu();
+    this.syncWalletGoldUi();
+    void this.ensureBackgroundMusicPlaying();
     void this.initBeatmap();
 
     window.addEventListener('resize', this.onResize);
@@ -646,11 +686,11 @@ export class Game {
     if (spendMana) {
       if (this.runMana < CONFIG.playTrackMinManaToActivate) return;
       this.runMana -= CONFIG.playTrackManaCost;
-      this.ui.setRunGoldMana(this.runGold, this.runMana);
+      this.syncRunLootUi();
       const ok = await this.startAudioPlayback();
       if (!ok) {
         this.runMana += CONFIG.playTrackManaCost;
-        this.ui.setRunGoldMana(this.runGold, this.runMana);
+        this.syncRunLootUi();
       }
       this.syncBeatPlayButton();
       return;
@@ -679,11 +719,32 @@ export class Game {
     }
   }
 
+  private ambientMusicUrlForPhase(): string {
+    return this.runPhase === 'menu' ? CONFIG.menuMusicUrl : CONFIG.backgroundMusicUrl;
+  }
+
+  private ambientMusicModeForPhase(): 'menu' | 'game' {
+    return this.runPhase === 'menu' ? 'menu' : 'game';
+  }
+
   private async ensureBackgroundMusicPlaying(): Promise<void> {
     this.clearBackgroundPauseTimer();
-    if (this.audio.isPlaying || this.backgroundAudio.isPlaying) return;
+    if (this.audio.isPlaying) return;
+
+    const mode = this.ambientMusicModeForPhase();
+    const url = this.ambientMusicUrlForPhase();
+    const needsSwitch = this.ambientMusicMode !== mode;
+    if (!needsSwitch && this.backgroundAudio.isPlaying) return;
+
     try {
-      await this.backgroundAudio.play();
+      if (needsSwitch) {
+        await this.backgroundAudio.setTrack(url);
+        this.backgroundAudio.reset();
+        this.ambientMusicMode = mode;
+      }
+      if (!this.backgroundAudio.isPlaying) {
+        await this.backgroundAudio.play();
+      }
     } catch {
       // Browser autoplay can block this until the next explicit user gesture.
     }
@@ -720,6 +781,7 @@ export class Game {
     this.runSideDashLevel = 0;
     this.runOrbitShieldLevel = 0;
     this.runPhaseDashUnlocked = false;
+    this.runSpiralDashUnlocked = false;
     this.syncOrbitShieldVisuals();
     this.syncLightningMeter();
   }
@@ -736,6 +798,209 @@ export class Game {
     this.renderCamera.near = this.camera.near;
     this.renderCamera.far = this.camera.far;
     this.renderCamera.updateProjectionMatrix();
+  }
+
+  private consumeSpiralDashInput(): SpiralDashInput | null {
+    const release = this.input.consumePointerDragRelease();
+    if (!this.runSpiralDashUnlocked || !release || release.points.length === 0) {
+      return null;
+    }
+    const { points: screenPoints, durationSec } = release;
+    if (this.pointerDragScreenLengthPx(screenPoints) < SPIRAL_DRAG_CLICK_MAX_PX) {
+      const click = this.screenPointToGroundXZ(screenPoints[screenPoints.length - 1]!);
+      return click ? { mode: 'click', x: click.x, z: click.z } : null;
+    }
+    const path = this.buildSpiralGroundPathFromScreen(screenPoints);
+    if (path && path.length >= 2) {
+      return { mode: 'path', points: path, drawDurationSec: durationSec };
+    }
+    const click = this.screenPointToGroundXZ(screenPoints[screenPoints.length - 1]!);
+    return click ? { mode: 'click', x: click.x, z: click.z } : null;
+  }
+
+  private pointerDragScreenLengthPx(
+    screenPoints: readonly { x: number; y: number }[],
+  ): number {
+    let len = 0;
+    for (let i = 1; i < screenPoints.length; i++) {
+      const a = screenPoints[i - 1]!;
+      const b = screenPoints[i]!;
+      len += Math.hypot(b.x - a.x, b.y - a.y);
+    }
+    return len;
+  }
+
+  private readonly spiralGroundHit = new THREE.Vector3();
+
+  private screenPointToGroundXZ(
+    p: { x: number; y: number },
+  ): { x: number; z: number } | null {
+    if (
+      !screenToGroundXZ(
+        p.x,
+        p.y,
+        this.renderer.domElement,
+        this.camera,
+        CONFIG.floorY,
+        this.spiralGroundHit,
+      )
+    ) {
+      return null;
+    }
+    return { x: this.spiralGroundHit.x, z: this.spiralGroundHit.z };
+  }
+
+  private buildSpiralGroundPathFromScreen(
+    screenPoints: readonly { x: number; y: number }[],
+  ): { x: number; z: number }[] | null {
+    const out: { x: number; z: number }[] = [];
+    for (const p of screenPoints) {
+      const g = this.screenPointToGroundXZ(p);
+      if (!g) continue;
+      const prev = out.at(-1);
+      if (!prev || Math.hypot(g.x - prev.x, g.z - prev.z) >= CONFIG.spiralGroundSampleMinDist) {
+        out.push(g);
+      }
+    }
+    if (out.length < 2) return null;
+    return this.smoothSpiralGroundPath(out, SPIRAL_PREVIEW_MAX_POINTS);
+  }
+
+  private smoothSpiralGroundPath(
+    points: readonly { x: number; z: number }[],
+    maxPoints: number,
+  ): { x: number; z: number }[] {
+    if (points.length < 2) return [...points];
+    const out: { x: number; z: number }[] = [];
+    const spans = points.length - 1;
+    for (let i = 0; i < spans; i++) {
+      const p0 = points[Math.max(0, i - 1)]!;
+      const p1 = points[i]!;
+      const p2 = points[i + 1]!;
+      const p3 = points[Math.min(points.length - 1, i + 2)]!;
+      const steps = i === spans - 1 ? SPIRAL_PATH_SMOOTH_SAMPLES_PER_SPAN + 1 : SPIRAL_PATH_SMOOTH_SAMPLES_PER_SPAN;
+      for (let s = 0; s < steps; s++) {
+        const u = s / SPIRAL_PATH_SMOOTH_SAMPLES_PER_SPAN;
+        const t = u * u * (3 - 2 * u);
+        const q = this.catmullRomXZ(p0, p1, p2, p3, t);
+        const prev = out.at(-1);
+        if (!prev || Math.hypot(q.x - prev.x, q.z - prev.z) >= 0.12) {
+          out.push(q);
+          if (out.length >= maxPoints) return out;
+        }
+      }
+    }
+    const end = points[points.length - 1]!;
+    const prev = out.at(-1);
+    if (!prev || Math.hypot(end.x - prev.x, end.z - prev.z) >= 0.08) {
+      out.push({ x: end.x, z: end.z });
+    }
+    return out.length >= 2 ? out : [...points];
+  }
+
+  private catmullRomXZ(
+    p0: { x: number; z: number },
+    p1: { x: number; z: number },
+    p2: { x: number; z: number },
+    p3: { x: number; z: number },
+    t: number,
+  ): { x: number; z: number } {
+    const t2 = t * t;
+    const t3 = t2 * t;
+    const x =
+      0.5 *
+      (2 * p1.x +
+        (-p0.x + p2.x) * t +
+        (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+        (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
+    const z =
+      0.5 *
+      (2 * p1.z +
+        (-p0.z + p2.z) * t +
+        (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * t2 +
+        (-p0.z + 3 * p1.z - 3 * p2.z + p3.z) * t3);
+    return { x, z };
+  }
+
+  private syncSpiralPreviewRibbon(points: readonly { x: number; z: number }[]): void {
+    const n = points.length;
+    if (n < 2) {
+      this.spiralPreviewGeo.setDrawRange(0, 0);
+      this.spiralPreviewRibbon.visible = false;
+      return;
+    }
+    const y = CONFIG.floorY + 0.08;
+    const halfW = SPIRAL_PREVIEW_WIDTH * 0.5;
+    const arr = this.spiralPreviewRibbonPositions;
+    let o = 0;
+    for (let i = 0; i < n - 1; i++) {
+      const ax = points[i]!.x;
+      const az = points[i]!.z;
+      const bx = points[i + 1]!.x;
+      const bz = points[i + 1]!.z;
+      let dx = bx - ax;
+      let dz = bz - az;
+      const len = Math.hypot(dx, dz);
+      let px: number;
+      let pz: number;
+      if (len < 1e-6) {
+        px = 0;
+        pz = 1;
+      } else {
+        const inv = 1 / len;
+        px = -dz * inv;
+        pz = dx * inv;
+      }
+      const apx = px * halfW;
+      const apz = pz * halfW;
+      const alx = ax - apx;
+      const alz = az - apz;
+      const arx = ax + apx;
+      const arz = az + apz;
+      const blx = bx - apx;
+      const blz = bz - apz;
+      const brx = bx + apx;
+      const brz = bz + apz;
+
+      arr[o++] = alx;
+      arr[o++] = y;
+      arr[o++] = alz;
+      arr[o++] = brx;
+      arr[o++] = y;
+      arr[o++] = brz;
+      arr[o++] = arx;
+      arr[o++] = y;
+      arr[o++] = arz;
+
+      arr[o++] = alx;
+      arr[o++] = y;
+      arr[o++] = alz;
+      arr[o++] = blx;
+      arr[o++] = y;
+      arr[o++] = blz;
+      arr[o++] = brx;
+      arr[o++] = y;
+      arr[o++] = brz;
+    }
+    const vertCount = (n - 1) * 6;
+    this.spiralPreviewGeo.setDrawRange(0, vertCount);
+    const attr = this.spiralPreviewGeo.attributes.position as THREE.BufferAttribute;
+    attr.needsUpdate = true;
+    this.spiralPreviewGeo.computeBoundingSphere();
+    this.spiralPreviewRibbon.visible = true;
+  }
+
+  private syncSpiralDashPreview(): void {
+    if (this.runPhase !== 'playing' || !this.runSpiralDashUnlocked) {
+      this.spiralPreviewRibbon.visible = false;
+      return;
+    }
+    const raw = this.buildSpiralGroundPathFromScreen(this.input.getPointerDragPoints());
+    if (!raw || raw.length < 2) {
+      this.spiralPreviewRibbon.visible = false;
+      return;
+    }
+    this.syncSpiralPreviewRibbon(raw);
   }
 
   private onResize = (): void => {
@@ -799,7 +1064,7 @@ export class Game {
       this.ui.setRunRoundElapsedSec(this.runElapsedSec);
       this.ui.setRunKills(this.runEnemiesKilled);
       this.syncRunXpUi();
-      this.ui.setRunGoldMana(this.runGold, this.runMana);
+      this.syncRunLootUi();
       this.ui.setVaultBearingAngle(null);
       if (this.deathScreenTimer >= CONFIG.deathScreenToMenuDelaySec) {
         this.goToMainMenuAfterDeath();
@@ -828,8 +1093,11 @@ export class Game {
       this.ui.setRunRoundElapsedSec(0);
       this.ui.setRunKills(0);
       this.syncRunXpUi();
-      this.ui.setRunGoldMana(0, 0);
+      this.runGold = 0;
+      this.runMana = 0;
+      this.syncRunLootUi();
       this.ui.setVaultBearingAngle(null);
+      void this.ensureBackgroundMusicPlaying();
       return;
     }
 
@@ -854,7 +1122,7 @@ export class Game {
       this.ui.setRunRoundElapsedSec(this.runElapsedSec);
       this.ui.setRunKills(this.runEnemiesKilled);
       this.syncRunXpUi();
-      this.ui.setRunGoldMana(this.runGold, this.runMana);
+      this.syncRunLootUi();
       this.ui.setVaultBearingAngle(null);
       if (this.input.consumePlayTrackTrigger()) {
         void this.requestStartAudioPlayback();
@@ -875,6 +1143,12 @@ export class Game {
       void this.requestStartAudioPlayback();
     }
 
+    this.syncSpiralDashPreview();
+    const spiralDashInput = this.consumeSpiralDashInput();
+    if (spiralDashInput) {
+      this.spiralPreviewRibbon.visible = false;
+    }
+
     this.runElapsedSec += dt;
     const diffMult = this.getDifficultyMultiplier();
     const maxSlots = this.getMaxEnemySlots();
@@ -889,7 +1163,12 @@ export class Game {
       this.getDashLengthWidthMultForThisFrame(),
       this.getActivePlayerSpeedMult(),
       this.enemies,
+      this.runSpiralDashUnlocked,
+      spiralDashInput,
     );
+    if (this.player.consumeSpiralTeleportStarted()) {
+      this.cameraController.beginTeleportCatchUp(CONFIG.spiralCameraCatchUpSec);
+    }
     this.applyVaultWalkPseudoCollision();
     this.updateLightningAutoDashChain(dt);
     const mainDashStarted = this.player.consumeMainDashStarted();
@@ -956,7 +1235,7 @@ export class Game {
           dt,
           this.player.x,
           this.player.z,
-          diffMult / this.getRunEnemySlowFactor(),
+          (diffMult / this.getRunEnemySlowFactor()) * this.getSpiralEnemySpeedMult(),
           storageNav,
         );
         if (e.tickShooterShotCooldown(dt)) {
@@ -1031,7 +1310,7 @@ export class Game {
     this.ui.setRunRoundElapsedSec(this.runElapsedSec);
     this.ui.setRunKills(this.runEnemiesKilled);
     this.syncRunXpUi();
-    this.ui.setRunGoldMana(this.runGold, this.runMana);
+    this.syncRunLootUi();
     this.syncVaultBearingUi();
 
     if (this.player.hp > 0) {
@@ -1042,13 +1321,23 @@ export class Game {
       this.ui.hideRunUpgradeModal();
       this.pendingDashSfx = false;
       this.runPhase = 'death';
+      this.syncRunHudLayout();
       this.deathScreenTimer = 0;
       this.clearEnemyProjectiles();
+      const deathLevel = this.getRunXpProgress(this.runXpTotal).level;
       this.ui.setDeathScreenRunSummary({
         survivedSec: this.runElapsedSec,
         kills: this.runEnemiesKilled,
-        level: this.getRunXpProgress(this.runXpTotal).level,
+        level: deathLevel,
       });
+      const track = findTrackForStage(this.selectedTrackStage.id);
+      submitHighScore({
+        cheatMode: this.runCheatModeActive,
+        survivedSec: this.runElapsedSec,
+        trackLabel: track?.label ?? 'Track',
+        stageLabel: this.selectedTrackStage.label,
+      });
+      this.depositRunGold();
       this.ui.showDeathScreen();
       this.audio.pause();
       void this.ensureBackgroundMusicPlaying();
@@ -1505,34 +1794,60 @@ export class Game {
     this.enemyProjectiles.length = 0;
   }
 
+  /** Shooter volley size: 1 → 2 → 3 as run difficulty ramps. */
+  private getShooterVolleyCount(): number {
+    const diff = this.getDifficultyMultiplier();
+    return Math.min(
+      CONFIG.shooterVolleyMaxCount,
+      Math.max(1, Math.round(diff)),
+    );
+  }
+
   private spawnEnemyProjectile(enemy: Enemy): void {
     const dx = this.player.x - enemy.mesh.position.x;
     const dz = this.player.z - enemy.mesh.position.z;
     const len = Math.hypot(dx, dz);
     if (len <= 1e-4) return;
-    const nx = dx / len;
-    const nz = dz / len;
+    const baseNx = dx / len;
+    const baseNz = dz / len;
+    const perpX = -baseNz;
+    const perpZ = baseNx;
     const r = CONFIG.shooterProjectileRadius;
-    const geo = new THREE.SphereGeometry(r, 12, 8);
-    const mat = new THREE.MeshBasicMaterial({
-      color: CONFIG.shooterProjectileColor,
-      transparent: true,
-      opacity: 0.96,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
     const startOffset = enemy.bodyRadius + r + 0.08;
-    mesh.position.set(
-      enemy.mesh.position.x + nx * startOffset,
-      CONFIG.floorY + 0.28,
-      enemy.mesh.position.z + nz * startOffset,
-    );
-    this.scene.add(mesh);
-    this.enemyProjectiles.push({
-      mesh,
-      vx: nx * CONFIG.shooterProjectileSpeed,
-      vz: nz * CONFIG.shooterProjectileSpeed,
-      age: 0,
-    });
+    const count = this.getShooterVolleyCount();
+    const spread = CONFIG.shooterVolleySpreadRad;
+    const lateralStep = CONFIG.shooterVolleyLateralSpacing;
+    const center = (count - 1) * 0.5;
+
+    for (let i = 0; i < count; i++) {
+      const slot = i - center;
+      const angle = slot * spread;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const nx = baseNx * cos - baseNz * sin;
+      const nz = baseNx * sin + baseNz * cos;
+      const lateral = slot * lateralStep;
+      const geo = new THREE.SphereGeometry(r, 12, 8);
+      const mat = new THREE.MeshBasicMaterial({
+        color: CONFIG.shooterProjectileColor,
+        transparent: true,
+        opacity: 0.96,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(
+        enemy.mesh.position.x + nx * startOffset + perpX * lateral,
+        CONFIG.floorY + 0.28,
+        enemy.mesh.position.z + nz * startOffset + perpZ * lateral,
+      );
+      this.scene.add(mesh);
+      const speed = CONFIG.shooterProjectileSpeed;
+      this.enemyProjectiles.push({
+        mesh,
+        vx: nx * speed,
+        vz: nz * speed,
+        age: 0,
+      });
+    }
   }
 
   private updateEnemyProjectiles(dt: number): void {
@@ -1735,6 +2050,7 @@ export class Game {
       return;
     }
     clearRunBalanceBonuses();
+    this.runCheatModeActive = this.ui.isCheatModeEnabled();
     this.runElapsedSec = 0;
     this.runEnemiesKilled = 0;
     this.runGold = 0;
@@ -1771,16 +2087,35 @@ export class Game {
     this.audio.reset();
     this.cameraShake = 0;
     this.runPhase = 'playing';
+    this.syncRunHudLayout();
     this.ui.hideMainMenu();
     this.ui.hideDeathScreen();
     this.ui.hideRunUpgradeModal();
     this.ui.setRunKills(0);
     this.syncRunXpUi();
-    this.ui.setRunGoldMana(0, 0);
+    this.syncRunLootUi();
     void this.ensureBackgroundMusicPlaying();
   }
 
+  private syncRunLootUi(): void {
+    this.ui.setRunGoldMana(this.runGold, this.runMana);
+    this.syncWalletGoldUi();
+  }
+
+  private depositRunGold(): void {
+    if (this.runGold > 0) {
+      addPlayerGold(this.runGold);
+      this.runGold = 0;
+    }
+    this.syncWalletGoldUi();
+  }
+
+  private syncWalletGoldUi(): void {
+    this.ui.setWalletGold(getPlayerGold() + this.runGold);
+  }
+
   private goToMainMenuAfterDeath(): void {
+    this.depositRunGold();
     this.runElapsedSec = 0;
     this.runEnemiesKilled = 0;
     this.runGold = 0;
@@ -1876,6 +2211,20 @@ export class Game {
     return 1.2 + t * 0.8;
   }
 
+  private getSpiralEnemySpeedMult(): number {
+    if (!this.runSpiralDashUnlocked) return 1;
+    const m = CONFIG.spiralEnemySpeedMult;
+    return Number.isFinite(m) && m > 0 ? m : 1;
+  }
+
+  private syncRunHudLayout(): void {
+    if (this.runPhase === 'menu') {
+      this.ui.syncRunHudLayout('menu', false);
+    } else {
+      this.ui.syncRunHudLayout('run', this.ui.isCheatModeEnabled());
+    }
+  }
+
   private getRunRocketIntervalSec(): number {
     if (this.runRocketLevel <= 0) return Number.POSITIVE_INFINITY;
     const t = (Math.min(RUN_UPGRADE_MAX_LEVEL, this.runRocketLevel) - 1) / 4;
@@ -1921,12 +2270,22 @@ export class Game {
     return this.dashSerialsWithBeatHit.delete(this.player.getDashHitSerial());
   }
 
-  private isTrack3PhantomSplashEnabled(): boolean {
-    return this.audio.isPlaying && this.selectedTrackStage.id.startsWith('track-3-');
+  private getTrack3PhantomBeatDashCount(): number {
+    if (!this.audio.isPlaying || !this.selectedTrackStage.id.startsWith('track-3-')) {
+      return 0;
+    }
+    const n = this.selectedTrackStage.boost.phantomBeatDashCount;
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.min(3, Math.floor(n));
   }
 
-  private queueTrack3PhantomSplash(): void {
-    this.pendingPhantomSplashes.push({ delay: TRACK_3_PHANTOM_SPLASH_DELAY_SEC });
+  private queueTrack3PhantomSplashes(): void {
+    const count = this.getTrack3PhantomBeatDashCount();
+    for (let i = 0; i < count; i++) {
+      this.pendingPhantomSplashes.push({
+        delay: (i + 1) * TRACK_3_PHANTOM_BEAT_DASH_STEP_SEC,
+      });
+    }
   }
 
   private applyVaultWalkPseudoCollision(): void {
@@ -2125,8 +2484,8 @@ export class Game {
       this.dashSerialsWithBeatHit.add(this.player.getDashHitSerial());
       this.beatHitCount += 1;
       this.beatEffects.triggerOnBeatHitFlash();
-      if (this.isTrack3PhantomSplashEnabled()) {
-        this.queueTrack3PhantomSplash();
+      if (this.getTrack3PhantomBeatDashCount() > 0) {
+        this.queueTrack3PhantomSplashes();
       }
       if (this.audio.isPlaying && this.selectedTrackStage.boost.resetDashCooldownOnBeat) {
         this.player.clearDashCooldownAfterOnBeatHit();
@@ -2255,6 +2614,7 @@ export class Game {
   private openNextRunUpgradeModal(): void {
     if (this.runPendingUpgradeMilestones.length <= 0) return;
     this.runPhase = 'runUpgrade';
+    this.syncRunHudLayout();
     const choices = this.getRunUpgradeChoices();
     const isCheatMode = this.ui.isCheatModeEnabled();
     this.ui.showRunUpgradeModal({
@@ -2391,6 +2751,16 @@ export class Game {
         secondary: true,
       });
     }
+    if (!this.runSpiralDashUnlocked) {
+      choices.push({
+        id: 'artifactSpiral',
+        label: 'Artifact: Spiral',
+        description: 'Hold mouse and draw an arc. Your dash follows the drawn curve.',
+        accentColor: RUN_UPGRADE_COLOR_RARE_ARTIFACT,
+        dropWeight: 0.1,
+        secondary: true,
+      });
+    }
     return choices;
   }
 
@@ -2424,6 +2794,8 @@ export class Game {
       this.syncOrbitShieldVisuals();
     } else if (kind === 'artifactPhaseDash') {
       this.runPhaseDashUnlocked = true;
+    } else if (kind === 'artifactSpiral') {
+      this.runSpiralDashUnlocked = true;
     } else {
       return;
     }
@@ -2436,8 +2808,9 @@ export class Game {
     }
     this.ui.hideRunUpgradeModal();
     this.runPhase = 'playing';
+    this.syncRunHudLayout();
     this.syncRunXpUi();
-    this.ui.setRunGoldMana(this.runGold, this.runMana);
+    this.syncRunLootUi();
     this.maybeEnterRunUpgrade();
   }
 

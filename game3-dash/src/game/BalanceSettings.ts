@@ -1,15 +1,20 @@
 import { CONFIG } from './config.ts';
 
 const STORAGE_KEY = 'game3-dash-upgrades-v1';
+const UNLOCK_STORAGE_KEY = 'game3-dash-upgrade-unlocks-v1';
 const FIXED_DASH_DURATION_SEC = 0.115;
 
-const DISCRETE_LEVELS = {
+export const BALANCE_DISCRETE_LEVELS = {
   dashCooldownSec: [0.65, 0.5, 0.35],
   dashNominalLengthWorld: [6, 7, 8, 9, 10],
   dashKillRadiusScale: [1.5, 2.75, 4, 5.25, 6.5],
   playerSpeed: [7, 8.5, 10, 11.5, 13],
   playerMaxHp: [1, 2, 3, 4, 5],
 } as const;
+
+const DISCRETE_LEVELS = BALANCE_DISCRETE_LEVELS;
+
+export type BalanceDiscreteStatKey = keyof typeof BALANCE_DISCRETE_LEVELS;
 
 export type BalanceSettingsState = {
   /** Main dash active time (seconds); enemy freeze matches this in gameplay. */
@@ -54,6 +59,18 @@ function defaults(): BalanceSettingsState {
 }
 
 let current: BalanceSettingsState = defaults();
+
+/** Highest purchased tier index per stat (separate from the active tier). */
+let maxUnlockedLevelIndex: Record<BalanceDiscreteStatKey, number> = {
+  dashCooldownSec: 0,
+  dashNominalLengthWorld: 0,
+  dashKillRadiusScale: 0,
+  playerSpeed: 0,
+  playerMaxHp: 0,
+};
+
+/** `0` = off only; `1` = storage pointer was purchased (can toggle off/on freely). */
+let vaultMaxUnlockedLevel = 0;
 
 /** Added to `dashNominalLengthWorld` for the current run only (cleared on new run / menu). */
 let runBonusDashNominalLengthWorld = 0;
@@ -115,12 +132,58 @@ function sanitize(p: BalanceSettingsState): BalanceSettingsState {
   };
 }
 
+function syncMaxUnlockedFromBalance(): void {
+  for (const key of Object.keys(BALANCE_DISCRETE_LEVELS) as BalanceDiscreteStatKey[]) {
+    maxUnlockedLevelIndex[key] = getDiscreteLevelIndex(key, current[key]);
+  }
+}
+
+function loadUpgradeUnlocks(): void {
+  try {
+    const raw = localStorage.getItem(UNLOCK_STORAGE_KEY);
+    if (!raw) {
+      syncMaxUnlockedFromBalance();
+      return;
+    }
+    const o = JSON.parse(raw) as {
+      maxLevelIndex?: Partial<Record<BalanceDiscreteStatKey, number>>;
+      vaultMaxLevel?: number;
+    };
+    for (const key of Object.keys(BALANCE_DISCRETE_LEVELS) as BalanceDiscreteStatKey[]) {
+      const levels = BALANCE_DISCRETE_LEVELS[key];
+      const n = Math.floor(Number(o.maxLevelIndex?.[key]));
+      maxUnlockedLevelIndex[key] = Number.isFinite(n)
+        ? Math.max(0, Math.min(levels.length - 1, n))
+        : getDiscreteLevelIndex(key, current[key]);
+    }
+    const vaultN = Math.floor(Number(o.vaultMaxLevel));
+    vaultMaxUnlockedLevel = vaultN >= 1 ? 1 : 0;
+  } catch {
+    syncMaxUnlockedFromBalance();
+  }
+}
+
+function saveUpgradeUnlocks(): void {
+  try {
+    localStorage.setItem(
+      UNLOCK_STORAGE_KEY,
+      JSON.stringify({
+        maxLevelIndex: maxUnlockedLevelIndex,
+        vaultMaxLevel: vaultMaxUnlockedLevel,
+      }),
+    );
+  } catch {
+    /* ignore quota */
+  }
+}
+
 /** Call once before `Player` / `UI` read balance (e.g. start of `Game` constructor). */
 export function loadBalanceSettings(): void {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       current = defaults();
+      loadUpgradeUnlocks();
       return;
     }
     const o = JSON.parse(raw) as Partial<BalanceSettingsState>;
@@ -141,6 +204,7 @@ export function loadBalanceSettings(): void {
   } catch {
     current = defaults();
   }
+  loadUpgradeUnlocks();
 }
 
 export function saveBalanceSettings(): void {
@@ -231,4 +295,43 @@ export function setBalancePatch(patch: Partial<BalanceSettingsState>): void {
 
 export function balanceLimits(): typeof LIMITS {
   return LIMITS;
+}
+
+export function getDiscreteLevels(key: BalanceDiscreteStatKey): readonly number[] {
+  return BALANCE_DISCRETE_LEVELS[key];
+}
+
+export function getDiscreteLevelIndex(key: BalanceDiscreteStatKey, value: number): number {
+  const levels = BALANCE_DISCRETE_LEVELS[key];
+  const snapped = snapToDiscreteLevel(value, levels);
+  for (let i = 0; i < levels.length; i++) {
+    if (levels[i] === snapped) return i;
+  }
+  return 0;
+}
+
+export function getDiscreteLevelValue(key: BalanceDiscreteStatKey, index: number): number {
+  const levels = BALANCE_DISCRETE_LEVELS[key];
+  const i = Math.max(0, Math.min(levels.length - 1, Math.floor(index)));
+  return levels[i]!;
+}
+
+export function getMaxUnlockedLevelIndex(key: BalanceDiscreteStatKey): number {
+  return maxUnlockedLevelIndex[key];
+}
+
+export function setMaxUnlockedLevelIndex(key: BalanceDiscreteStatKey, index: number): void {
+  const levels = BALANCE_DISCRETE_LEVELS[key];
+  const i = Math.max(0, Math.min(levels.length - 1, Math.floor(index)));
+  maxUnlockedLevelIndex[key] = Math.max(maxUnlockedLevelIndex[key], i);
+  saveUpgradeUnlocks();
+}
+
+export function getVaultMaxUnlockedLevel(): number {
+  return vaultMaxUnlockedLevel;
+}
+
+export function unlockVaultMaxLevel(): void {
+  vaultMaxUnlockedLevel = 1;
+  saveUpgradeUnlocks();
 }

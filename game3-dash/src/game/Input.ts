@@ -18,6 +18,11 @@ export class Input {
   private prevKeyDash = false;
   private keyDashEdge = false;
   private pointerDashEdge = false;
+  private pointerDown = false;
+  private pointerDragPoints: { x: number; y: number }[] = [];
+  private pointerDragReleasePoints: { x: number; y: number }[] | null = null;
+  private pointerDragReleaseDurationSec = 0;
+  private pointerDragStartMs = 0;
   private prevKeyPlayTrack = false;
   private keyPlayTrackEdge = false;
   private wheelZoomDelta = 0;
@@ -45,13 +50,37 @@ export class Input {
     const onPointerMove = (e: PointerEvent) => {
       this.lastPointerClientX = e.clientX;
       this.lastPointerClientY = e.clientY;
+      if (this.pointerDown) {
+        const last = this.pointerDragPoints.at(-1);
+        if (!last || Math.hypot(e.clientX - last.x, e.clientY - last.y) >= 8) {
+          this.pointerDragPoints.push({ x: e.clientX, y: e.clientY });
+        }
+      }
     };
     const onPointerDown = (e: PointerEvent) => {
       if (e.button === 0 || e.pointerType === 'touch') {
         this.lastPointerClientX = e.clientX;
         this.lastPointerClientY = e.clientY;
         this.pointerDashEdge = true;
+        this.pointerDown = true;
+        this.pointerDragStartMs = performance.now();
+        this.pointerDragPoints = [{ x: e.clientX, y: e.clientY }];
+        pointerTarget.setPointerCapture?.(e.pointerId);
       }
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      if (!this.pointerDown) return;
+      this.lastPointerClientX = e.clientX;
+      this.lastPointerClientY = e.clientY;
+      this.pointerDown = false;
+      this.pointerDragPoints.push({ x: e.clientX, y: e.clientY });
+      this.pointerDragReleasePoints = this.pointerDragPoints;
+      this.pointerDragReleaseDurationSec = Math.max(
+        0,
+        (performance.now() - this.pointerDragStartMs) / 1000,
+      );
+      this.pointerDragPoints = [];
+      pointerTarget.releasePointerCapture?.(e.pointerId);
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -59,6 +88,8 @@ export class Input {
     };
     pointerTarget.addEventListener('pointermove', onPointerMove);
     pointerTarget.addEventListener('pointerdown', onPointerDown);
+    pointerTarget.addEventListener('pointerup', onPointerUp);
+    pointerTarget.addEventListener('pointercancel', onPointerUp);
     pointerTarget.addEventListener('wheel', onWheel, { passive: false });
   }
 
@@ -92,12 +123,34 @@ export class Input {
   }
 
   /** Space/Shift edge or primary pointer down this frame (consumed once). */
-  consumeDashTrigger(): boolean {
+  consumeDashTrigger(includePointer = true): boolean {
     const k = this.keyDashEdge;
     this.keyDashEdge = false;
+    const p = includePointer ? this.pointerDashEdge : false;
+    if (includePointer) this.pointerDashEdge = false;
+    return k || p;
+  }
+
+  consumePointerDashTrigger(): boolean {
     const p = this.pointerDashEdge;
     this.pointerDashEdge = false;
-    return k || p;
+    return p;
+  }
+
+  consumePointerDragRelease(): {
+    points: { x: number; y: number }[];
+    durationSec: number;
+  } | null {
+    const points = this.pointerDragReleasePoints;
+    if (!points) return null;
+    const durationSec = this.pointerDragReleaseDurationSec;
+    this.pointerDragReleasePoints = null;
+    this.pointerDragReleaseDurationSec = 0;
+    return { points, durationSec };
+  }
+
+  getPointerDragPoints(): readonly { x: number; y: number }[] {
+    return this.pointerDragPoints;
   }
 
   /** True if `consumeDashTrigger()` would return true this frame (does not consume). */

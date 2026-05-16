@@ -1,5 +1,6 @@
 export class AudioManager {
   private readonly audio = new Audio();
+  private loadedSrc: string | null = null;
 
   constructor() {
     this.audio.preload = 'auto';
@@ -17,8 +18,11 @@ export class AudioManager {
   }
 
   async setTrack(src: string): Promise<void> {
-    if (this.audio.src !== src) {
+    if (this.loadedSrc === src && this.audio.readyState >= 1) return;
+    if (this.loadedSrc !== src) {
       this.audio.src = src;
+      this.loadedSrc = src;
+      this.audio.load();
     }
     if (this.audio.readyState >= 1) return;
     await new Promise<void>((resolve, reject) => {

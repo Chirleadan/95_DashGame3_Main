@@ -15,6 +15,10 @@ import type { Enemy } from './Enemy.ts';
 
 export type DashSweepSegment = { ax: number; az: number; bx: number; bz: number };
 
+export type SpiralDashInput =
+  | { mode: 'path'; points: readonly { x: number; z: number }[]; drawDurationSec: number }
+  | { mode: 'click'; x: number; z: number };
+
 const PLAYER_TEXTURE_LOADER = new THREE.TextureLoader();
 const PLAYER_IDLE_TEXTURE = PLAYER_TEXTURE_LOADER.load('/assets/player/player_idle_1.png');
 const PLAYER_DASH_TEXTURE = PLAYER_TEXTURE_LOADER.load('/assets/player/player_dash_1.png');
@@ -100,6 +104,11 @@ export class Player {
 
   /** Segment for this frame's dash movement (world XZ), for kill checks. */
   private dashSweep: DashSweepSegment | null = null;
+  private spiralDashPath: { x: number; z: number }[] | null = null;
+  private spiralDashPathIndex = 0;
+  private spiralTeleportStartedThisFrame = false;
+  /** Set each frame from Game when Spiral artifact is unlocked (no dash enemy-freeze). */
+  private spiralArtifactActive = false;
 
   /** True while building the current dash polyline (reset when dash ends). */
   private dashTrailBuilding = false;
@@ -332,6 +341,7 @@ export class Player {
   }
 
   areEnemiesFrozenByDash(): boolean {
+    if (this.spiralArtifactActive) return false;
     return this.dashEnemyFreezeLeft > 0;
   }
 
@@ -356,7 +366,9 @@ export class Player {
     this.dash.dirZ = dz;
     this.dash.timeLeft = getDashDurationSec() * mult;
     this.dash.cooldownLeft = getDashCooldownSec();
-    this.dashEnemyFreezeLeft = getDashDurationSec() * mult;
+    if (!this.spiralArtifactActive) {
+      this.dashEnemyFreezeLeft = getDashDurationSec() * mult;
+    }
     this.activeDashLenWidthMult = mult;
     this.dashHitSerial += 1;
     this.lastAimDirX = dx;
@@ -365,6 +377,8 @@ export class Player {
     this.artifactReverseDashInProgress = false;
     this.microDashTimeLeft = 0;
     this.dashTrailBuilding = false;
+    this.spiralDashPath = null;
+    this.spiralDashPathIndex = 0;
     this.trailPoints.length = 0;
     return true;
   }
@@ -387,6 +401,122 @@ export class Player {
   /** Clears post-dash cooldown (on-beat dash, clip/slide past tank or vault, overlap snap). */
   clearDashCooldownAfterOnBeatHit(): void {
     this.dash.cooldownLeft = 0;
+  }
+
+  private startSpiralClickTeleport(
+    x: number,
+    z: number,
+    aimX: number,
+    aimZ: number,
+  ): void {
+    const start = clampToArena(x, z);
+    this.mesh.position.x = start.x;
+    this.mesh.position.z = start.z;
+    this.spiralTeleportStartedThisFrame = true;
+    this.spiralDashPath = null;
+    this.spiralDashPathIndex = 0;
+    this.dashTrailBuilding = false;
+    this.trailPoints.length = 0;
+    const len = Math.hypot(aimX, aimZ);
+    if (len > 1e-5) {
+      this.dash.dirX = aimX / len;
+      this.dash.dirZ = aimZ / len;
+    }
+  }
+
+  private static polylineLengthXZ(points: readonly { x: number; z: number }[]): number {
+    let len = 0;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1]!;
+      const b = points[i]!;
+      len += Math.hypot(b.x - a.x, b.z - a.z);
+    }
+    return len;
+  }
+
+  private startSpiralDashPath(
+    points: readonly { x: number; z: number }[],
+    drawDurationSec: number,
+  ): void {
+    const start = clampToArena(points[0]!.x, points[0]!.z);
+    this.mesh.position.x = start.x;
+    this.mesh.position.z = start.z;
+    this.spiralTeleportStartedThisFrame = true;
+    const path: { x: number; z: number }[] = [{ x: start.x, z: start.z }];
+    let used = 0;
+    let prev = path[0]!;
+    const maxDist = Math.max(0.5, CONFIG.spiralPathMaxLengthWorld);
+    const minSeg = 0.08;
+    for (let i = 1; i < points.length; i++) {
+      const p = clampToArena(points[i]!.x, points[i]!.z);
+      const dx = p.x - prev.x;
+      const dz = p.z - prev.z;
+      const d = Math.hypot(dx, dz);
+      if (d < minSeg) continue;
+      if (used + d > maxDist) {
+        const remain = maxDist - used;
+        if (remain > minSeg) {
+          path.push({ x: prev.x + (dx / d) * remain, z: prev.z + (dz / d) * remain });
+        }
+        break;
+      }
+      path.push({ x: p.x, z: p.z });
+      used += d;
+      prev = path[path.length - 1]!;
+    }
+    if (path.length < 2) {
+      this.spiralDashPath = null;
+      this.spiralDashPathIndex = 0;
+      return;
+    }
+    this.spiralDashPath = path;
+    this.spiralDashPathIndex = 1;
+    this.dashTrailBuilding = false;
+    this.trailPoints.length = 0;
+    const next = path[1]!;
+    const dx = next.x - this.mesh.position.x;
+    const dz = next.z - this.mesh.position.z;
+    const len = Math.hypot(dx, dz);
+    if (len > 1e-5) {
+      this.dash.dirX = dx / len;
+      this.dash.dirZ = dz / len;
+    }
+    const pathLen = Player.polylineLengthXZ(path);
+    const speed = Math.max(1e-3, getEffectiveDashSpeed());
+    const drawSec = Number.isFinite(drawDurationSec) && drawDurationSec > 0 ? drawDurationSec : 0;
+    const drawBonus = drawSec * CONFIG.spiralDrawTimeToDashTimeMult;
+    const duration = THREE.MathUtils.clamp(
+      pathLen / speed + drawBonus,
+      CONFIG.spiralMinDashSec,
+      CONFIG.spiralMaxDashSec,
+    );
+    this.dash.timeLeft = duration;
+  }
+
+  private advanceAlongSpiralDash(distance: number): void {
+    let remaining = Math.max(0, distance);
+    while (remaining > 1e-6 && this.spiralDashPath && this.spiralDashPathIndex < this.spiralDashPath.length) {
+      const target = this.spiralDashPath[this.spiralDashPathIndex]!;
+      const dx = target.x - this.mesh.position.x;
+      const dz = target.z - this.mesh.position.z;
+      const d = Math.hypot(dx, dz);
+      if (d <= 1e-5) {
+        this.spiralDashPathIndex += 1;
+        continue;
+      }
+      this.dash.dirX = dx / d;
+      this.dash.dirZ = dz / d;
+      const step = Math.min(remaining, d);
+      this.mesh.position.x += this.dash.dirX * step;
+      this.mesh.position.z += this.dash.dirZ * step;
+      remaining -= step;
+      if (step >= d - 1e-5) {
+        this.spiralDashPathIndex += 1;
+      }
+    }
+    if (this.spiralDashPath && this.spiralDashPathIndex >= this.spiralDashPath.length) {
+      this.spiralDashPath = null;
+    }
   }
 
   /**
@@ -477,7 +607,7 @@ export class Player {
     this.tankClipSlideStartMs = performance.now();
     this.tankClipSlideDurSec = dur;
     this.tankClipResumeTimeLeft = resumeTime;
-    this.tankClipResumeEnemyFreeze = this.dashEnemyFreezeLeft;
+    this.tankClipResumeEnemyFreeze = this.spiralArtifactActive ? 0 : this.dashEnemyFreezeLeft;
     this.tankClipResumeLenMult = mult;
     this.tankClipSlideActive = true;
     this.dash.timeLeft = 0;
@@ -615,6 +745,9 @@ export class Player {
     this.dashEnemyFreezeLeft = 0;
     this.dashSweep = null;
     this.dashTrailBuilding = false;
+    this.spiralDashPath = null;
+    this.spiralDashPathIndex = 0;
+    this.spiralTeleportStartedThisFrame = false;
     this.mainDashStartedThisFrame = false;
     this.activeDashLenWidthMult = 1;
     this.dashHitSerial = 0;
@@ -650,6 +783,12 @@ export class Player {
     const p = this.pendingDashLandPulse;
     this.pendingDashLandPulse = null;
     return p;
+  }
+
+  consumeSpiralTeleportStarted(): boolean {
+    const v = this.spiralTeleportStartedThisFrame;
+    this.spiralTeleportStartedThisFrame = false;
+    return v;
   }
 
   /**
@@ -708,7 +847,9 @@ export class Player {
           );
           this.dash.timeLeft = getDashDurationSec() * mult * revDur;
           this.dash.cooldownLeft = getDashCooldownSec();
-          this.dashEnemyFreezeLeft = getDashDurationSec() * mult * revDur;
+          if (!this.spiralArtifactActive) {
+            this.dashEnemyFreezeLeft = getDashDurationSec() * mult * revDur;
+          }
           this.dashHitSerial += 1;
           this.artifactReverseDashInProgress = true;
         } else if (CONFIG.microDashEnabled) {
@@ -1041,7 +1182,10 @@ export class Player {
     dashLenWidthMult: number,
     playerSpeedMult: number,
     enemies: readonly Enemy[],
+    spiralDashEnabled = false,
+    spiralDashInput: SpiralDashInput | null = null,
   ): void {
+    this.spiralArtifactActive = spiralDashEnabled;
     if (this.tankClipSlideActive) {
       this.advanceTankClipSlide();
       this.spriteWalkingThisFrame = false;
@@ -1051,6 +1195,9 @@ export class Player {
 
     if (this.hp <= 0) {
       this.microDashTimeLeft = 0;
+      this.spiralDashPath = null;
+      this.spiralDashPathIndex = 0;
+      this.spiralTeleportStartedThisFrame = false;
       this.mainDashStartedThisFrame = false;
       this.activeDashLenWidthMult = 1;
       this.tailPoint.visible = false;
@@ -1066,8 +1213,8 @@ export class Player {
     const inMicro = this.microDashTimeLeft > 0;
     const prevDashTimeLeft = this.dash.timeLeft;
 
-    const prevX = this.mesh.position.x;
-    const prevZ = this.mesh.position.z;
+    let prevX = this.mesh.position.x;
+    let prevZ = this.mesh.position.z;
 
     const mv = input.movementVector();
     const walkLen = Math.hypot(mv.x, mv.z);
@@ -1090,18 +1237,55 @@ export class Player {
     this.aimPivot.rotation.y = facingY;
     this.spritePivot.rotation.y = facingY;
 
-    const dashTrigger = input.consumeDashTrigger();
+    const keyDashTrigger = input.consumeDashTrigger(!spiralDashEnabled);
+    let spiralDashTrigger = false;
+    let spiralClickTrigger = false;
+    if (spiralDashEnabled) {
+      input.consumePointerDashTrigger();
+      if (spiralDashInput?.mode === 'path') {
+        spiralDashTrigger = spiralDashInput.points.length >= 2;
+      } else if (spiralDashInput?.mode === 'click') {
+        spiralClickTrigger = true;
+      }
+    }
+    const dashTrigger = keyDashTrigger || spiralDashTrigger || spiralClickTrigger;
     const mult =
       Number.isFinite(dashLenWidthMult) && dashLenWidthMult > 0 ? dashLenWidthMult : 1;
     if (this.microDashTimeLeft <= 0) {
       this.dash.tryStart(dashTrigger, aimX, aimZ, mult);
+      if (
+        spiralDashTrigger &&
+        this.dash.timeLeft > 0 &&
+        this.dash.cooldownLeft > 0 &&
+        spiralDashInput?.mode === 'path'
+      ) {
+        this.startSpiralDashPath(spiralDashInput.points, spiralDashInput.drawDurationSec);
+        prevX = this.mesh.position.x;
+        prevZ = this.mesh.position.z;
+      } else if (
+        spiralClickTrigger &&
+        this.dash.timeLeft > 0 &&
+        this.dash.cooldownLeft > 0 &&
+        spiralDashInput?.mode === 'click'
+      ) {
+        this.startSpiralClickTeleport(
+          spiralDashInput.x,
+          spiralDashInput.z,
+          aimX,
+          aimZ,
+        );
+        prevX = this.mesh.position.x;
+        prevZ = this.mesh.position.z;
+      }
     }
 
     const useDash = this.dash.isDashingForMovement();
     const reverseArtifactStationary = useDash && this.artifactReverseDashInProgress;
     this.spriteWalkingThisFrame = !useDash && !inMicro && walkLen > 1e-3;
     if (prevDashTimeLeft <= 0 && useDash && !this.artifactReverseDashInProgress) {
-      this.dashEnemyFreezeLeft = getDashDurationSec() * mult;
+      if (!this.spiralArtifactActive) {
+        this.dashEnemyFreezeLeft = getDashDurationSec() * mult;
+      }
       this.mainDashStartedThisFrame = true;
       this.activeDashLenWidthMult = mult;
       this.dashHitSerial += 1;
@@ -1109,10 +1293,13 @@ export class Player {
 
     let vx = 0;
     let vz = 0;
+    const spiralActive = useDash && !reverseArtifactStationary && !!this.spiralDashPath;
     if (useDash && !reverseArtifactStationary) {
       const dashSp = getEffectiveDashSpeed();
-      vx = this.dash.dirX * dashSp;
-      vz = this.dash.dirZ * dashSp;
+      if (!spiralActive) {
+        vx = this.dash.dirX * dashSp;
+        vz = this.dash.dirZ * dashSp;
+      }
     } else if (inMicro) {
       vx = -this.dash.dirX * this.microDashSpeed;
       vz = -this.dash.dirZ * this.microDashSpeed;
@@ -1123,7 +1310,18 @@ export class Player {
       vz = (mv.z / walkLen) * getPlayerSpeed() * speedMult;
     }
 
-    if (useDash && !reverseArtifactStationary) {
+    if (spiralActive) {
+      const rawN = Math.floor(CONFIG.dashMovementSubstepCount);
+      const n = Math.min(4, Math.max(1, rawN));
+      const subDt = dt / n;
+      for (let si = 0; si < n; si++) {
+        this.advanceAlongSpiralDash(getEffectiveDashSpeed() * subDt);
+        const c = clampToArena(this.mesh.position.x, this.mesh.position.z);
+        this.mesh.position.x = c.x;
+        this.mesh.position.z = c.z;
+        this.resolveTankOverlapWhileDashing(enemies);
+      }
+    } else if (useDash && !reverseArtifactStationary) {
       const rawN = Math.floor(CONFIG.dashMovementSubstepCount);
       const n = Math.min(4, Math.max(1, rawN));
       const subDt = dt / n;
@@ -1179,6 +1377,8 @@ export class Player {
       this.trailRibbon.visible = true;
     } else {
       this.dashTrailBuilding = false;
+      this.spiralDashPath = null;
+      this.spiralDashPathIndex = 0;
       this.activeDashLenWidthMult = 1;
       this.dashSweep = null;
       if (this.trailPoints.length > 0) {

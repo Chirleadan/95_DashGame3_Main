@@ -90,7 +90,10 @@ export const CONFIG = {
 
   /** When beatmap audio is playing, add this to the UI lens distortion (clamped with slider sum to 0.5). */
   lensDistortionWhileTrackPlaysBoost: 0.2,
-  backgroundMusicUrl: '/audio/Background.mp3',
+  /** Looping ambient during a run (`public/audio/Background.wav`). */
+  backgroundMusicUrl: '/audio/Background.wav',
+  /** Looping music on the main menu (`public/audio/menu.mp3`). */
+  menuMusicUrl: '/audio/menu.mp3',
   backgroundMusicVolume: 0.35,
   /**
    * During a run (`playing` / `runUpgrade`): need at least this much mana to start the track (E or button).
@@ -125,6 +128,8 @@ export const CONFIG = {
 
   /** Base XP for the first in-run level-up; each next level-up requires +5 more XP. */
   runXpPerLevel: 10,
+  /** Gold spent per stat change in the main-menu upgrade screen. */
+  upgradeGoldCost: 5,
   /** XP for killing a normal mob or vault (not a tank). */
   runXpKillMob: 1,
   /** XP for killing a tank. */
@@ -152,10 +157,16 @@ export const CONFIG = {
   shooterShotIntervalSec: 2,
   /** Shooter projectile speed (world units/s). */
   shooterProjectileSpeed: 10,
-  shooterProjectileRadius: 0.18,
+  shooterProjectileRadius: 0.36,
   shooterProjectileColor: TANK_OUTLINE_COLOR,
   shooterProjectileDamage: 1,
   shooterProjectileMaxAgeSec: 5,
+  /** Max simultaneous shots per shooter volley (ramps with difficulty). */
+  shooterVolleyMaxCount: 3,
+  /** Angle between volley shots (radians); center shot unchanged at 3. */
+  shooterVolleySpreadRad: 0.14,
+  /** Lateral spawn offset per volley slot (world units). */
+  shooterVolleyLateralSpacing: 0.42,
   /** Every N-th spawn (when not tank/vault/resource/angel) is a shooter. `0` = never. */
   shooterEveryNthSpawn: 11,
   /** Tank chase speed vs normal: `enemySpeed × difficulty × this` (`1/3` = в 3 раза медленнее). */
@@ -286,6 +297,20 @@ export const CONFIG = {
    * when true. Also enabled if the page URL has query `debugDashTank` (no value needed).
    */
   debugDashPastTank: false,
+
+  /** Spiral artifact: camera XZ catch-up after teleport (seconds). */
+  spiralCameraCatchUpSec: 0.6,
+  /** Min distance between ground samples while drawing spiral path (world XZ). */
+  spiralGroundSampleMinDist: 0.12,
+  /** Hard cap on spiral path length (world XZ). */
+  spiralPathMaxLengthWorld: 28,
+  /** Spiral dash duration clamps (seconds); length = path / speed + draw time bonus. */
+  spiralMinDashSec: 0.08,
+  spiralMaxDashSec: 2.75,
+  /** Extra dash time per second spent drawing the arc. */
+  spiralDrawTimeToDashTimeMult: 0.9,
+  /** Enemy move speed multiplier for the rest of the run after picking up Spiral. */
+  spiralEnemySpeedMult: 2,
 } as const;
 
 /** Dev-only: tank dash clip logs + sweep/tank overlay (see `CONFIG.debugDashPastTank`). */
