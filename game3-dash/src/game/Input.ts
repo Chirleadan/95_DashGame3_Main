@@ -1,3 +1,5 @@
+import { shouldIgnoreGameplayInput } from './inputFocus.ts';
+
 const KEYS = new Set([
   'KeyW',
   'KeyA',
@@ -34,6 +36,7 @@ export class Input {
     pointerTarget: HTMLElement,
   ) {
     const onDown = (e: KeyboardEvent) => {
+      if (shouldIgnoreGameplayInput(e)) return;
       if (e.code === 'Escape') {
         e.preventDefault();
         this.down.add('Escape');
@@ -45,6 +48,7 @@ export class Input {
       }
     };
     const onUp = (e: KeyboardEvent) => {
+      if (shouldIgnoreGameplayInput(e)) return;
       if (e.code === 'Escape') {
         e.preventDefault();
         this.down.delete('Escape');

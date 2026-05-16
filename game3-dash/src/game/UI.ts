@@ -1033,7 +1033,10 @@ export class UI {
     return new Promise((resolve) => {
       this.nicknameModalEl.hidden = false;
       this.nicknameInputEl.value = '';
-      this.nicknameInputEl.focus();
+      requestAnimationFrame(() => {
+        this.nicknameInputEl.focus({ preventScroll: true });
+        this.nicknameInputEl.select();
+      });
 
       const finish = (value: string | null) => {
         this.nicknameModalEl.hidden = true;
@@ -1050,11 +1053,11 @@ export class UI {
         finish(null);
       };
       const onKey = (e: KeyboardEvent) => {
+        e.stopPropagation();
         if (e.key === 'Enter') {
           e.preventDefault();
           onOk();
-        }
-        if (e.key === 'Escape') {
+        } else if (e.key === 'Escape') {
           e.preventDefault();
           onSkip();
         }

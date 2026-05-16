@@ -186,7 +186,11 @@ export const TRACK_CATALOG: readonly TrackEntry[] = [
         enabled: true,
         boost: TRACK_3_STAGE_BOOSTS[1]!,
       }),
-      makeStage(3, 2, { enabled: true, boost: TRACK_3_STAGE_BOOSTS[2]! }),
+      makeStage(3, 2, {
+        audioUrl: '/audio/track-3-stage2.mp3',
+        enabled: true,
+        boost: TRACK_3_STAGE_BOOSTS[2]!,
+      }),
       makeStage(3, 3, { enabled: true, boost: TRACK_3_STAGE_BOOSTS[3]! }),
     ],
   },

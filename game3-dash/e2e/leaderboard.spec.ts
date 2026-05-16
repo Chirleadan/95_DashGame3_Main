@@ -25,6 +25,7 @@ test.describe('local leaderboard UI', () => {
 
     await page.goto('/');
 
+    await expect(page.locator('#loading-screen')).toBeHidden({ timeout: 90_000 });
     await expect(page.locator('#main-menu-play')).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('#nickname-modal')).toBeVisible();
 
@@ -112,6 +113,7 @@ test.describe('local leaderboard UI', () => {
 
   test('dev panel buttons submit and open BEST SCORE', async ({ page }) => {
     await page.goto('/');
+    await expect(page.locator('#loading-screen')).toBeHidden({ timeout: 90_000 });
     await expect(page.locator('#main-menu-play')).toBeVisible({ timeout: 30_000 });
 
     await page.fill('#nickname-modal-input', `Dev_${TEST_NICK}`);
