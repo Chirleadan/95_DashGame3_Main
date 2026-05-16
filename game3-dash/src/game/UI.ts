@@ -34,6 +34,9 @@ export type DitherUiSettings = {
 export type RunUpgradeChoiceView = {
   id: string;
   label: string;
+  description?: string;
+  accentColor?: string;
+  dropWeight?: number;
   secondary?: boolean;
 };
 
@@ -139,13 +142,13 @@ export class UI {
     hud.innerHTML = `
       <div class="hud-xp">
         <div class="hud-xp-row">
-          <span class="hud-xp-meta__group"><span class="label">Уров.</span> <span id="hud-run-level" class="hud-xp-num">1</span></span>
+          <span class="hud-xp-meta__group"><span class="label">Lvl.</span> <span id="hud-run-level" class="hud-xp-num">1</span></span>
           <span class="hud-xp-meta__group"><span class="label">XP</span> <span id="hud-run-xp-text" class="hud-xp-num">0 / 10</span></span>
         </div>
         <div class="hud-xp-bar" aria-hidden="true"><div id="hud-run-xp-fill" class="hud-xp-bar__fill"></div></div>
       </div>
-      <div class="hud-row"><span class="label">Убито</span> <span id="hud-run-kills">0</span></div>
-      <div class="hud-row hud-row--loot"><span class="label">Золото</span> <span id="hud-run-gold" class="hud-xp-num">0</span><span class="hud-loot-sep" aria-hidden="true">·</span><span class="label">Мана</span> <span id="hud-run-mana" class="hud-xp-num">0</span></div>
+      <div class="hud-row"><span class="label">Kills</span> <span id="hud-run-kills">0</span></div>
+      <div class="hud-row hud-row--loot"><span class="label">Gold</span> <span id="hud-run-gold" class="hud-xp-num">0</span><span class="hud-loot-sep" aria-hidden="true">·</span><span class="label">Mana</span> <span id="hud-run-mana" class="hud-xp-num">0</span></div>
       <div class="hud-row"><span class="label">Enemies</span> <span id="hud-enemies">0</span></div>
       <div class="hud-row"><span class="label">Dash CD</span> <span id="hud-dash">Ready</span></div>
     `;
@@ -272,7 +275,7 @@ export class UI {
     this.beatRoundTimerEl = document.createElement('div');
     this.beatRoundTimerEl.className = 'beat-round-timer';
     this.beatRoundTimerEl.textContent = '0.00';
-    this.beatRoundTimerEl.setAttribute('aria-label', 'Время раунда');
+    this.beatRoundTimerEl.setAttribute('aria-label', 'Round time');
 
     const beatStack = document.createElement('div');
     beatStack.className = 'beat-lane-stack';
@@ -285,7 +288,7 @@ export class UI {
     this.vaultBearingHost = document.createElement('div');
     this.vaultBearingHost.className = 'vault-bearing';
     this.vaultBearingHost.setAttribute('role', 'img');
-    this.vaultBearingHost.setAttribute('aria-label', 'Направление на хранилище');
+    this.vaultBearingHost.setAttribute('aria-label', 'Direction to storage');
     this.vaultBearingHost.hidden = true;
     const pad = 56;
     const vb = CONFIG.vaultBearingArcRadiusPx + pad;
@@ -338,10 +341,10 @@ export class UI {
         <button id="main-menu-tracks" type="button" class="game-overlay__btn game-overlay__btn--secondary">Tracks</button>
         <label class="main-menu-cheatmode">
           <input id="main-menu-cheatmode" type="checkbox" />
-          <span>Читмод</span>
+          <span>Cheat mode</span>
         </label>
         <button id="main-menu-play" type="button" class="game-overlay__btn">Play</button>
-        <button id="main-menu-upgrade" type="button" class="game-overlay__btn game-overlay__btn--secondary">Апгрейд</button>
+        <button id="main-menu-upgrade" type="button" class="game-overlay__btn game-overlay__btn--secondary">Upgrade</button>
       </div>
       <div id="track-menu-panel" class="game-overlay__panel game-overlay__panel--tracks" hidden>
         <h2 class="game-overlay__subtitle">Tracks</h2>
@@ -349,43 +352,43 @@ export class UI {
         <button id="track-back" type="button" class="game-overlay__btn game-overlay__btn--upgrade-back">Back</button>
       </div>
       <div id="upgrade-menu-panel" class="game-overlay__panel game-overlay__panel--upgrade" hidden>
-        <h2 class="game-overlay__subtitle">Апгрейд</h2>
+        <h2 class="game-overlay__subtitle">Upgrade</h2>
         <div class="upgrade-menu__row">
           <div class="upgrade-menu__head">
-            <span class="label">Длительность деша (с)</span>
+            <span class="label">Dash duration (s)</span>
             <span id="upgrade-dash-len-val" class="upgrade-menu__val">${b.dashDurationSec.toFixed(3)}</span>
           </div>
           <input id="upgrade-dash-len" type="range" min="${L.dashDurationSec.min}" max="${L.dashDurationSec.max}" step="0.001" value="${b.dashDurationSec}" disabled />
         </div>
         <div class="upgrade-menu__row">
           <div class="upgrade-menu__head">
-            <span class="label">Длина деша (мир)</span>
+            <span class="label">Dash length (world)</span>
             <span id="upgrade-dash-nomlen-val" class="upgrade-menu__val">${b.dashNominalLengthWorld.toFixed(0)}</span>
           </div>
           <input id="upgrade-dash-nomlen" type="range" min="${L.dashNominalLengthWorld.min}" max="${L.dashNominalLengthWorld.max}" step="1" value="${b.dashNominalLengthWorld}" />
         </div>
         <div class="upgrade-menu__row">
           <div class="upgrade-menu__head">
-            <span class="label">Радиус деша по умолчанию</span>
+            <span class="label">Default dash radius</span>
             <span id="upgrade-dash-radius-val" class="upgrade-menu__val">${b.dashKillRadiusScale.toFixed(2)}</span>
           </div>
           <input id="upgrade-dash-radius" type="range" min="${L.dashKillRadiusScale.min}" max="${L.dashKillRadiusScale.max}" step="1.25" value="${b.dashKillRadiusScale}" />
         </div>
         <div class="upgrade-menu__row">
           <div class="upgrade-menu__head">
-            <span class="label">Скорость передвижения по умолчанию</span>
+            <span class="label">Default move speed</span>
             <span id="upgrade-move-speed-val" class="upgrade-menu__val">${b.playerSpeed.toFixed(1)}</span>
           </div>
           <input id="upgrade-move-speed" type="range" min="${L.playerSpeed.min}" max="${L.playerSpeed.max}" step="1.5" value="${b.playerSpeed}" />
         </div>
         <div class="upgrade-menu__row">
           <div class="upgrade-menu__head">
-            <span class="label">Щиты героя</span>
+            <span class="label">Hero shields</span>
             <span id="upgrade-shields-val" class="upgrade-menu__val">${b.playerMaxHp}</span>
           </div>
           <input id="upgrade-shields" type="range" min="${L.playerMaxHp.min}" max="${L.playerMaxHp.max}" step="1" value="${b.playerMaxHp}" />
         </div>
-        <button id="upgrade-back" type="button" class="game-overlay__btn game-overlay__btn--upgrade-back">Назад</button>
+        <button id="upgrade-back" type="button" class="game-overlay__btn game-overlay__btn--upgrade-back">Back</button>
       </div>
     `;
     this.mainMenuEl.addEventListener('pointerdown', (e) => {
@@ -420,9 +423,9 @@ export class UI {
       <div class="game-overlay__panel game-overlay__panel--death">
         <p class="game-overlay__death-title">You died</p>
         <div class="game-overlay__death-stats">
-          <p><span class="game-overlay__death-stat-label">Время в ране</span> <span id="death-stat-time" class="game-overlay__death-stat-val">0.00</span> с</p>
-          <p><span class="game-overlay__death-stat-label">Мобов убито</span> <span id="death-stat-kills" class="game-overlay__death-stat-val">0</span></p>
-          <p><span class="game-overlay__death-stat-label">Уровень</span> <span id="death-stat-level" class="game-overlay__death-stat-val">1</span></p>
+          <p><span class="game-overlay__death-stat-label">Run time</span> <span id="death-stat-time" class="game-overlay__death-stat-val">0.00</span> s</p>
+          <p><span class="game-overlay__death-stat-label">Mobs killed</span> <span id="death-stat-kills" class="game-overlay__death-stat-val">0</span></p>
+          <p><span class="game-overlay__death-stat-label">Level</span> <span id="death-stat-level" class="game-overlay__death-stat-val">1</span></p>
         </div>
         <p class="game-overlay__death-hint">Returning to the menu shortly, or press:</p>
         <button id="death-to-menu" type="button" class="game-overlay__btn game-overlay__btn--death">Main menu</button>
@@ -443,9 +446,9 @@ export class UI {
     this.runUpgradeOverlayEl.setAttribute('aria-modal', 'true');
     this.runUpgradeOverlayEl.innerHTML = `
       <div class="game-overlay__panel game-overlay__panel--run-upgrade">
-        <h2 class="game-overlay__title">Прокачка</h2>
+        <h2 class="game-overlay__title">Level Up</h2>
         <p class="game-overlay__run-upgrade-hint">
-          Набрано <span id="run-upgrade-milestone">10</span> XP (уровень). Выберите один бонус до конца рана:
+          Reached <span id="run-upgrade-milestone">10</span> XP. Choose one bonus for the rest of the run:
         </p>
         <div id="run-upgrade-choices" class="game-overlay__upgrade-choices"></div>
       </div>
@@ -499,20 +502,44 @@ export class UI {
   showRunUpgradeModal(opts: {
     milestoneXp: number;
     choices: RunUpgradeChoiceView[];
+    isCheatMode?: boolean;
     onChoice: (id: string) => void;
   }): void {
     this.runUpgradeMilestoneEl.textContent = String(opts.milestoneXp);
     this.runUpgradeChoiceHandler = opts.onChoice;
     this.runUpgradeClickEnableAtMs = performance.now() + 1000;
+    this.runUpgradeChoicesEl.classList.toggle(
+      'game-overlay__upgrade-choices--cards',
+      !opts.isCheatMode,
+    );
+    this.runUpgradeChoicesEl.classList.toggle(
+      'game-overlay__upgrade-choices--list',
+      !!opts.isCheatMode,
+    );
     this.runUpgradeChoicesEl.replaceChildren(
       ...opts.choices.map((choice) => {
         const button = document.createElement('button');
         button.type = 'button';
-        button.className = choice.secondary
-          ? 'game-overlay__btn game-overlay__btn--secondary'
-          : 'game-overlay__btn';
         button.dataset.runUpgradeId = choice.id;
-        button.textContent = choice.label;
+        if (choice.accentColor) {
+          button.dataset.runUpgradeAccent = 'true';
+          button.style.setProperty('--run-upgrade-accent', choice.accentColor);
+        }
+        if (opts.isCheatMode) {
+          button.className = choice.secondary
+            ? 'game-overlay__btn game-overlay__btn--secondary'
+            : 'game-overlay__btn';
+          button.textContent = choice.label;
+        } else {
+          button.className = 'run-upgrade-card';
+          const title = document.createElement('span');
+          title.className = 'run-upgrade-card__title';
+          title.textContent = choice.label;
+          const desc = document.createElement('span');
+          desc.className = 'run-upgrade-card__desc';
+          desc.textContent = choice.description ?? '';
+          button.append(title, desc);
+        }
         return button;
       }),
     );
@@ -793,10 +820,10 @@ export class UI {
   private buildArtifactsPanel(container: HTMLElement): void {
     const panel = document.createElement('aside');
     panel.className = 'artifacts-panel';
-    panel.setAttribute('aria-label', 'Артефакты');
+    panel.setAttribute('aria-label', 'Artifacts');
     const title = document.createElement('div');
     title.className = 'artifacts-panel__title';
-    title.textContent = 'Артефакты';
+    title.textContent = 'Artifacts';
     panel.appendChild(title);
     for (const id of ARTIFACT_IDS) {
       const row = document.createElement('label');

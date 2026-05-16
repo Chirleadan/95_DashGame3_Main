@@ -5,9 +5,9 @@ export const ARTIFACT_IDS = ['vaultBearing', 'reverseDash', 'bomb'] as const;
 export type ArtifactId = (typeof ARTIFACT_IDS)[number];
 
 export const ARTIFACT_LABELS: Record<ArtifactId, string> = {
-  vaultBearing: 'Указатель на хранилище',
-  reverseDash: 'Обратный дэш (авто)',
-  bomb: 'Бомба',
+  vaultBearing: 'Storage Pointer',
+  reverseDash: 'Reverse Dash (auto)',
+  bomb: 'Bomb',
 };
 
 const DEFAULTS: Record<ArtifactId, boolean> = {

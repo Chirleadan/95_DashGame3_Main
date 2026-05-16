@@ -51,6 +51,10 @@ const SIDE_DASH_TRAIL_LIFE_SEC = 0.16;
 const SIDE_DASH_DELAY_SEC = 0.15;
 const LIGHTNING_AUTO_DASH_DELAY_SEC = 0.1;
 const LIGHTNING_COLOR = 0xa36eff;
+const RUN_UPGRADE_COLOR_UTILITY = '#a36eff';
+const RUN_UPGRADE_COLOR_ARTIFACT = '#ffd35c';
+const RUN_UPGRADE_COLOR_RARE_ARTIFACT = '#e00b3d';
+const RUN_UPGRADE_STARTED_WEIGHT_BONUS = 0.15;
 
 export class Game {
   /** Outer radius of `RingGeometry` used for damage pulse (local units). */
@@ -146,6 +150,8 @@ export class Game {
   private lightningAutoDashInProgress = false;
   private runSideDashLevel = 0;
   private runOrbitShieldLevel = 0;
+  private runPhaseDashUnlocked = false;
+  private readonly runUpgradePickCounts = new Map<string, number>();
   /** Enemies killed this run (removed from arena by dash/tank resolve/damage pulse). */
   private runEnemiesKilled = 0;
   /** Gold picked up this run (мешки золота); пока ни на что не тратится. */
@@ -617,7 +623,7 @@ export class Game {
     if (spendMana && this.runMana < CONFIG.playTrackMinManaToActivate) {
       this.ui.setPlayEnabled(
         false,
-        `Во время раунда нужно минимум ${CONFIG.playTrackMinManaToActivate} маны (старт: −${CONFIG.playTrackManaCost}).`,
+        `During a run you need at least ${CONFIG.playTrackMinManaToActivate} mana (start: -${CONFIG.playTrackManaCost}).`,
       );
       return;
     }
@@ -693,6 +699,7 @@ export class Game {
   }
 
   private resetRunUpgradeBonuses(): void {
+    this.runUpgradePickCounts.clear();
     this.runEnemySlowLevel = 0;
     this.runRocketLevel = 0;
     this.runRocketTimerSec = 0;
@@ -704,6 +711,7 @@ export class Game {
     this.lightningAutoDashInProgress = false;
     this.runSideDashLevel = 0;
     this.runOrbitShieldLevel = 0;
+    this.runPhaseDashUnlocked = false;
     this.syncOrbitShieldVisuals();
     this.syncLightningMeter();
   }
@@ -1609,7 +1617,8 @@ export class Game {
     let died = false;
 
     if ((e.isVault() || e.isAngel()) && e.getActiveShieldCount() > 0) {
-      e.tryBreakVaultShieldWithDash(seg, CONFIG.vaultShieldDashJoinRadius);
+      const scaledPlayer = CONFIG.playerRadius * getDashKillRadiusScale();
+      e.tryBreakVaultShieldWithDash(seg, this.getVaultShieldJoinRadius(scaledPlayer));
       this.markDashImpactSfx();
     } else {
       died = e.takeDashHit(e.isAngel());
@@ -2194,9 +2203,11 @@ export class Game {
     if (this.runPendingUpgradeMilestones.length <= 0) return;
     this.runPhase = 'runUpgrade';
     const choices = this.getRunUpgradeChoices();
+    const isCheatMode = this.ui.isCheatModeEnabled();
     this.ui.showRunUpgradeModal({
       milestoneXp: this.runPendingUpgradeMilestones[0]!,
-      choices: this.ui.isCheatModeEnabled() ? choices : this.pickRandomRunUpgradeChoices(choices, 3),
+      choices: isCheatMode ? choices : this.pickRandomRunUpgradeChoices(choices, 3),
+      isCheatMode,
       onChoice: (id) => this.applyRunUpgradeChoice(id),
     });
   }
@@ -2206,58 +2217,124 @@ export class Game {
     count: number,
   ): RunUpgradeChoiceView[] {
     const pool = [...choices];
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      const tmp = pool[i]!;
-      pool[i] = pool[j]!;
-      pool[j] = tmp;
+    const picked: RunUpgradeChoiceView[] = [];
+    const pickCount = Math.max(1, Math.min(count, pool.length));
+    while (picked.length < pickCount && pool.length > 0) {
+      let total = 0;
+      for (const choice of pool) {
+        total += this.getRunUpgradeDropWeight(choice);
+      }
+      let roll = Math.random() * Math.max(1e-6, total);
+      let pickIndex = 0;
+      for (let i = 0; i < pool.length; i++) {
+        roll -= this.getRunUpgradeDropWeight(pool[i]!);
+        if (roll <= 0) {
+          pickIndex = i;
+          break;
+        }
+      }
+      picked.push(pool.splice(pickIndex, 1)[0]!);
     }
-    return pool.slice(0, Math.max(1, Math.min(count, pool.length)));
+    return picked;
+  }
+
+  private getRunUpgradeDropWeight(choice: RunUpgradeChoiceView): number {
+    const base =
+      Number.isFinite(choice.dropWeight) && choice.dropWeight! > 0
+        ? choice.dropWeight!
+        : 1;
+    const startedBonus =
+      (this.runUpgradePickCounts.get(choice.id) ?? 0) > 0
+        ? RUN_UPGRADE_STARTED_WEIGHT_BONUS
+        : 0;
+    return base + startedBonus;
   }
 
   private getRunUpgradeChoices(): RunUpgradeChoiceView[] {
     const choices: RunUpgradeChoiceView[] = [
-      { id: 'dash', label: 'Дальность дэша +1' },
-      { id: 'speed', label: 'Скорость персонажа +1', secondary: true },
-      { id: 'shields', label: 'Щиты +1', secondary: true },
+      {
+        id: 'dash',
+        label: 'Dash Range +1',
+        description: 'Longer main dash.',
+      },
+      {
+        id: 'speed',
+        label: 'Character Speed +1',
+        description: 'Move faster.',
+        secondary: true,
+      },
+      {
+        id: 'shields',
+        label: 'Shields +1',
+        description: 'Adds max shield and restores one.',
+        accentColor: RUN_UPGRADE_COLOR_UTILITY,
+        dropWeight: 0.5,
+        secondary: true,
+      },
       {
         id: 'shieldRegen',
-        label: `Реген щитов -0.5 с (до ${CONFIG.shieldRegenMinIntervalSec} с)`,
+        label: `Shield Regen -0.5 s`,
+        description: `Faster passive shield recovery. Minimum: ${CONFIG.shieldRegenMinIntervalSec} s.`,
+        accentColor: RUN_UPGRADE_COLOR_UTILITY,
+        dropWeight: 0.5,
         secondary: true,
       },
     ];
     if (this.runEnemySlowLevel < RUN_UPGRADE_MAX_LEVEL) {
       choices.push({
         id: 'enemySlow',
-        label: `Замедление врагов ${this.runEnemySlowLevel + 1}/5`,
+        label: `Enemy Slow ${this.runEnemySlowLevel + 1}/5`,
+        description: 'Slows all enemies.',
         secondary: true,
       });
     }
     if (this.runRocketLevel < RUN_UPGRADE_MAX_LEVEL) {
       choices.push({
         id: 'rockets',
-        label: `Ракеты ${this.runRocketLevel + 1}/5`,
+        label: `Rockets ${this.runRocketLevel + 1}/5`,
+        description: 'Random visible explosions. Higher levels trigger more often.',
+        accentColor: RUN_UPGRADE_COLOR_ARTIFACT,
+        dropWeight: 0.25,
         secondary: true,
       });
     }
     if (this.runLightningLevel < RUN_UPGRADE_MAX_LEVEL) {
       choices.push({
         id: 'artifactLightning',
-        label: `Артефакт: Молния ${this.runLightningLevel + 1}/5`,
+        label: `Artifact: Lightning ${this.runLightningLevel + 1}/5`,
+        description: 'Auto-dashes into nearby enemies after enough dashes. Higher levels trigger faster and add more hits.',
+        accentColor: RUN_UPGRADE_COLOR_ARTIFACT,
+        dropWeight: 0.25,
         secondary: true,
       });
     }
     if (this.runSideDashLevel < SIDE_DASH_MAX_LEVEL) {
       choices.push({
         id: 'artifactSideDashes',
-        label: `Артефакт: Сайддеши ${this.runSideDashLevel + 1}/2`,
+        label: `Artifact: Claw-Dash ${this.runSideDashLevel + 1}/2`,
+        description: 'Adds delayed Claw-Dashes. Level two adds the other side.',
+        accentColor: RUN_UPGRADE_COLOR_ARTIFACT,
+        dropWeight: 0.25,
         secondary: true,
       });
     }
     if (this.runOrbitShieldLevel < RUN_UPGRADE_MAX_LEVEL) {
       choices.push({
         id: 'artifactOrbitShield',
-        label: `Артефакт: Щит ${this.runOrbitShieldLevel + 1}/5`,
+        label: `Artifact: Projectile Shields ${this.runOrbitShieldLevel + 1}/5`,
+        description: 'Rotating projectile shield. Each level adds another segment.',
+        accentColor: RUN_UPGRADE_COLOR_UTILITY,
+        dropWeight: 0.5,
+        secondary: true,
+      });
+    }
+    if (!this.runPhaseDashUnlocked) {
+      choices.push({
+        id: 'artifactPhaseDash',
+        label: 'Artifact: Phase Dash',
+        description: 'Dash through normal mobs and shooters.',
+        accentColor: RUN_UPGRADE_COLOR_RARE_ARTIFACT,
+        dropWeight: 0.1,
         secondary: true,
       });
     }
@@ -2292,9 +2369,15 @@ export class Game {
     } else if (kind === 'artifactOrbitShield') {
       this.runOrbitShieldLevel = Math.min(RUN_UPGRADE_MAX_LEVEL, this.runOrbitShieldLevel + 1);
       this.syncOrbitShieldVisuals();
+    } else if (kind === 'artifactPhaseDash') {
+      this.runPhaseDashUnlocked = true;
     } else {
       return;
     }
+    this.runUpgradePickCounts.set(
+      kind,
+      (this.runUpgradePickCounts.get(kind) ?? 0) + 1,
+    );
     if (this.runPendingUpgradeMilestones.length > 0) {
       this.runPendingUpgradeMilestones.shift();
     }
@@ -2359,7 +2442,7 @@ export class Game {
     const dashSerial = this.player.getDashHitSerial();
     const scaledPlayer = CONFIG.playerRadius * getDashKillRadiusScale();
     let kills = 0;
-    const vaultShieldJoin = CONFIG.vaultShieldDashJoinRadius;
+    const vaultShieldJoin = this.getVaultShieldJoinRadius(scaledPlayer);
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
       if (e.isVault() || e.isAngel()) {
@@ -2442,6 +2525,13 @@ export class Game {
           this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
           e.scheduleDeferredTankDashDamage();
         } else {
+          const canPhaseDashThrough =
+            this.runPhaseDashUnlocked &&
+            (e.isShooter() || (!e.isResourceSack() && !e.isTank()));
+          if (canPhaseDashThrough && e.vaultLastClipDashSerial !== dashSerial) {
+            this.player.clipDashPastTank(tx, tz, tr, hitR + 0.35);
+            e.vaultLastClipDashSerial = dashSerial;
+          }
           const died = e.takeDashHit();
           if (died) {
             this.grantResourceLootFromSack(e);
@@ -2503,7 +2593,7 @@ export class Game {
     dir: { x: number; z: number },
   ): number {
     const scaledPlayer = CONFIG.playerRadius * getDashKillRadiusScale();
-    const vaultShieldJoin = CONFIG.vaultShieldDashJoinRadius;
+    const vaultShieldJoin = this.getVaultShieldJoinRadius(scaledPlayer);
     let kills = 0;
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i]!;
@@ -2526,6 +2616,17 @@ export class Game {
       kills += 1;
     }
     return kills;
+  }
+
+  private getVaultShieldJoinRadius(scaledPlayerRadius: number): number {
+    const defaultDashRadius =
+      CONFIG.playerRadius * CONFIG.dashKillPlayerRadiusScale;
+    const fixedExtra =
+      CONFIG.vaultShieldDashJoinRadius - defaultDashRadius;
+    return Math.max(
+      CONFIG.vaultShieldDashJoinRadius,
+      scaledPlayerRadius + Math.max(0, fixedExtra),
+    );
   }
 
   private pickDashHitSegment(

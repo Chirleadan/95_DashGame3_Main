@@ -142,8 +142,80 @@ function sqDistPointSegmentXZ(
   return dx * dx + dz * dz;
 }
 
+function orientXZ(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  cx: number,
+  cz: number,
+): number {
+  return (bx - ax) * (cz - az) - (bz - az) * (cx - ax);
+}
+
+function onSegmentXZ(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  px: number,
+  pz: number,
+): boolean {
+  const eps = 1e-9;
+  return (
+    px >= Math.min(ax, bx) - eps &&
+    px <= Math.max(ax, bx) + eps &&
+    pz >= Math.min(az, bz) - eps &&
+    pz <= Math.max(az, bz) + eps &&
+    Math.abs(orientXZ(ax, az, bx, bz, px, pz)) <= eps
+  );
+}
+
+function segmentsIntersectXZ(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  cx: number,
+  cz: number,
+  dx: number,
+  dz: number,
+): boolean {
+  const eps = 1e-9;
+  const o1 = orientXZ(ax, az, bx, bz, cx, cz);
+  const o2 = orientXZ(ax, az, bx, bz, dx, dz);
+  const o3 = orientXZ(cx, cz, dx, dz, ax, az);
+  const o4 = orientXZ(cx, cz, dx, dz, bx, bz);
+
+  if (o1 * o2 < -eps && o3 * o4 < -eps) return true;
+  if (Math.abs(o1) <= eps && onSegmentXZ(ax, az, bx, bz, cx, cz)) return true;
+  if (Math.abs(o2) <= eps && onSegmentXZ(ax, az, bx, bz, dx, dz)) return true;
+  if (Math.abs(o3) <= eps && onSegmentXZ(cx, cz, dx, dz, ax, az)) return true;
+  if (Math.abs(o4) <= eps && onSegmentXZ(cx, cz, dx, dz, bx, bz)) return true;
+  return false;
+}
+
+function sqDistSegmentSegmentXZ(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  cx: number,
+  cz: number,
+  dx: number,
+  dz: number,
+): number {
+  if (segmentsIntersectXZ(ax, az, bx, bz, cx, cz, dx, dz)) return 0;
+  return Math.min(
+    sqDistPointSegmentXZ(ax, az, cx, cz, dx, dz),
+    sqDistPointSegmentXZ(bx, bz, cx, cz, dx, dz),
+    sqDistPointSegmentXZ(cx, cz, ax, az, bx, bz),
+    sqDistPointSegmentXZ(dx, dz, ax, az, bx, bz),
+  );
+}
+
 /**
- * True if segment AB passes within `joinRadius` of segment CD (XZ), sampled + endpoint checks.
+ * True if segment AB passes within `joinRadius` of segment CD (XZ).
  */
 export function segmentHitsThickSegment(
   ax: number,
@@ -156,19 +228,6 @@ export function segmentHitsThickSegment(
   dz: number,
   joinRadius: number,
 ): boolean {
-  const r2 = joinRadius * joinRadius;
-  const steps = 12;
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const px = ax + (bx - ax) * t;
-    const pz = az + (bz - az) * t;
-    if (sqDistPointSegmentXZ(px, pz, cx, cz, dx, dz) <= r2) return true;
-  }
-  for (let i = 0; i <= 6; i++) {
-    const t = i / 6;
-    const px = cx + (dx - cx) * t;
-    const pz = cz + (dz - cz) * t;
-    if (sqDistPointSegmentXZ(px, pz, ax, az, bx, bz) <= r2) return true;
-  }
-  return false;
+  const safeR = Number.isFinite(joinRadius) ? Math.max(0, joinRadius) : 0;
+  return sqDistSegmentSegmentXZ(ax, az, bx, bz, cx, cz, dx, dz) <= safeR * safeR;
 }
