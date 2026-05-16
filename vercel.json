@@ -1,12 +1,10 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
   "experimentalServices": {
     "web": {
       "entrypoint": "game3-dash",
       "routePrefix": "/",
       "framework": "vite",
-      "buildCommand": "npm run build",
-      "outputDirectory": "dist"
+      "buildCommand": "npm run build"
     }
   }
 }
