@@ -737,7 +737,8 @@ body {
 }
 
 .game-overlay--menu {
-  --main-menu-mark-size: clamp(48px, 11.2vw, 208px);
+  --menu-ui-scale: 0.85;
+  --main-menu-mark-size: calc(clamp(48px, 11.2vw, 208px) * var(--menu-ui-scale));
   overflow: hidden;
   background-color: #ff25b6;
   background-image: url('/assets/back 1.png');
@@ -767,7 +768,21 @@ body {
   white-space: nowrap;
 }
 
-.game-overlay--menu > .game-overlay__panel {
+.main-menu-ui-scale {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  transform: scale(var(--menu-ui-scale));
+  transform-origin: center center;
+  pointer-events: none;
+}
+
+.main-menu-ui-scale > * {
+  pointer-events: auto;
+}
+
+.game-overlay--menu .main-menu-ui-scale > .game-overlay__panel,
+.game-overlay--menu .main-menu-ui-scale > .tape-cassette-rack {
   position: relative;
   z-index: 1;
 }

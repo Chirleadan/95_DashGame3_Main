@@ -443,6 +443,7 @@ export class UI {
     this.mainMenuEl.setAttribute('role', 'dialog');
     this.mainMenuEl.setAttribute('aria-modal', 'true');
     this.mainMenuEl.innerHTML = `
+      <div class="main-menu-ui-scale">
       <div id="main-menu-panel" class="game-overlay__panel">
         <h1 class="game-overlay__title">Arena</h1>
         <div class="track-summary">
@@ -493,11 +494,16 @@ export class UI {
         <div id="upgrade-vault-row" class="upgrade-menu__row"></div>
         <button id="upgrade-back" type="button" class="game-overlay__btn game-overlay__btn--upgrade-back">Back</button>
       </div>
+      </div>
     `;
     this.mainMenuEl.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
     });
     document.body.appendChild(this.mainMenuEl);
+
+    const mainMenuUiScale = this.mainMenuEl.querySelector(
+      '.main-menu-ui-scale',
+    ) as HTMLElement;
 
     this.mainMenuPanel = this.mainMenuEl.querySelector('#main-menu-panel')!;
     this.tapeMenuPanel = this.mainMenuEl.querySelector('#tape-menu-panel')!;
@@ -508,18 +514,20 @@ export class UI {
     this.tapeMenuRecorderEl.alt = '';
     this.tapeMenuRecorderEl.hidden = true;
     this.tapeMenuRecorderEl.draggable = false;
-    this.mainMenuEl.appendChild(this.tapeMenuRecorderEl);
+    mainMenuUiScale.appendChild(this.tapeMenuRecorderEl);
 
     this.tapeMenuHintEl = document.createElement('div');
     this.tapeMenuHintEl.id = 'tape-menu-hint';
     this.tapeMenuHintEl.className = 'tape-menu-hint';
     this.tapeMenuHintEl.hidden = true;
     this.tapeMenuHintEl.innerHTML = `
-      <p>Tapes are your ultimate. Choose a cassette for this run.</p>
-      <p>Each stage hits harder — and sends you into rhythm play. Press <span class="tape-menu-hint__key">E</span> to trigger it.</p>
-      <p>Vaults in-game may drop fragments. Circles below unlock stage by stage.</p>
+      <p>Tapes are your ultimate abilities. Press <span class="tape-menu-hint__key">E</span> in-game to trigger your tape. Using a tape costs Mana.</p>
+      <p>Choose one tape for each run.</p>
+      <p>Each tape has 3 stages, unlocked by collecting tape fragments.</p>
+      <p>Fragments can be found by breaking Vaults during the game.</p>
+      <p>Each stage makes the tape hit harder.</p>
     `;
-    this.mainMenuEl.appendChild(this.tapeMenuHintEl);
+    mainMenuUiScale.appendChild(this.tapeMenuHintEl);
 
     this.tapeFragmentToastEl = document.createElement('div');
     this.tapeFragmentToastEl.className = 'tape-fragment-toast tape-fragment-toast--hidden';
