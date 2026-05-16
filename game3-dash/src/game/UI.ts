@@ -27,17 +27,31 @@ import {
   setBalancePatch,
 } from './BalanceSettings.ts';
 import {
+  formatHighScoreScore,
   formatHighScoreTape,
-  formatHighScoreTime,
   getHighScore,
   type HighScoreBoardId,
 } from './HighScores.ts';
+import {
+  fetchLeaderboard,
+  isLeaderboardApiConfigured,
+  type LeaderboardEntry,
+} from './leaderboard/LeaderboardApi.ts';
+import { ensureOnlinePlayer } from './leaderboard/OnlinePlayerBootstrap.ts';
+import { getStoredPlayer } from './leaderboard/PlayerProfile.ts';
 import {
   findTrackStage,
   findTrackForStage,
   TRACK_CATALOG,
   type TrackStage,
 } from './TrackCatalog.ts';
+import { TAPE_CASSETTES } from './TapeCatalog.ts';
+import {
+  getHighestUnlockedTrackStage,
+  isTapeStagePlayable,
+  isTapeStageUnlocked,
+} from './TapeStageUnlocks.ts';
+import { getRunUpgradeArtUrl } from './RunUpgradeArt.ts';
 
 type UpgradeCellVisualState = 'selected' | 'open' | 'buyable' | 'locked';
 
@@ -102,6 +116,8 @@ export class UI {
   private readonly mount: HTMLElement;
   private readonly walletEl: HTMLElement;
   private readonly walletGoldEl: HTMLElement;
+  private readonly walletManaGroupEl: HTMLElement;
+  private readonly walletManaEl: HTMLElement;
   private readonly hudEl: HTMLElement;
   private readonly hudExtraEl: HTMLElement;
   private readonly beatUiEl: HTMLElement;
@@ -156,11 +172,25 @@ export class UI {
   private readonly mainMenuEl: HTMLElement;
   private readonly mainMenuPanel: HTMLElement;
   private readonly upgradeMenuPanel: HTMLElement;
-  private readonly trackMenuPanel: HTMLElement;
+  private readonly tapeMenuPanel: HTMLElement;
+  private readonly tapeMenuRecorderEl: HTMLImageElement;
+  private readonly tapeMenuHintEl: HTMLElement;
+  private readonly tapeBackBtn: HTMLButtonElement;
+  private tapeFragmentToastHideTimer: number | null = null;
+  private readonly tapeFragmentToastEl: HTMLElement;
   private readonly titlesMenuPanel: HTMLElement;
+  private readonly titlesBackBtn: HTMLButtonElement;
+  private readonly guidesMenuPanel: HTMLElement;
+  private readonly guidesBackBtn: HTMLButtonElement;
   private readonly highScoreMenuPanel: HTMLElement;
+  private readonly highScoreBackBtn: HTMLButtonElement;
   private readonly highScoreMenuList: HTMLElement;
-  private readonly trackMenuList: HTMLElement;
+  private readonly globalLeaderboardListEl: HTMLElement;
+  private readonly globalLeaderboardTabEls: HTMLButtonElement[];
+  private globalLeaderboardCheatMode = false;
+  private readonly nicknameModalEl: HTMLElement;
+  private readonly nicknameInputEl: HTMLInputElement;
+  private readonly tapeCassetteRack: HTMLElement;
   private readonly currentTrackEl: HTMLElement;
   private readonly upgradeMenuRows: HTMLElement;
   private readonly upgradeVaultRow: HTMLElement;
@@ -168,6 +198,7 @@ export class UI {
   private readonly deathStatTimeEl: HTMLElement;
   private readonly deathStatKillsEl: HTMLElement;
   private readonly deathStatLevelEl: HTMLElement;
+  private readonly pauseOverlayEl: HTMLElement;
   private readonly runUpgradeOverlayEl: HTMLElement;
   private readonly runUpgradeMilestoneEl: HTMLElement;
   private readonly runUpgradeChoicesEl: HTMLElement;
@@ -194,10 +225,17 @@ export class UI {
     this.walletEl.innerHTML = `
       <span class="label">Gold</span>
       <span id="hud-wallet-gold" class="hud-xp-num">0</span>
+      <span class="hud-wallet__mana-group">
+        <span class="hud-wallet__loot-sep" aria-hidden="true">·</span>
+        <span class="label hud-wallet__mana-label">Mana</span>
+        <span id="hud-wallet-mana" class="hud-xp-num hud-wallet__mana-num">0</span>
+      </span>
     `;
     container.appendChild(this.walletEl);
     this.walletGoldEl = this.walletEl.querySelector('#hud-wallet-gold')!;
-    this.setWalletGold(getPlayerGold());
+    this.walletManaGroupEl = this.walletEl.querySelector('.hud-wallet__mana-group')!;
+    this.walletManaEl = this.walletEl.querySelector('#hud-wallet-mana')!;
+    this.setWalletDisplay(getPlayerGold(), null);
 
     this.hudEl = document.createElement('div');
     this.hudEl.className = 'hud';
@@ -350,7 +388,7 @@ export class UI {
     this.beatRoundTimerEl = document.createElement('div');
     this.beatRoundTimerEl.className = 'beat-round-timer';
     this.beatRoundTimerEl.textContent = '0.00';
-    this.beatRoundTimerEl.setAttribute('aria-label', 'Round time');
+    this.beatRoundTimerEl.setAttribute('aria-label', 'Score');
 
     const beatStack = document.createElement('div');
     beatStack.className = 'beat-lane-stack';
@@ -417,7 +455,8 @@ export class UI {
           <button id="main-menu-tracks" type="button" class="game-overlay__btn game-overlay__btn--secondary">TAPES</button>
         </div>
         <div class="main-menu-side-links">
-          <button id="main-menu-highscore" type="button" class="main-menu-side-btn">HIGH SCORE</button>
+          <button id="main-menu-guides" type="button" class="main-menu-side-btn">GUIDES</button>
+          <button id="main-menu-highscore" type="button" class="main-menu-side-btn">BEST SCORE</button>
           <button id="main-menu-titles" type="button" class="main-menu-side-btn">TITLES</button>
           <label class="main-menu-cheatmode" data-tooltip="Cheat mode shows every level-up perk choice instead of rolling 3 random options.">
             <input id="main-menu-cheatmode" type="checkbox" />
@@ -425,22 +464,28 @@ export class UI {
           </label>
         </div>
       </div>
-      <div id="track-menu-panel" class="game-overlay__panel game-overlay__panel--tracks" hidden>
-        <h2 class="game-overlay__subtitle">Tracks</h2>
-        <div id="track-menu-list" class="track-menu"></div>
-        <button id="track-back" type="button" class="game-overlay__btn game-overlay__btn--upgrade-back">Back</button>
+      <div id="tape-menu-panel" class="tape-cassette-rack" hidden></div>
+      <button id="tape-back" type="button" class="game-overlay__btn game-overlay__btn--menu-sub-back" hidden>Back</button>
+      <div id="guides-menu-panel" class="game-overlay__panel game-overlay__panel--guides" hidden>
+        <div class="guides-menu menu-sub-column"></div>
       </div>
+      <button id="guides-back" type="button" class="game-overlay__btn game-overlay__btn--menu-sub-back" hidden>Back</button>
       <div id="highscore-menu-panel" class="game-overlay__panel game-overlay__panel--highscores" hidden>
-        <h2 class="game-overlay__subtitle">High score</h2>
-        <p class="highscore-menu__hint">Longest survival time. Normal and cheat runs are saved separately.</p>
         <div id="highscore-menu-list" class="highscore-menu"></div>
-        <button id="highscore-back" type="button" class="game-overlay__btn game-overlay__btn--upgrade-back">Back</button>
+        <div id="global-leaderboard-panel" class="global-leaderboard" hidden>
+          <p class="menu-sub-line menu-sub-line--heading global-leaderboard__title">Global Leaderboard</p>
+          <div class="global-leaderboard__tabs" role="tablist">
+            <button type="button" class="global-leaderboard__tab global-leaderboard__tab--active" data-cheat-mode="false">Normal</button>
+            <button type="button" class="global-leaderboard__tab" data-cheat-mode="true">Cheat Mode</button>
+          </div>
+          <div id="global-leaderboard-list" class="global-leaderboard__list" aria-live="polite"></div>
+        </div>
       </div>
       <div id="titles-menu-panel" class="game-overlay__panel game-overlay__panel--titles" hidden>
-        <h2 class="game-overlay__subtitle">Titles</h2>
-        <div class="titles-menu"></div>
-        <button id="titles-back" type="button" class="game-overlay__btn game-overlay__btn--upgrade-back">Back</button>
+        <div class="titles-menu menu-sub-column"></div>
       </div>
+      <button id="highscore-back" type="button" class="game-overlay__btn game-overlay__btn--menu-sub-back" hidden>Back</button>
+      <button id="titles-back" type="button" class="game-overlay__btn game-overlay__btn--menu-sub-back" hidden>Back</button>
       <div id="upgrade-menu-panel" class="game-overlay__panel game-overlay__panel--upgrade" hidden>
         <h2 class="game-overlay__subtitle">Upgrade</h2>
         <p class="upgrade-menu__cost-hint">Next cell costs ${CONFIG.upgradeGoldCost} gold. White = active, gray = unlocked, gold = next buy.</p>
@@ -455,19 +500,93 @@ export class UI {
     document.body.appendChild(this.mainMenuEl);
 
     this.mainMenuPanel = this.mainMenuEl.querySelector('#main-menu-panel')!;
-    this.trackMenuPanel = this.mainMenuEl.querySelector('#track-menu-panel')!;
+    this.tapeMenuPanel = this.mainMenuEl.querySelector('#tape-menu-panel')!;
+    this.tapeMenuRecorderEl = document.createElement('img');
+    this.tapeMenuRecorderEl.id = 'tape-menu-recorder';
+    this.tapeMenuRecorderEl.className = 'tape-menu-recorder';
+    this.tapeMenuRecorderEl.src = '/assets/tapes/recorder.png';
+    this.tapeMenuRecorderEl.alt = '';
+    this.tapeMenuRecorderEl.hidden = true;
+    this.tapeMenuRecorderEl.draggable = false;
+    this.mainMenuEl.appendChild(this.tapeMenuRecorderEl);
+
+    this.tapeMenuHintEl = document.createElement('div');
+    this.tapeMenuHintEl.id = 'tape-menu-hint';
+    this.tapeMenuHintEl.className = 'tape-menu-hint';
+    this.tapeMenuHintEl.hidden = true;
+    this.tapeMenuHintEl.innerHTML = `
+      <p>Tapes are your ultimate. Choose a cassette for this run.</p>
+      <p>Each stage hits harder — and sends you into rhythm play. Press <span class="tape-menu-hint__key">E</span> to trigger it.</p>
+      <p>Vaults in-game may drop fragments. Circles below unlock stage by stage.</p>
+    `;
+    this.mainMenuEl.appendChild(this.tapeMenuHintEl);
+
+    this.tapeFragmentToastEl = document.createElement('div');
+    this.tapeFragmentToastEl.className = 'tape-fragment-toast tape-fragment-toast--hidden';
+    this.tapeFragmentToastEl.setAttribute('aria-live', 'polite');
+    document.body.appendChild(this.tapeFragmentToastEl);
+
+    this.tapeBackBtn = this.mainMenuEl.querySelector('#tape-back')!;
     this.titlesMenuPanel = this.mainMenuEl.querySelector('#titles-menu-panel')!;
+    this.titlesBackBtn = this.mainMenuEl.querySelector('#titles-back')!;
+    this.guidesMenuPanel = this.mainMenuEl.querySelector('#guides-menu-panel')!;
+    this.guidesBackBtn = this.mainMenuEl.querySelector('#guides-back')!;
     this.highScoreMenuPanel = this.mainMenuEl.querySelector('#highscore-menu-panel')!;
+    this.highScoreBackBtn = this.mainMenuEl.querySelector('#highscore-back')!;
     this.highScoreMenuList = this.mainMenuEl.querySelector('#highscore-menu-list')!;
+    this.globalLeaderboardListEl = this.mainMenuEl.querySelector(
+      '#global-leaderboard-list',
+    )!;
+    this.globalLeaderboardTabEls = Array.from(
+      this.mainMenuEl.querySelectorAll<HTMLButtonElement>(
+        '.global-leaderboard__tab',
+      ),
+    );
+    const globalLeaderboardPanel = this.mainMenuEl.querySelector(
+      '#global-leaderboard-panel',
+    ) as HTMLElement | null;
+    if (globalLeaderboardPanel) {
+      globalLeaderboardPanel.hidden = !isLeaderboardApiConfigured();
+    }
+    for (const tab of this.globalLeaderboardTabEls) {
+      tab.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const cheatMode = tab.dataset.cheatMode === 'true';
+        void this.setGlobalLeaderboardTab(cheatMode);
+      });
+    }
+
+    this.nicknameModalEl = document.createElement('div');
+    this.nicknameModalEl.id = 'nickname-modal';
+    this.nicknameModalEl.className = 'nickname-modal';
+    this.nicknameModalEl.hidden = true;
+    this.nicknameModalEl.setAttribute('role', 'dialog');
+    this.nicknameModalEl.setAttribute('aria-modal', 'true');
+    this.nicknameModalEl.innerHTML = `
+      <div class="nickname-modal__panel">
+        <p class="menu-sub-line menu-sub-line--heading">Choose a nickname</p>
+        <p class="menu-sub-line menu-sub-line--dim">Shown on the global leaderboard.</p>
+        <input id="nickname-modal-input" class="nickname-modal__input" type="text" maxlength="24" autocomplete="nickname" placeholder="Nickname" />
+        <div class="nickname-modal__actions">
+          <button id="nickname-modal-ok" type="button" class="game-overlay__btn">OK</button>
+          <button id="nickname-modal-skip" type="button" class="game-overlay__btn game-overlay__btn--secondary">Skip</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(this.nicknameModalEl);
+    this.nicknameInputEl = this.nicknameModalEl.querySelector(
+      '#nickname-modal-input',
+    ) as HTMLInputElement;
+
     this.buildTitlesMenu();
     this.buildHighScoreMenu();
-    this.trackMenuList = this.mainMenuEl.querySelector('#track-menu-list')!;
+    this.tapeCassetteRack = this.tapeMenuPanel;
     this.currentTrackEl = this.mainMenuEl.querySelector('#main-menu-track-current')!;
     this.upgradeMenuPanel = this.mainMenuEl.querySelector('#upgrade-menu-panel')!;
     this.upgradeMenuRows = this.mainMenuEl.querySelector('#upgrade-menu-rows')!;
     this.upgradeVaultRow = this.mainMenuEl.querySelector('#upgrade-vault-row')!;
     this.buildUpgradeCellRows();
-    this.buildTrackMenu();
+    this.buildTapeCassetteRack();
     this.bindUpgradeMenuControls();
 
     this.deathScreenEl = document.createElement('div');
@@ -479,7 +598,7 @@ export class UI {
       <div class="game-overlay__panel game-overlay__panel--death">
         <p class="game-overlay__death-title">You died</p>
         <div class="game-overlay__death-stats">
-          <p><span class="game-overlay__death-stat-label">Run time</span> <span id="death-stat-time" class="game-overlay__death-stat-val">0.00</span> s</p>
+          <p><span class="game-overlay__death-stat-label">Score</span> <span id="death-stat-time" class="game-overlay__death-stat-val">0</span></p>
           <p><span class="game-overlay__death-stat-label">Mobs killed</span> <span id="death-stat-kills" class="game-overlay__death-stat-val">0</span></p>
           <p><span class="game-overlay__death-stat-label">Level</span> <span id="death-stat-level" class="game-overlay__death-stat-val">1</span></p>
         </div>
@@ -494,6 +613,23 @@ export class UI {
     this.deathStatTimeEl = this.deathScreenEl.querySelector('#death-stat-time')!;
     this.deathStatKillsEl = this.deathScreenEl.querySelector('#death-stat-kills')!;
     this.deathStatLevelEl = this.deathScreenEl.querySelector('#death-stat-level')!;
+
+    this.pauseOverlayEl = document.createElement('div');
+    this.pauseOverlayEl.className = 'game-overlay game-overlay--pause';
+    this.pauseOverlayEl.hidden = true;
+    this.pauseOverlayEl.setAttribute('role', 'dialog');
+    this.pauseOverlayEl.setAttribute('aria-modal', 'true');
+    this.pauseOverlayEl.setAttribute('aria-label', 'Pause');
+    this.pauseOverlayEl.innerHTML = `
+      <div class="pause-menu">
+        <button id="pause-continue" type="button" class="pause-menu__btn">CONTINUE</button>
+        <button id="pause-main-menu" type="button" class="pause-menu__btn">MAIN MENU</button>
+      </div>
+    `;
+    this.pauseOverlayEl.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+    });
+    document.body.appendChild(this.pauseOverlayEl);
 
     this.runUpgradeOverlayEl = document.createElement('div');
     this.runUpgradeOverlayEl.className = 'game-overlay game-overlay--run-upgrade';
@@ -597,6 +733,10 @@ export class UI {
           const artSlot = document.createElement('span');
           artSlot.className = 'run-upgrade-card__art';
           artSlot.setAttribute('aria-hidden', 'true');
+          const artUrl = getRunUpgradeArtUrl(choice.id);
+          if (artUrl) {
+            artSlot.style.setProperty('--run-upgrade-art-url', `url("${artUrl}")`);
+          }
           button.append(title, desc, artSlot);
         }
         return button;
@@ -617,12 +757,12 @@ export class UI {
   }
 
   setDeathScreenRunSummary(opts: {
-    survivedSec: number;
+    score: number;
     kills: number;
     level: number;
   }): void {
-    const sec = Math.max(0, Number.isFinite(opts.survivedSec) ? opts.survivedSec : 0);
-    this.deathStatTimeEl.textContent = sec.toFixed(2);
+    const score = Math.max(0, Math.floor(Number.isFinite(opts.score) ? opts.score : 0));
+    this.deathStatTimeEl.textContent = String(score);
     this.deathStatKillsEl.textContent = String(Math.max(0, Math.floor(opts.kills)));
     this.deathStatLevelEl.textContent = String(Math.max(1, Math.floor(opts.level)));
   }
@@ -828,10 +968,17 @@ export class UI {
   }
 
   private hideAllMenuSubpanels(): void {
-    this.trackMenuPanel.hidden = true;
+    this.tapeMenuPanel.hidden = true;
+    this.tapeMenuRecorderEl.hidden = true;
+    this.tapeMenuHintEl.hidden = true;
+    this.tapeBackBtn.hidden = true;
     this.upgradeMenuPanel.hidden = true;
     this.titlesMenuPanel.hidden = true;
+    this.titlesBackBtn.hidden = true;
+    this.guidesMenuPanel.hidden = true;
+    this.guidesBackBtn.hidden = true;
     this.highScoreMenuPanel.hidden = true;
+    this.highScoreBackBtn.hidden = true;
   }
 
   private openUpgradeMenu(): void {
@@ -847,11 +994,174 @@ export class UI {
     this.mainMenuPanel.hidden = false;
   }
 
+  private openGuidesMenu(): void {
+    this.hideAllMenuSubpanels();
+    this.mainMenuPanel.hidden = true;
+    this.guidesMenuPanel.hidden = false;
+    this.guidesBackBtn.hidden = false;
+  }
+
+  private closeGuidesMenu(): void {
+    this.hideAllMenuSubpanels();
+    this.mainMenuPanel.hidden = false;
+  }
+
   private openHighScoreMenu(): void {
     this.buildHighScoreMenu();
     this.hideAllMenuSubpanels();
     this.mainMenuPanel.hidden = true;
     this.highScoreMenuPanel.hidden = false;
+    this.highScoreBackBtn.hidden = false;
+    void this.loadGlobalLeaderboard(this.globalLeaderboardCheatMode);
+  }
+
+  ensureOnlinePlayerProfile(): void {
+    void ensureOnlinePlayer(() => this.promptNickname());
+  }
+
+  /** Dev-only: open BEST SCORE (used by Playwright / `window.__gameDev`). */
+  openBestScoreMenuForDev(): void {
+    this.openHighScoreMenu();
+  }
+
+  /** Dev-only: refresh global leaderboard list. */
+  reloadGlobalLeaderboardForDev(cheatMode: boolean): void {
+    void this.loadGlobalLeaderboard(cheatMode);
+  }
+
+  private promptNickname(): Promise<string | null> {
+    return new Promise((resolve) => {
+      this.nicknameModalEl.hidden = false;
+      this.nicknameInputEl.value = '';
+      this.nicknameInputEl.focus();
+
+      const finish = (value: string | null) => {
+        this.nicknameModalEl.hidden = true;
+        okBtn.removeEventListener('click', onOk);
+        skipBtn.removeEventListener('click', onSkip);
+        this.nicknameInputEl.removeEventListener('keydown', onKey);
+        resolve(value);
+      };
+
+      const onOk = () => {
+        finish(this.nicknameInputEl.value);
+      };
+      const onSkip = () => {
+        finish(null);
+      };
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          onOk();
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          onSkip();
+        }
+      };
+
+      const okBtn = this.nicknameModalEl.querySelector(
+        '#nickname-modal-ok',
+      ) as HTMLButtonElement;
+      const skipBtn = this.nicknameModalEl.querySelector(
+        '#nickname-modal-skip',
+      ) as HTMLButtonElement;
+      okBtn.addEventListener('click', onOk);
+      skipBtn.addEventListener('click', onSkip);
+      this.nicknameInputEl.addEventListener('keydown', onKey);
+    });
+  }
+
+  private async setGlobalLeaderboardTab(cheatMode: boolean): Promise<void> {
+    this.globalLeaderboardCheatMode = cheatMode;
+    for (const tab of this.globalLeaderboardTabEls) {
+      const active = tab.dataset.cheatMode === (cheatMode ? 'true' : 'false');
+      tab.classList.toggle('global-leaderboard__tab--active', active);
+    }
+    await this.loadGlobalLeaderboard(cheatMode);
+  }
+
+  private async loadGlobalLeaderboard(cheatMode: boolean): Promise<void> {
+    if (!isLeaderboardApiConfigured()) {
+      this.globalLeaderboardListEl.replaceChildren();
+      console.info(
+        '[Leaderboard] global leaderboard hidden — API unavailable (VITE_API_BASE_URL not set)',
+      );
+      return;
+    }
+
+    this.globalLeaderboardListEl.replaceChildren();
+    const loading = document.createElement('p');
+    loading.className = 'menu-sub-line menu-sub-line--dim';
+    loading.textContent = 'Loading…';
+    this.globalLeaderboardListEl.appendChild(loading);
+
+    const entries = await fetchLeaderboard(cheatMode, 50);
+    if (entries === null) {
+      this.globalLeaderboardListEl.replaceChildren();
+      const err = document.createElement('p');
+      err.className = 'menu-sub-line menu-sub-line--dim';
+      err.textContent = 'Could not load leaderboard.';
+      this.globalLeaderboardListEl.appendChild(err);
+      console.warn('[Leaderboard] leaderboard load failed — API unavailable');
+      return;
+    }
+
+    console.info(
+      `[Leaderboard] leaderboard loaded: ${entries.length} entries (${cheatMode ? 'cheat' : 'normal'})`,
+    );
+    this.renderGlobalLeaderboard(entries, cheatMode);
+  }
+
+  private renderGlobalLeaderboard(
+    entries: LeaderboardEntry[],
+    cheatMode: boolean,
+  ): void {
+    this.globalLeaderboardListEl.replaceChildren();
+    const player = getStoredPlayer();
+
+    if (!entries.length) {
+      const empty = document.createElement('p');
+      empty.className = 'menu-sub-line menu-sub-line--dim';
+      empty.textContent = 'No scores yet.';
+      this.globalLeaderboardListEl.appendChild(empty);
+      return;
+    }
+
+    entries.forEach((entry, index) => {
+      const row = document.createElement('div');
+      row.className = 'global-leaderboard__row';
+      if (player && entry.playerId === player.playerId) {
+        row.classList.add('global-leaderboard__row--self');
+      }
+
+      const rank = document.createElement('span');
+      rank.className = 'global-leaderboard__rank';
+      rank.textContent = String(index + 1);
+
+      const nick = document.createElement('span');
+      nick.className = 'global-leaderboard__nick';
+      nick.textContent = entry.nickname;
+
+      const scoreEl = document.createElement('span');
+      scoreEl.className = 'global-leaderboard__score';
+      scoreEl.textContent = String(entry.score);
+
+      const track = document.createElement('span');
+      track.className = 'global-leaderboard__track';
+      track.textContent = entry.trackName ?? entry.trackId ?? '—';
+
+      row.append(rank, nick, scoreEl, track);
+
+      if (cheatMode) {
+        const badge = document.createElement('span');
+        badge.className = 'global-leaderboard__cheat-badge';
+        badge.textContent = 'CHEAT';
+        row.appendChild(badge);
+      }
+
+      this.globalLeaderboardListEl.appendChild(row);
+    });
   }
 
   private closeHighScoreMenu(): void {
@@ -863,6 +1173,7 @@ export class UI {
     this.hideAllMenuSubpanels();
     this.mainMenuPanel.hidden = true;
     this.titlesMenuPanel.hidden = false;
+    this.titlesBackBtn.hidden = false;
   }
 
   private closeTitlesMenu(): void {
@@ -874,29 +1185,29 @@ export class UI {
     this.highScoreMenuList.replaceChildren();
     const boards: { id: HighScoreBoardId; title: string }[] = [
       { id: 'normal', title: 'Normal' },
-      { id: 'cheat', title: 'Cheat mode' },
+      { id: 'cheat', title: 'Cheat Mode' },
     ];
     for (const board of boards) {
-      const section = document.createElement('section');
-      section.className = 'highscore-board';
+      const col = document.createElement('div');
+      col.className = 'highscore-menu__col';
 
-      const heading = document.createElement('h3');
-      heading.className = 'highscore-board__title';
+      const heading = document.createElement('p');
+      heading.className = 'menu-sub-line menu-sub-line--heading';
       heading.textContent = board.title;
-      section.appendChild(heading);
+      col.appendChild(heading);
 
       const rec = getHighScore(board.id);
-      const time = document.createElement('p');
-      time.className = 'highscore-board__time';
-      time.textContent = rec ? formatHighScoreTime(rec.survivedSec) : '—';
-      section.appendChild(time);
+      const scoreLine = document.createElement('p');
+      scoreLine.className = 'menu-sub-line';
+      scoreLine.textContent = rec ? formatHighScoreScore(rec.score) : '—';
+      col.appendChild(scoreLine);
 
       const tape = document.createElement('p');
-      tape.className = 'highscore-board__tape';
+      tape.className = 'menu-sub-line menu-sub-line--dim';
       tape.textContent = rec ? formatHighScoreTape(rec) : 'No run yet';
-      section.appendChild(tape);
+      col.appendChild(tape);
 
-      this.highScoreMenuList.appendChild(section);
+      this.highScoreMenuList.appendChild(col);
     }
   }
 
@@ -904,66 +1215,86 @@ export class UI {
     const root = this.titlesMenuPanel.querySelector('.titles-menu');
     if (!root) return;
     root.replaceChildren();
-    const blocks: { heading: string; lines: string[] }[] = [
-      { heading: 'Soundtrack by:', lines: ['Varia.fx', 'Ohota'] },
-      { heading: 'VibeCoded by', lines: ['Larik (Codex, Cursor)'] },
-      { heading: 'Art by', lines: ['Larik / Nastya Trems'] },
+    const lines: { text: string; heading?: boolean }[] = [
+      { text: 'Soundtrack by:', heading: true },
+      { text: 'Varia.fx' },
+      { text: 'Ohota' },
+      { text: 'VibeCoded by', heading: true },
+      { text: 'Larik (Codex, Cursor)' },
+      { text: 'Art by', heading: true },
+      { text: 'Larik / Nastya Trems' },
     ];
-    for (const block of blocks) {
-      const section = document.createElement('section');
-      section.className = 'titles-credits__block';
-      const heading = document.createElement('div');
-      heading.className = 'titles-credits__heading';
-      heading.textContent = block.heading;
-      section.appendChild(heading);
-      for (const line of block.lines) {
-        const p = document.createElement('p');
-        p.className = 'titles-credits__line';
-        p.textContent = line;
-        section.appendChild(p);
-      }
-      root.appendChild(section);
+    for (const line of lines) {
+      const p = document.createElement('p');
+      p.className = line.heading
+        ? 'menu-sub-line menu-sub-line--heading'
+        : 'menu-sub-line';
+      p.textContent = line.text;
+      root.appendChild(p);
     }
   }
 
-  private buildTrackMenu(): void {
-    this.trackMenuList.replaceChildren();
-    for (const track of TRACK_CATALOG) {
-      const section = document.createElement('section');
-      section.className = 'track-menu__section';
+  private buildTapeCassetteRack(): void {
+    this.tapeCassetteRack.replaceChildren();
+    for (const tape of TAPE_CASSETTES) {
+      const track = TRACK_CATALOG.find((entry) => entry.id === tape.trackId);
+      const col = document.createElement('div');
+      col.className = 'tape-cassette-column';
+      col.dataset.trackId = tape.trackId;
 
-      const title = document.createElement('div');
-      title.className = 'track-menu__title';
-      title.textContent = track.label;
-      section.appendChild(title);
+      const cassette = document.createElement('button');
+      cassette.type = 'button';
+      cassette.className = 'tape-cassette';
+      cassette.dataset.trackId = tape.trackId;
+      cassette.setAttribute(
+        'aria-label',
+        `${track?.label ?? tape.id}, highest stage`,
+      );
+      const img = document.createElement('img');
+      img.className = 'tape-cassette__img';
+      img.src = tape.imageUrl;
+      img.alt = track?.label ?? '';
+      img.draggable = false;
+      cassette.appendChild(img);
+      col.appendChild(cassette);
 
       const stages = document.createElement('div');
-      stages.className = 'track-menu__stages';
-      for (const stage of track.stages) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'track-stage-btn';
-        btn.dataset.trackId = track.id;
-        btn.dataset.stageId = stage.id;
-        btn.disabled = !stage.enabled;
-        btn.title = stage.enabled
-          ? `${stage.audioUrl} | ${stage.beatmapUrl}`
-          : `Add files: ${stage.audioUrl} and ${stage.beatmapUrl}`;
-        btn.innerHTML = `
-          <span class="track-stage-btn__name">${stage.label}</span>
-          <span class="track-stage-btn__meta">${stage.enabled ? 'Ready' : 'No files yet'}</span>
-        `;
-        stages.appendChild(btn);
+      stages.className = 'tape-cassette-stages';
+      stages.setAttribute('role', 'group');
+      stages.setAttribute('aria-label', `${track?.label ?? tape.id} stage`);
+      for (const stage of track?.stages ?? []) {
+        const unlocked = isTapeStageUnlocked(tape.trackId, stage.stage);
+        const dot = document.createElement('button');
+        dot.type = 'button';
+        dot.className = 'tape-stage-dot';
+        if (!unlocked) {
+          dot.classList.add('tape-stage-dot--locked');
+        }
+        dot.dataset.trackId = tape.trackId;
+        dot.dataset.stageId = stage.id;
+        dot.disabled = !stage.enabled || !unlocked;
+        dot.title = !stage.enabled
+          ? 'Not available'
+          : unlocked
+            ? stage.label
+            : 'Unlock with a fragment from a Vault';
+        dot.setAttribute('aria-label', stage.label);
+        dot.setAttribute('aria-pressed', 'false');
+        stages.appendChild(dot);
       }
-      section.appendChild(stages);
-      this.trackMenuList.appendChild(section);
+      col.appendChild(stages);
+      this.tapeCassetteRack.appendChild(col);
     }
   }
 
   private openTrackMenu(): void {
     this.hideAllMenuSubpanels();
     this.mainMenuPanel.hidden = true;
-    this.trackMenuPanel.hidden = false;
+    this.buildTapeCassetteRack();
+    this.tapeMenuPanel.hidden = false;
+    this.tapeMenuRecorderEl.hidden = false;
+    this.tapeMenuHintEl.hidden = false;
+    this.tapeBackBtn.hidden = false;
   }
 
   private closeTrackMenu(): void {
@@ -974,10 +1305,32 @@ export class UI {
   setSelectedTrackStage(stage: TrackStage): void {
     const track = findTrackForStage(stage.id);
     this.currentTrackEl.textContent = `${track?.label ?? 'Track'} / ${stage.label}`;
-    const buttons = this.trackMenuList.querySelectorAll<HTMLButtonElement>('.track-stage-btn');
-    for (const btn of buttons) {
-      btn.classList.toggle('track-stage-btn--selected', btn.dataset.stageId === stage.id);
+    const columns = this.tapeCassetteRack.querySelectorAll<HTMLElement>('.tape-cassette-column');
+    for (const col of columns) {
+      col.classList.toggle('tape-cassette-column--active', col.dataset.trackId === track?.id);
     }
+    const dots = this.tapeCassetteRack.querySelectorAll<HTMLButtonElement>('.tape-stage-dot');
+    for (const dot of dots) {
+      const selected = dot.dataset.stageId === stage.id;
+      const trackId = dot.dataset.trackId ?? '';
+      const stageNo = findTrackStage(trackId, dot.dataset.stageId ?? '')?.stage ?? 0;
+      const unlocked = stageNo > 0 && isTapeStageUnlocked(trackId, stageNo);
+      dot.classList.toggle('tape-stage-dot--selected', selected && unlocked);
+      dot.classList.toggle('tape-stage-dot--locked', !unlocked);
+      dot.setAttribute('aria-pressed', selected && unlocked ? 'true' : 'false');
+    }
+  }
+
+  showTapeFragmentUnlocked(trackLabel: string, stageLabel: string): void {
+    this.tapeFragmentToastEl.textContent = `Tape fragment — ${trackLabel} · ${stageLabel}`;
+    this.tapeFragmentToastEl.classList.remove('tape-fragment-toast--hidden');
+    if (this.tapeFragmentToastHideTimer !== null) {
+      window.clearTimeout(this.tapeFragmentToastHideTimer);
+    }
+    this.tapeFragmentToastHideTimer = window.setTimeout(() => {
+      this.tapeFragmentToastHideTimer = null;
+      this.tapeFragmentToastEl.classList.add('tape-fragment-toast--hidden');
+    }, 2800);
   }
 
   onTrackStageSelected(handler: (stage: TrackStage) => void): void {
@@ -989,9 +1342,17 @@ export class UI {
       e.stopPropagation();
       this.openTrackMenu();
     });
-    this.mainMenuEl.querySelector('#track-back')!.addEventListener('click', (e) => {
+    this.tapeBackBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.closeTrackMenu();
+    });
+    this.mainMenuEl.querySelector('#main-menu-guides')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.openGuidesMenu();
+    });
+    this.mainMenuEl.querySelector('#guides-back')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closeGuidesMenu();
     });
     this.mainMenuEl.querySelector('#main-menu-highscore')!.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1009,19 +1370,30 @@ export class UI {
       e.stopPropagation();
       this.closeTitlesMenu();
     });
-    this.trackMenuList.addEventListener('click', (e) => {
+    this.tapeCassetteRack.addEventListener('click', (e) => {
       e.stopPropagation();
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
-      const btn = target.closest<HTMLButtonElement>('.track-stage-btn');
-      if (!btn || btn.disabled) return;
-      const trackId = btn.dataset.trackId;
-      const stageId = btn.dataset.stageId;
-      if (!trackId || !stageId) return;
-      const stage = findTrackStage(trackId, stageId);
-      if (!stage || !stage.enabled) return;
+
+      const dot = target.closest<HTMLButtonElement>('.tape-stage-dot');
+      if (dot) {
+        if (dot.disabled) return;
+        const trackId = dot.dataset.trackId;
+        const stageId = dot.dataset.stageId;
+        if (!trackId || !stageId) return;
+        const stage = findTrackStage(trackId, stageId);
+        if (!stage || !isTapeStagePlayable(stage)) return;
+        this.trackStageSelectHandler?.(stage);
+        return;
+      }
+
+      const cassette = target.closest<HTMLButtonElement>('.tape-cassette');
+      if (!cassette) return;
+      const trackId = cassette.dataset.trackId;
+      if (!trackId) return;
+      const stage = getHighestUnlockedTrackStage(trackId);
+      if (!stage) return;
       this.trackStageSelectHandler?.(stage);
-      this.closeTrackMenu();
     });
 
     this.mainMenuEl.querySelector('#main-menu-upgrade')!.addEventListener('click', (e) => {
@@ -1148,9 +1520,21 @@ export class UI {
    * During a run: minimal HUD (XP only) unless cheat mode (full dev panels).
    * Main menu: hide gameplay HUD.
    */
-  setWalletGold(total: number): void {
-    const g = Math.max(0, Math.floor(Number.isFinite(total) ? total : 0));
+  /** Top-left wallet: persistent gold (+ run gold from caller); run mana when `mana` is set. */
+  setWalletDisplay(gold: number, mana: number | null): void {
+    const g = Math.max(0, Math.floor(Number.isFinite(gold) ? gold : 0));
     this.walletGoldEl.textContent = String(g);
+    if (mana === null) {
+      this.walletManaGroupEl.hidden = true;
+      return;
+    }
+    this.walletManaGroupEl.hidden = false;
+    const m = Math.max(0, Math.floor(Number.isFinite(mana) ? mana : 0));
+    this.walletManaEl.textContent = String(m);
+  }
+
+  setWalletGold(total: number): void {
+    this.setWalletDisplay(total, null);
   }
 
   syncRunHudLayout(layout: 'menu' | 'run', cheatMode: boolean): void {
@@ -1186,10 +1570,10 @@ export class UI {
     this.runKillsEl.textContent = String(n);
   }
 
-  /** Seconds elapsed in the current run (gameplay); menu uses `0`. */
-  setRunRoundElapsedSec(sec: number): void {
-    const s = Number.isFinite(sec) ? Math.max(0, sec) : 0;
-    this.beatRoundTimerEl.textContent = s.toFixed(2);
+  /** Current run score (gameplay); menu uses `0`. */
+  setRunScore(score: number): void {
+    const n = Math.max(0, Math.floor(Number.isFinite(score) ? score : 0));
+    this.beatRoundTimerEl.textContent = String(n);
   }
 
   /**
@@ -1369,6 +1753,30 @@ export class UI {
       e.stopPropagation();
       handler();
     });
+  }
+
+  onPauseContinue(handler: () => void): void {
+    const btn = this.pauseOverlayEl.querySelector('#pause-continue')!;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handler();
+    });
+  }
+
+  onPauseMainMenu(handler: () => void): void {
+    const btn = this.pauseOverlayEl.querySelector('#pause-main-menu')!;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handler();
+    });
+  }
+
+  showPauseMenu(): void {
+    this.pauseOverlayEl.hidden = false;
+  }
+
+  hidePauseMenu(): void {
+    this.pauseOverlayEl.hidden = true;
   }
 
   isCheatModeEnabled(): boolean {

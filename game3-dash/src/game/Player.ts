@@ -92,6 +92,8 @@ export class Player {
 
   /** Remaining post-dash invulnerability (seconds). */
   private postDashInvulnLeft = 0;
+  /** Remaining invulnerability after taking damage (seconds). */
+  private damageInvulnLeft = 0;
 
   /** Backward micro-dash after main dash (seconds remaining). */
   private microDashTimeLeft = 0;
@@ -334,6 +336,7 @@ export class Player {
   isInvulnerable(): boolean {
     return (
       this.postDashInvulnLeft > 0 ||
+      this.damageInvulnLeft > 0 ||
       this.dash.timeLeft > 0 ||
       this.microDashTimeLeft > 0 ||
       this.tankClipSlideActive
@@ -739,6 +742,7 @@ export class Player {
     this.mesh.position.set(0, CONFIG.floorY + CONFIG.playerRadius, 0);
     this.dash.reset();
     this.postDashInvulnLeft = 0;
+    this.damageInvulnLeft = 0;
     this.microDashTimeLeft = 0;
     this.microDashSpeed = 0;
     this.mainDashTravel = 0;
@@ -795,6 +799,7 @@ export class Player {
    * Run after `resolveDashKills` so `clipDashPastTank` can still see `dash.timeLeft > 0` on the frame a sweep hits.
    */
   tickDashAfterHits(dt: number, reverseDashArtifactEnabled: boolean): void {
+    this.damageInvulnLeft = Math.max(0, this.damageInvulnLeft - dt);
     if (this.tankClipSlideActive) {
       this.postDashInvulnLeft = Math.max(0, this.postDashInvulnLeft - dt);
       this.applyInvulnVisualAndPulse();
@@ -1594,9 +1599,11 @@ export class Player {
     this.hp = Math.max(0, this.hp - amount);
     if (this.hp < before) {
       this.shieldRegenNoDamageSec = 0;
+      this.damageInvulnLeft = CONFIG.damageInvulnerabilitySec;
     }
     if (this.hp <= 0) {
       this.postDashInvulnLeft = 0;
+      this.damageInvulnLeft = 0;
       this.microDashTimeLeft = 0;
       this.applyNormalColors();
     }

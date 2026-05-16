@@ -25,6 +25,7 @@ const ENEMY_SPRITE_URLS: Partial<Record<EnemyKind, string>> = {
   shooter: '/assets/enemies/shooter/idle.png',
   tank: '/assets/enemies/tank/idle.png',
   angel: '/assets/enemies/angel/idle.png',
+  vault: '/assets/enemies/vault/vault_1.png',
 };
 const ENEMY_DEATH_SPRITE_URLS: Partial<Record<EnemyKind, string>> = {
   normal: '/assets/enemies/normal/mob_death.png',
@@ -64,14 +65,15 @@ function rollIntInclusive(min: number, max: number): number {
   return a + Math.floor(Math.random() * (b - a + 1));
 }
 
-function createCurvedAngelShieldGeometry(
+function createCurvedShieldGeometry(
   halfLen: number,
   height: number,
   depth: number,
   curveSign: number,
+  bulgeMult: number,
 ): THREE.BufferGeometry {
   const segs = 10;
-  const bulge = depth * 1.45;
+  const bulge = depth * bulgeMult;
   const verts: number[] = [];
   const indices: number[] = [];
   for (let i = 0; i <= segs; i++) {
@@ -209,7 +211,7 @@ export class Enemy {
       body.position.y = CONFIG.vaultBodyThickness * 0.5;
       body.castShadow = true;
       this.mesh.add(body);
-      const spriteScale = isAngel ? 1 / 1.25 : 1;
+      const spriteScale = isAngel ? 1 / 1.25 : 1.15 * 0.93 * 0.93 * 0.85 * 1.03;
       const sprite = addEnemySprite(this.mesh, kind, R, 0.08, spriteScale);
       if (sprite) {
         this.facingSpritePivot = sprite.pivot;
@@ -241,16 +243,19 @@ export class Enemy {
         const layers = isAngel ? this.angelShieldLayersPerSide : 1;
         for (let layer = 0; layer < layers; layer++) {
           const shieldGeo = isAngel
-            ? createCurvedAngelShieldGeometry(
+            ? createCurvedShieldGeometry(
                 this.vaultEdgeHalfLen * (0.82 + layer * CONFIG.angelShieldLayerLengthStep),
                 CONFIG.vaultShieldStripHeight,
                 CONFIG.vaultShieldStripDepth,
                 curveSign,
+                1.45,
               )
-            : new THREE.BoxGeometry(
-                this.vaultEdgeHalfLen * 2,
+            : createCurvedShieldGeometry(
+                this.vaultEdgeHalfLen,
                 CONFIG.vaultShieldStripHeight,
                 CONFIG.vaultShieldStripDepth,
+                curveSign,
+                1.05,
               );
           const strip = new THREE.Mesh(
             shieldGeo,
@@ -741,7 +746,7 @@ export class Enemy {
   }
 
   faceTarget(targetX: number, targetZ: number): void {
-    if (!this.facingSpritePivot) return;
+    if (!this.facingSpritePivot || this.kind === 'vault') return;
     const dx = targetX - this.mesh.position.x;
     const dz = targetZ - this.mesh.position.z;
     if (Math.hypot(dx, dz) <= 1e-4) return;

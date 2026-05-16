@@ -17,6 +17,8 @@ import { AudioManager } from './AudioManager.ts';
 import { BeatEffects } from './BeatEffects.ts';
 import { addPlayerGold, getPlayerGold } from './PlayerGold.ts';
 import { submitHighScore } from './HighScores.ts';
+import { installLeaderboardDevTools } from './leaderboard/LeaderboardDevTools.ts';
+import { syncRunToLeaderboard } from './leaderboard/LeaderboardSync.ts';
 import { LensDistortionPass } from './render/LensDistortionPass.ts';
 import { DitherPass } from './render/DitherPass.ts';
 import { getConfiguredStorageObstacleDisk } from './ObstacleAvoidance.ts';
@@ -36,6 +38,11 @@ import {
   getDefaultTrackStage,
   type TrackStage,
 } from './TrackCatalog.ts';
+import {
+  getDefaultPlayableTrackStage,
+  isTapeStagePlayable,
+  tryUnlockRandomTapeFragment,
+} from './TapeStageUnlocks.ts';
 import type { DitherUiSettings } from './UI.ts';
 
 type BloodPalette = readonly [number, number, number];
@@ -68,8 +75,8 @@ const SPIRAL_PATH_SMOOTH_SAMPLES_PER_SPAN = 6;
 export class Game {
   /** Outer radius of `RingGeometry` used for damage pulse (local units). */
   private static readonly DAMAGE_PULSE_RING_OUTER_LOCAL = 0.36;
-  /** Every next level requires `+5` XP more than the previous one. */
-  private static readonly RUN_XP_STEP_PER_LEVEL = 5;
+  /** Every next level requires `+10` XP more than the previous one. */
+  private static readonly RUN_XP_STEP_PER_LEVEL = 10;
   private static readonly DASH_SFX_URL = '/audio/dash_1.mp3';
   private static readonly DEATH_SFX_URL = '/audio/death_1.mp3';
   private static readonly HIT_SFX_URLS = [
@@ -138,7 +145,9 @@ export class Game {
   private readonly groundHit = new THREE.Vector3();
   private readonly vaultBearingProj = new THREE.Vector3();
   private fpsSmoothed = 0;
-  private runPhase: 'menu' | 'playing' | 'death' | 'runUpgrade' = 'menu';
+  private runPhase: 'menu' | 'playing' | 'paused' | 'death' | 'runUpgrade' = 'menu';
+  /** Beat-track was playing when pause opened; resume on continue. */
+  private beatAudioPausedForPause = false;
   /** Cheat mode checkbox at run start — used only for high-score board selection. */
   private runCheatModeActive = false;
   private deathScreenTimer = 0;
@@ -152,8 +161,11 @@ export class Game {
   private readonly runPendingUpgradeMilestones: number[] = [];
   /** Previous frame beat-track playback state (used to detect track end). */
   private wasTrackPlayingLastFrame = false;
-  /** Active run time (seconds), only while `playing`; resets each new run. */
+  /** Active run survival time (seconds); wall clock, never synced to track audio. */
   private runElapsedSec = 0;
+  private runClockStartedAtMs = 0;
+  private runClockPausedTotalMs = 0;
+  private runClockPauseStartedAtMs: number | null = null;
   private runEnemySlowLevel = 0;
   private runRocketLevel = 0;
   private runRocketTimerSec = 0;
@@ -174,6 +186,11 @@ export class Game {
   private runGold = 0;
   /** Mana picked up this run (мешки маны); пока ни на что не тратится. */
   private runMana = 0;
+  /** Bonus score from kills, track bonuses, etc. (see `getRunScore`). */
+  private runScoreBonus = 0;
+  private runScoreLastSecondFloor = -1;
+  /** Any beat miss on the current track playthrough. */
+  private currentTrackMissed = false;
   /** Post-process: render frustum scale vs gameplay ortho (lens overscan). */
   private lensOverscan = 1.35;
   /** Lens distortion from UI slider; effective value adds boost while beatmap audio plays. */
@@ -184,7 +201,8 @@ export class Game {
   private lastDeathSfxAtMs = -Infinity;
   /** Current ortho camera half-height (world units), changed by wheel zoom. */
   private cameraViewHalfExtentCurrent: number = CONFIG.cameraViewHalfExtent;
-  private selectedTrackStage: TrackStage = getDefaultTrackStage();
+  private selectedTrackStage: TrackStage =
+    getDefaultPlayableTrackStage() ?? getDefaultTrackStage();
   private beatmapLoadSerial = 0;
 
   private readonly damagePulseRings: {
@@ -415,7 +433,25 @@ export class Game {
         this.goToMainMenuAfterDeath();
       }
     });
+    this.ui.onPauseContinue(() => {
+      if (this.runPhase === 'paused') {
+        this.resumeFromPause();
+      }
+    });
+    this.ui.onPauseMainMenu(() => {
+      if (this.runPhase === 'paused') {
+        this.goToMainMenuFromPause();
+      }
+    });
     this.ui.showMainMenu();
+    this.ui.ensureOnlinePlayerProfile();
+    if (import.meta.env.DEV) {
+      installLeaderboardDevTools({
+        openBestScoreMenu: () => this.ui.openBestScoreMenuForDev(),
+        reloadGlobalLeaderboard: (cheatMode) =>
+          this.ui.reloadGlobalLeaderboardForDev(cheatMode),
+      });
+    }
     this.syncWalletGoldUi();
     void this.ensureBackgroundMusicPlaying();
     void this.initBeatmap();
@@ -639,7 +675,7 @@ export class Game {
   }
 
   private async selectTrackStage(stage: TrackStage): Promise<void> {
-    if (!stage.enabled) return;
+    if (!isTapeStagePlayable(stage)) return;
     this.selectedTrackStage = stage;
     this.ui.setSelectedTrackStage(stage);
     this.audio.pause();
@@ -672,6 +708,13 @@ export class Game {
       this.ui.setPlayEnabled(
         false,
         `During a run you need at least ${CONFIG.playTrackMinManaToActivate} mana (start: -${CONFIG.playTrackManaCost}).`,
+      );
+      return;
+    }
+    if (!isTapeStagePlayable(this.selectedTrackStage)) {
+      this.ui.setPlayEnabled(
+        false,
+        'Unlock a stage under TAPES (fragments drop from Vaults).',
       );
       return;
     }
@@ -1032,6 +1075,7 @@ export class Game {
 
   private update(dt: number): void {
     this.input.beginFrame();
+    this.syncRunSurvivalClock();
     this.updateCameraZoomFromInput();
     this.syncBeatPlayButton();
     this.updateDamagePulseRings(dt);
@@ -1061,7 +1105,7 @@ export class Game {
         this.player.getShieldRegenVisualProgress(),
       );
       this.ui.setFps(this.fpsSmoothed);
-      this.ui.setRunRoundElapsedSec(this.runElapsedSec);
+      this.syncRunScoreUi();
       this.ui.setRunKills(this.runEnemiesKilled);
       this.syncRunXpUi();
       this.syncRunLootUi();
@@ -1090,7 +1134,7 @@ export class Game {
         0,
       );
       this.ui.setFps(this.fpsSmoothed);
-      this.ui.setRunRoundElapsedSec(0);
+      this.syncRunScoreUi();
       this.ui.setRunKills(0);
       this.syncRunXpUi();
       this.runGold = 0;
@@ -1098,6 +1142,34 @@ export class Game {
       this.syncRunLootUi();
       this.ui.setVaultBearingAngle(null);
       void this.ensureBackgroundMusicPlaying();
+      return;
+    }
+
+    if (this.runPhase === 'paused') {
+      this.clearDashPastTankDebugOverlay();
+      if (this.input.consumeEscapeTrigger()) {
+        this.resumeFromPause();
+      }
+      this.beatEffects.update(dt);
+      this.updateCamera(dt);
+      const instFpsP = dt > 1e-6 ? 1 / dt : 0;
+      this.fpsSmoothed =
+        this.fpsSmoothed <= 0
+          ? instFpsP
+          : this.fpsSmoothed * 0.92 + instFpsP * 0.08;
+      this.ui.update(
+        this.player.hp,
+        getPlayerMaxHp(),
+        this.enemies.length,
+        this.player.dashCooldownRemaining,
+        this.player.getShieldRegenVisualProgress(),
+      );
+      this.ui.setFps(this.fpsSmoothed);
+      this.syncRunScoreUi();
+      this.ui.setRunKills(this.runEnemiesKilled);
+      this.syncRunXpUi();
+      this.syncRunLootUi();
+      this.ui.setVaultBearingAngle(null);
       return;
     }
 
@@ -1119,7 +1191,7 @@ export class Game {
         0,
       );
       this.ui.setFps(this.fpsSmoothed);
-      this.ui.setRunRoundElapsedSec(this.runElapsedSec);
+      this.syncRunScoreUi();
       this.ui.setRunKills(this.runEnemiesKilled);
       this.syncRunXpUi();
       this.syncRunLootUi();
@@ -1139,6 +1211,11 @@ export class Game {
       this.groundHit,
     );
 
+    if (this.input.consumeEscapeTrigger()) {
+      this.enterPause();
+      return;
+    }
+
     if (this.input.consumePlayTrackTrigger()) {
       void this.requestStartAudioPlayback();
     }
@@ -1149,7 +1226,6 @@ export class Game {
       this.spiralPreviewRibbon.visible = false;
     }
 
-    this.runElapsedSec += dt;
     const diffMult = this.getDifficultyMultiplier();
     const maxSlots = this.getMaxEnemySlots();
 
@@ -1307,7 +1383,7 @@ export class Game {
     );
     this.ui.setFps(this.fpsSmoothed);
     this.ui.setBeatHitCount(this.beatHitCount);
-    this.ui.setRunRoundElapsedSec(this.runElapsedSec);
+    this.syncRunScoreUi();
     this.ui.setRunKills(this.runEnemiesKilled);
     this.syncRunXpUi();
     this.syncRunLootUi();
@@ -1325,18 +1401,29 @@ export class Game {
       this.deathScreenTimer = 0;
       this.clearEnemyProjectiles();
       const deathLevel = this.getRunXpProgress(this.runXpTotal).level;
+      const finalScore = this.getRunScore();
       this.ui.setDeathScreenRunSummary({
-        survivedSec: this.runElapsedSec,
+        score: finalScore,
         kills: this.runEnemiesKilled,
         level: deathLevel,
       });
       const track = findTrackForStage(this.selectedTrackStage.id);
-      submitHighScore({
+      const trackLabel = track?.label ?? 'Track';
+      const trackName = `${trackLabel} / ${this.selectedTrackStage.label}`;
+      const improved = submitHighScore({
         cheatMode: this.runCheatModeActive,
-        survivedSec: this.runElapsedSec,
-        trackLabel: track?.label ?? 'Track',
+        score: finalScore,
+        trackLabel,
         stageLabel: this.selectedTrackStage.label,
       });
+      if (improved) {
+        void syncRunToLeaderboard({
+          score: finalScore,
+          trackId: track?.id ?? this.selectedTrackStage.id,
+          trackName,
+          cheatMode: this.runCheatModeActive,
+        });
+      }
       this.depositRunGold();
       this.ui.showDeathScreen();
       this.audio.pause();
@@ -2042,7 +2129,116 @@ export class Game {
 
   private damagePlayerForBeatMistake(): void {
     if (this.runPhase !== 'playing' || this.player.hp <= 0) return;
+    this.markTrackBeatMissed();
     this.damagePlayerAndPulse(1);
+  }
+
+  private resetRunSurvivalClock(): void {
+    this.runClockStartedAtMs = performance.now();
+    this.runClockPausedTotalMs = 0;
+    this.runClockPauseStartedAtMs = null;
+    this.runElapsedSec = 0;
+  }
+
+  /** Pause survival clock during upgrade modal / death / menu (not during track playback). */
+  private syncRunSurvivalClockPause(): void {
+    const shouldPause =
+      this.runPhase === 'runUpgrade' ||
+      this.runPhase === 'paused' ||
+      this.runPhase === 'death' ||
+      this.runPhase === 'menu';
+    if (shouldPause) {
+      if (this.runClockPauseStartedAtMs === null) {
+        this.runClockPauseStartedAtMs = performance.now();
+      }
+      return;
+    }
+    if (this.runClockPauseStartedAtMs !== null) {
+      this.runClockPausedTotalMs += performance.now() - this.runClockPauseStartedAtMs;
+      this.runClockPauseStartedAtMs = null;
+    }
+  }
+
+  private syncRunSurvivalClock(): void {
+    this.syncRunSurvivalClockPause();
+    if (this.runClockStartedAtMs <= 0) {
+      this.runElapsedSec = 0;
+      return;
+    }
+    let elapsedMs =
+      performance.now() - this.runClockStartedAtMs - this.runClockPausedTotalMs;
+    if (this.runClockPauseStartedAtMs !== null) {
+      elapsedMs -= performance.now() - this.runClockPauseStartedAtMs;
+    }
+    this.runElapsedSec = Math.max(0, elapsedMs / 1000);
+  }
+
+  private enterPause(): void {
+    if (this.runPhase !== 'playing') return;
+    this.runPhase = 'paused';
+    this.beatAudioPausedForPause = this.audio.isPlaying;
+    if (this.beatAudioPausedForPause) {
+      this.audio.pause();
+    }
+    this.ui.showPauseMenu();
+  }
+
+  private resumeFromPause(): void {
+    if (this.runPhase !== 'paused') return;
+    this.runPhase = 'playing';
+    this.ui.hidePauseMenu();
+    if (this.beatAudioPausedForPause) {
+      void this.audio.play().catch(() => {
+        /* playback may be blocked */
+      });
+    }
+    this.beatAudioPausedForPause = false;
+  }
+
+  private goToMainMenuFromPause(): void {
+    if (this.runPhase !== 'paused') return;
+    this.ui.hidePauseMenu();
+    this.beatAudioPausedForPause = false;
+    this.abandonRunToMainMenu();
+  }
+
+  private abandonRunToMainMenu(): void {
+    this.depositRunGold();
+    this.resetRunSurvivalClock();
+    this.runEnemiesKilled = 0;
+    this.runGold = 0;
+    this.runMana = 0;
+    this.runScoreBonus = 0;
+    this.runScoreLastSecondFloor = -1;
+    this.currentTrackMissed = false;
+    this.runXpTotal = 0;
+    this.runLevelUpsAwarded = 0;
+    this.runNextUpgradeAtXp = CONFIG.runXpPerLevel;
+    this.runPendingUpgradeMilestones.length = 0;
+    this.wasTrackPlayingLastFrame = false;
+    this.pendingDashSfx = false;
+    this.resetRunUpgradeBonuses();
+    clearRunBalanceBonuses();
+    this.ui.hideRunUpgradeModal();
+    this.ui.hidePauseMenu();
+    this.clearDamagePulseRings();
+    this.clearPhantomSplashEffects();
+    this.clearBloodEffects();
+    this.clearAllEnemies();
+    this.clearEnemyProjectiles();
+    this.hideComboOverlay();
+    this.player.resetForNewRun();
+    this.spawner.reset();
+    this.resetBeatHitTracking();
+    this.nextBeatIndex = 0;
+    this.audio.pause();
+    this.audio.reset();
+    void this.ensureBackgroundMusicPlaying();
+    this.cameraShake = 0;
+    this.deathScreenTimer = 0;
+    this.runPhase = 'menu';
+    this.ui.hideDeathScreen();
+    this.ui.showMainMenu();
   }
 
   private startGameFromMenu(): void {
@@ -2051,10 +2247,13 @@ export class Game {
     }
     clearRunBalanceBonuses();
     this.runCheatModeActive = this.ui.isCheatModeEnabled();
-    this.runElapsedSec = 0;
+    this.resetRunSurvivalClock();
     this.runEnemiesKilled = 0;
     this.runGold = 0;
     this.runMana = 0;
+    this.runScoreBonus = 0;
+    this.runScoreLastSecondFloor = -1;
+    this.currentTrackMissed = false;
     this.runXpTotal = 0;
     this.runLevelUpsAwarded = 0;
     this.runNextUpgradeAtXp = CONFIG.runXpPerLevel;
@@ -2090,8 +2289,10 @@ export class Game {
     this.syncRunHudLayout();
     this.ui.hideMainMenu();
     this.ui.hideDeathScreen();
+    this.ui.hidePauseMenu();
     this.ui.hideRunUpgradeModal();
     this.ui.setRunKills(0);
+    this.syncRunScoreUi();
     this.syncRunXpUi();
     this.syncRunLootUi();
     void this.ensureBackgroundMusicPlaying();
@@ -2111,42 +2312,16 @@ export class Game {
   }
 
   private syncWalletGoldUi(): void {
-    this.ui.setWalletGold(getPlayerGold() + this.runGold);
+    const gold = getPlayerGold() + this.runGold;
+    const inRun =
+      this.runPhase === 'playing' ||
+      this.runPhase === 'paused' ||
+      this.runPhase === 'runUpgrade';
+    this.ui.setWalletDisplay(gold, inRun ? this.runMana : null);
   }
 
   private goToMainMenuAfterDeath(): void {
-    this.depositRunGold();
-    this.runElapsedSec = 0;
-    this.runEnemiesKilled = 0;
-    this.runGold = 0;
-    this.runMana = 0;
-    this.runXpTotal = 0;
-    this.runLevelUpsAwarded = 0;
-    this.runNextUpgradeAtXp = CONFIG.runXpPerLevel;
-    this.runPendingUpgradeMilestones.length = 0;
-    this.wasTrackPlayingLastFrame = false;
-    this.pendingDashSfx = false;
-    this.resetRunUpgradeBonuses();
-    clearRunBalanceBonuses();
-    this.ui.hideRunUpgradeModal();
-    this.clearDamagePulseRings();
-    this.clearPhantomSplashEffects();
-    this.clearBloodEffects();
-    this.clearAllEnemies();
-    this.clearEnemyProjectiles();
-    this.hideComboOverlay();
-    this.player.resetForNewRun();
-    this.spawner.reset();
-    this.resetBeatHitTracking();
-    this.nextBeatIndex = 0;
-    this.audio.pause();
-    this.audio.reset();
-    void this.ensureBackgroundMusicPlaying();
-    this.cameraShake = 0;
-    this.deathScreenTimer = 0;
-    this.runPhase = 'menu';
-    this.ui.hideDeathScreen();
-    this.ui.showMainMenu();
+    this.abandonRunToMainMenu();
   }
 
   private resetBeatHitTracking(): void {
@@ -2154,6 +2329,48 @@ export class Game {
     this.beatPenaltyIndices.clear();
     this.dashSerialsWithBeatHit.clear();
     this.beatHitCount = 0;
+    this.currentTrackMissed = false;
+  }
+
+  /** Total run score: per-second survival + kill/track bonuses. */
+  private getRunScore(): number {
+    const perSecond =
+      Math.floor(this.runElapsedSec) * CONFIG.runScorePerSecond;
+    return perSecond + this.runScoreBonus;
+  }
+
+  private syncRunScoreUi(): void {
+    const secFloor = Math.floor(this.runElapsedSec);
+    if (secFloor > this.runScoreLastSecondFloor) {
+      this.runScoreLastSecondFloor = secFloor;
+    }
+    this.ui.setRunScore(this.getRunScore());
+  }
+
+  private addRunScoreBonus(amount: number): void {
+    const n = Math.floor(Number(amount));
+    if (!Number.isFinite(n) || n <= 0) return;
+    this.runScoreBonus += n;
+    this.syncRunScoreUi();
+  }
+
+  private awardKillScore(): void {
+    let add = CONFIG.runScorePerMobKill;
+    if (this.comboCount >= 2) {
+      add += CONFIG.runScorePerComboKill;
+    }
+    this.addRunScoreBonus(add);
+  }
+
+  private finalizeTrackPlaybackEnd(): void {
+    this.addRunScoreBonus(CONFIG.runScoreTrackComplete);
+    if (!this.currentTrackMissed) {
+      this.addRunScoreBonus(CONFIG.runScoreTrackPerfectBonus);
+    }
+  }
+
+  private markTrackBeatMissed(): void {
+    this.currentTrackMissed = true;
   }
 
   /** Closest beat index whose dash timing window contains `t`, or -1. */
@@ -2577,7 +2794,22 @@ export class Game {
     if (enemy.isGoldSack()) {
       this.runGold += rollResourceSackDropAmount();
     } else if (enemy.isManaSack()) {
+      if (this.audio.isPlaying) return;
       this.runMana += 10;
+    }
+  }
+
+  private tryVaultTapeFragmentDrop(): void {
+    if (Math.random() >= CONFIG.vaultTapeFragmentDropChance) return;
+    const unlock = tryUnlockRandomTapeFragment();
+    if (!unlock) return;
+    this.ui.showTapeFragmentUnlocked(unlock.trackLabel, unlock.stageLabel);
+    if (isTapeStagePlayable(this.selectedTrackStage)) {
+      return;
+    }
+    const playable = getDefaultPlayableTrackStage();
+    if (playable) {
+      void this.selectTrackStage(playable);
     }
   }
 
@@ -2586,12 +2818,14 @@ export class Game {
     let xp: number;
     if (enemy.isVault()) {
       xp = this.vaultXpFillToNextSegment();
+      this.tryVaultTapeFragmentDrop();
     } else if (enemy.isTank() || enemy.isAngel()) {
       xp = CONFIG.runXpKillTank;
     } else {
       xp = CONFIG.runXpKillMob;
     }
     this.runXpTotal += xp;
+    this.awardKillScore();
   }
 
   private maybeEnterRunUpgrade(): void {
@@ -2842,6 +3076,17 @@ export class Game {
       this.nextBeatIndex += 1;
     }
 
+    if (
+      this.audio.isPlaying &&
+      beats.length > 0 &&
+      this.nextBeatIndex >= beats.length
+    ) {
+      const lastBeat = beats[beats.length - 1]!;
+      if (now >= lastBeat.time + CONFIG.dashBeatWindowAfterSec) {
+        this.audio.pause();
+      }
+    }
+
     const nextBeatTime = this.nextBeatIndex < beats.length ? beats[this.nextBeatIndex]!.time : null;
     this.ui.setBeatDebug(now, nextBeatTime);
 
@@ -2855,6 +3100,7 @@ export class Game {
     // Detect track end edge and immediately flush queued upgrade modals.
     if (this.wasTrackPlayingLastFrame && !trackPlayingNow) {
       void this.ensureBackgroundMusicPlaying();
+      this.finalizeTrackPlaybackEnd();
       this.maybeEnterRunUpgrade();
     }
     this.wasTrackPlayingLastFrame = trackPlayingNow;

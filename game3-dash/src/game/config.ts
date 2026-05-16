@@ -53,6 +53,8 @@ export const CONFIG = {
   dashEnemyFreezeDuration: DASH_DURATION_SEC,
   /** Invulnerability after main + micro dash (seconds). */
   postDashInvulnerability: 0.15,
+  /** Invulnerability after taking damage (seconds). */
+  damageInvulnerabilitySec: 0.4,
   /** Set false to skip backward micro-dash (main dash unchanged). */
   microDashEnabled: false,
   /** Backward micro-dash duration after main dash (seconds). */
@@ -99,9 +101,9 @@ export const CONFIG = {
    * During a run (`playing` / `runUpgrade`): need at least this much mana to start the track (E or button).
    * Starting spends `playTrackManaCost` mana on success; refunded if playback fails to start.
    */
-  playTrackMinManaToActivate: 0,
+  playTrackMinManaToActivate: 25,
   /** Mana removed when the beatmap track starts during a run. */
-  playTrackManaCost: 0,
+  playTrackManaCost: 25,
   /** Delay before background music pauses after Play track starts (milliseconds). */
   backgroundMusicPauseAfterTrackStartMs: 1200,
 
@@ -126,7 +128,7 @@ export const CONFIG = {
   /** After death, show death screen this long (seconds) then return to main menu. */
   deathScreenToMenuDelaySec: 2.5,
 
-  /** Base XP for the first in-run level-up; each next level-up requires +5 more XP. */
+  /** Base XP for the first in-run level-up; each next level-up requires +10 more XP. */
   runXpPerLevel: 10,
   /** Gold spent per stat change in the main-menu upgrade screen. */
   upgradeGoldCost: 5,
@@ -134,6 +136,16 @@ export const CONFIG = {
   runXpKillMob: 1,
   /** XP for killing a tank. */
   runXpKillTank: 2,
+  /** Run score: +1 per full second survived (see `getRunScore`). */
+  runScorePerSecond: 1,
+  /** Run score per mob kill (not resource sacks). */
+  runScorePerMobKill: 1,
+  /** Run score per kill while combo is active (combo count ≥ 2). */
+  runScorePerComboKill: 3,
+  /** Run score when a beat-track playthrough finishes. */
+  runScoreTrackComplete: 200,
+  /** Extra run score when the finished track had no beat misses. */
+  runScoreTrackPerfectBonus: 400,
   /** In-run upgrade: nominal dash length in world units (+). */
   runUpgradeDashLengthDeltaWorld: 1,
   /** In-run upgrade: max shields (HP segments) (+). */
@@ -212,6 +224,8 @@ export const CONFIG = {
   vaultEveryNthSpawn: 30,
   /** Max «Хранилище» on the field at once (extra cadence spawns become normal). */
   vaultMaxSimultaneous: 1,
+  /** Chance (0–1) that destroying a vault unlocks one random locked tape stage. */
+  vaultTapeFragmentDropChance: 0.5,
   /** Navigation: base disk radius around each Storage (XZ, world units). */
   storageObstacleRadius: 6.55,
   /** Extra margin added to `storageObstacleRadius` for enemy pathing (enemy centers stay outside). */

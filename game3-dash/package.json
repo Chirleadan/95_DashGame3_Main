@@ -4,12 +4,25 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "setup:local": "node scripts/ensure-env-local.mjs",
+    "predev:all": "node scripts/ensure-env-local.mjs",
     "dev": "vite",
+    "dev:strict": "vite --port 5173 --strictPort",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:all": "concurrently -n backend,frontend -c blue,green \"npm run dev:backend\" \"npm run dev\"",
+    "test:leaderboard": "node scripts/test-leaderboard-e2e.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "node scripts/ensure-env-local.mjs && playwright test --ui",
     "build": "tsc && vite build",
+    "build:backend": "npm run build --prefix backend",
+    "build:all": "npm run build:backend && npm run build",
+    "db:migrate": "npm run db:migrate --prefix backend",
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@playwright/test": "^1.51.0",
     "@types/three": "^0.184.1",
+    "concurrently": "^9.1.2",
     "typescript": "~6.0.2",
     "vite": "^8.0.12"
   },

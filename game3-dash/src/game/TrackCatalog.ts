@@ -186,8 +186,8 @@ export const TRACK_CATALOG: readonly TrackEntry[] = [
         enabled: true,
         boost: TRACK_3_STAGE_BOOSTS[1]!,
       }),
-      makeStage(3, 2, { boost: TRACK_3_STAGE_BOOSTS[2]! }),
-      makeStage(3, 3, { boost: TRACK_3_STAGE_BOOSTS[3]! }),
+      makeStage(3, 2, { enabled: true, boost: TRACK_3_STAGE_BOOSTS[2]! }),
+      makeStage(3, 3, { enabled: true, boost: TRACK_3_STAGE_BOOSTS[3]! }),
     ],
   },
 ];
@@ -196,6 +196,20 @@ export function findTrackStage(trackId: string, stageId: string): TrackStage | n
   const track = TRACK_CATALOG.find((entry) => entry.id === trackId);
   if (!track) return null;
   return track.stages.find((stage) => stage.id === stageId) ?? null;
+}
+
+/** Highest `stage` number among file-ready stages for this track (ignores player unlocks). */
+export function getHighestEnabledTrackStage(trackId: string): TrackStage | null {
+  const track = TRACK_CATALOG.find((entry) => entry.id === trackId);
+  if (!track) return null;
+  let best: TrackStage | null = null;
+  for (const stage of track.stages) {
+    if (!stage.enabled) continue;
+    if (!best || stage.stage > best.stage) {
+      best = stage;
+    }
+  }
+  return best;
 }
 
 export function findTrackForStage(stageId: string): TrackEntry | null {

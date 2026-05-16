@@ -1,7 +1,7 @@
 export type HighScoreBoardId = 'normal' | 'cheat';
 
 export type RunHighScoreRecord = {
-  survivedSec: number;
+  score: number;
   trackLabel: string;
   stageLabel: string;
   achievedAtMs: number;
@@ -10,12 +10,12 @@ export type RunHighScoreRecord = {
 export type RunHighScoreSubmit = {
   /** Whether cheat mode was enabled when the run started. */
   cheatMode: boolean;
-  survivedSec: number;
+  score: number;
   trackLabel: string;
   stageLabel: string;
 };
 
-const STORAGE_KEY = 'game3-dash-high-scores-v2';
+const STORAGE_KEY = 'game3-dash-high-scores-v3';
 
 type StoredBoards = Partial<Record<HighScoreBoardId, RunHighScoreRecord>>;
 
@@ -28,19 +28,19 @@ function boardId(cheatMode: boolean): HighScoreBoardId {
 function sanitizeRecord(raw: unknown): RunHighScoreRecord | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Partial<RunHighScoreRecord>;
-  const survivedSec = Math.max(0, Number(o.survivedSec));
+  const score = Math.max(0, Math.floor(Number(o.score)));
   const trackLabel = typeof o.trackLabel === 'string' ? o.trackLabel.trim() : '';
   const stageLabel = typeof o.stageLabel === 'string' ? o.stageLabel.trim() : '';
   const achievedAtMs = Math.floor(Number(o.achievedAtMs));
   if (
-    !Number.isFinite(survivedSec) ||
+    !Number.isFinite(score) ||
     !Number.isFinite(achievedAtMs) ||
     !trackLabel ||
     !stageLabel
   ) {
     return null;
   }
-  return { survivedSec, trackLabel, stageLabel, achievedAtMs };
+  return { score, trackLabel, stageLabel, achievedAtMs };
 }
 
 function loadBoards(): StoredBoards {
@@ -78,28 +78,27 @@ export function getHighScore(board: HighScoreBoardId): RunHighScoreRecord | null
   return loadBoards()[board] ?? null;
 }
 
-/** Longer survival time wins. */
-export function compareSurvivalTime(aSec: number, bSec: number): number {
-  return aSec - bSec;
+export function compareScore(a: number, b: number): number {
+  return a - b;
 }
 
 /**
  * Records the run on the normal or cheat board (from `cheatMode` only).
- * Returns whether this run set a new best time on that board.
+ * Returns whether this run set a new best score on that board.
  */
 export function submitHighScore(submit: RunHighScoreSubmit): boolean {
   const board = boardId(submit.cheatMode);
-  const survivedSec = Math.max(0, submit.survivedSec);
+  const score = Math.max(0, Math.floor(submit.score));
   const trackLabel = submit.trackLabel.trim() || 'Track';
   const stageLabel = submit.stageLabel.trim() || 'Stage';
 
   const boards = { ...loadBoards() };
   const prev = boards[board] ?? null;
-  if (prev && compareSurvivalTime(survivedSec, prev.survivedSec) <= 0) {
+  if (prev && compareScore(score, prev.score) <= 0) {
     return false;
   }
   boards[board] = {
-    survivedSec,
+    score,
     trackLabel,
     stageLabel,
     achievedAtMs: Date.now(),
@@ -108,12 +107,8 @@ export function submitHighScore(submit: RunHighScoreSubmit): boolean {
   return true;
 }
 
-export function formatHighScoreTime(sec: number): string {
-  const s = Math.max(0, sec);
-  if (s < 60) return `${s.toFixed(2)} s`;
-  const m = Math.floor(s / 60);
-  const rest = s - m * 60;
-  return `${m}:${rest.toFixed(2).padStart(5, '0')}`;
+export function formatHighScoreScore(score: number): string {
+  return String(Math.max(0, Math.floor(score)));
 }
 
 export function formatHighScoreTape(rec: RunHighScoreRecord): string {

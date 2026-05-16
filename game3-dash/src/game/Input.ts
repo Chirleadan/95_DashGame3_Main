@@ -25,6 +25,8 @@ export class Input {
   private pointerDragStartMs = 0;
   private prevKeyPlayTrack = false;
   private keyPlayTrackEdge = false;
+  private prevKeyEscape = false;
+  private keyEscapeEdge = false;
   private wheelZoomDelta = 0;
 
   constructor(
@@ -32,12 +34,22 @@ export class Input {
     pointerTarget: HTMLElement,
   ) {
     const onDown = (e: KeyboardEvent) => {
+      if (e.code === 'Escape') {
+        e.preventDefault();
+        this.down.add('Escape');
+        return;
+      }
       if (KEYS.has(e.code)) {
         e.preventDefault();
         this.down.add(e.code);
       }
     };
     const onUp = (e: KeyboardEvent) => {
+      if (e.code === 'Escape') {
+        e.preventDefault();
+        this.down.delete('Escape');
+        return;
+      }
       if (KEYS.has(e.code)) {
         e.preventDefault();
         this.down.delete(e.code);
@@ -108,6 +120,17 @@ export class Input {
     const pe = this.down.has('KeyE');
     this.keyPlayTrackEdge = pe && !this.prevKeyPlayTrack;
     this.prevKeyPlayTrack = pe;
+
+    const esc = this.down.has('Escape');
+    this.keyEscapeEdge = esc && !this.prevKeyEscape;
+    this.prevKeyEscape = esc;
+  }
+
+  /** Escape key edge this frame (consumed once). */
+  consumeEscapeTrigger(): boolean {
+    const v = this.keyEscapeEdge;
+    this.keyEscapeEdge = false;
+    return v;
   }
 
   /** Key `E` edge this frame (consumed once). */
