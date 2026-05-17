@@ -622,7 +622,7 @@ export class Game {
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     this.scene.add(floor);
-    this.beatFloor = new BeatFloorVisualizer(this.scene, this.arenaFloorMat);
+    this.beatFloor = new BeatFloorVisualizer(this.scene);
 
     const edge = new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.PlaneGeometry(size, size)),

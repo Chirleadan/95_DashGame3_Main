@@ -4,8 +4,8 @@ import { CONFIG } from './config.ts';
 /** World XZ size of one checker cell (matches arena floor texture repeat). */
 export const ARENA_CHECKER_CELL_WORLD = 4;
 
-const TRACK_FLOOR_TINT = new THREE.Color(0xffb8d8);
-const FLOOR_COLOR_NORMAL = new THREE.Color(0xffffff);
+/** Main-menu backdrop (`style.css` `.boot-splash` / `.game-overlay--menu`). */
+const MENU_BACKGROUND_COLOR = 0xff25b6;
 
 /** Lighter checker tile in `createArenaCheckerCanvasTexture` (`#285c78`). */
 function isLightFloorCell(cellX: number, cellZ: number): boolean {
@@ -56,17 +56,16 @@ export function createArenaCheckerCanvasTexture(): THREE.CanvasTexture {
 }
 
 /**
- * Track playback: pink floor tint + random solid-white lit tiles on light checker cells only.
+ * Track playback: random menu-pink lit tiles on light checker cells only (per beat).
  */
 export class BeatFloorVisualizer {
   private static readonly CELL_MESH_SIZE = ARENA_CHECKER_CELL_WORLD * 0.96;
   private static readonly CELL_RENDER_ORDER = 1;
   private static readonly CELL_Y = CONFIG.floorY + 0.011;
-  /** Was 30%; now 4× fewer → 7.5% of light tiles in range. */
-  private static readonly BEAT_LIT_TILE_FRACTION = 0.075;
+  /** 7.5% → half again ≈ 3.75% of light tiles in range. */
+  private static readonly BEAT_LIT_TILE_FRACTION = 0.0375;
   private static readonly VIEW_CELL_RADIUS_MULT = 2.25;
 
-  private readonly floorMat: THREE.MeshStandardMaterial;
   private readonly highlightGroup: THREE.Group;
   private readonly cellMeshPool: THREE.Mesh[] = [];
   private readonly activeCellMeshes: THREE.Mesh[] = [];
@@ -74,8 +73,7 @@ export class BeatFloorVisualizer {
   private readonly litCells: LitCell[] = [];
   private trackVisualsActive = false;
 
-  constructor(scene: THREE.Scene, floorMat: THREE.MeshStandardMaterial) {
-    this.floorMat = floorMat;
+  constructor(scene: THREE.Scene) {
     this.highlightGroup = new THREE.Group();
     this.highlightGroup.renderOrder = BeatFloorVisualizer.CELL_RENDER_ORDER;
     scene.add(this.highlightGroup);
@@ -87,7 +85,6 @@ export class BeatFloorVisualizer {
 
   onTrackStarted(): void {
     this.trackVisualsActive = true;
-    this.floorMat.color.copy(TRACK_FLOOR_TINT);
     this.litCells.length = 0;
     this.releaseHighlightCells();
   }
@@ -96,7 +93,6 @@ export class BeatFloorVisualizer {
     if (!this.trackVisualsActive) return;
     this.trackVisualsActive = false;
     this.litCells.length = 0;
-    this.floorMat.color.copy(FLOOR_COLOR_NORMAL);
     this.releaseHighlightCells();
   }
 
@@ -159,7 +155,7 @@ export class BeatFloorVisualizer {
     const mesh = this.cellMeshPool.pop();
     if (mesh) return mesh;
     const mat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
+      color: MENU_BACKGROUND_COLOR,
       transparent: false,
       depthTest: true,
       depthWrite: false,
