@@ -46,6 +46,7 @@ import {
 import {
   findTrackStage,
   findTrackForStage,
+  getTapeStageMenuDescription,
   TRACK_CATALOG,
   type TrackStage,
 } from './TrackCatalog.ts';
@@ -227,8 +228,8 @@ export class UI {
   private readonly mainMenuPanel: HTMLElement;
   private readonly upgradeMenuPanel: HTMLElement;
   private readonly tapeMenuPanel: HTMLElement;
-  private readonly tapeMenuRecorderEl: HTMLImageElement;
   private readonly tapeMenuHintEl: HTMLElement;
+  private readonly tapeMenuCaptionEl: HTMLParagraphElement;
   private readonly tapeBackBtn: HTMLButtonElement;
   private tapeFragmentToastHideTimer: number | null = null;
   private readonly tapeFragmentToastEl: HTMLElement;
@@ -576,15 +577,6 @@ export class UI {
 
     this.mainMenuPanel = this.mainMenuEl.querySelector('#main-menu-panel')!;
     this.tapeMenuPanel = this.mainMenuEl.querySelector('#tape-menu-panel')!;
-    this.tapeMenuRecorderEl = document.createElement('img');
-    this.tapeMenuRecorderEl.id = 'tape-menu-recorder';
-    this.tapeMenuRecorderEl.className = 'tape-menu-recorder';
-    this.tapeMenuRecorderEl.src = '/assets/tapes/recorder.png';
-    this.tapeMenuRecorderEl.alt = '';
-    this.tapeMenuRecorderEl.hidden = true;
-    this.tapeMenuRecorderEl.draggable = false;
-    mainMenuUiScale.appendChild(this.tapeMenuRecorderEl);
-
     this.tapeMenuHintEl = document.createElement('div');
     this.tapeMenuHintEl.id = 'tape-menu-hint';
     this.tapeMenuHintEl.className = 'tape-menu-hint';
@@ -597,6 +589,12 @@ export class UI {
       <p>Each stage makes the tape hit harder.</p>
     `;
     mainMenuUiScale.appendChild(this.tapeMenuHintEl);
+
+    this.tapeMenuCaptionEl = document.createElement('p');
+    this.tapeMenuCaptionEl.id = 'tape-menu-caption';
+    this.tapeMenuCaptionEl.className = 'tape-menu-caption';
+    this.tapeMenuCaptionEl.hidden = true;
+    mainMenuUiScale.appendChild(this.tapeMenuCaptionEl);
 
     this.tapeFragmentToastEl = document.createElement('div');
     this.tapeFragmentToastEl.className = 'tape-fragment-toast tape-fragment-toast--hidden';
@@ -1063,8 +1061,8 @@ export class UI {
 
   private hideAllMenuSubpanels(): void {
     this.tapeMenuPanel.hidden = true;
-    this.tapeMenuRecorderEl.hidden = true;
     this.tapeMenuHintEl.hidden = true;
+    this.tapeMenuCaptionEl.hidden = true;
     this.tapeBackBtn.hidden = true;
     this.upgradeMenuPanel.hidden = true;
     this.upgradeBackBtn.hidden = true;
@@ -1469,8 +1467,8 @@ export class UI {
       this.setSelectedTrackStage(this.selectedTrackStageForUi);
     }
     this.tapeMenuPanel.hidden = false;
-    this.tapeMenuRecorderEl.hidden = false;
     this.tapeMenuHintEl.hidden = false;
+    this.tapeMenuCaptionEl.hidden = false;
     this.tapeBackBtn.hidden = false;
   }
 
@@ -1498,6 +1496,7 @@ export class UI {
       dot.setAttribute('aria-pressed', selected ? 'true' : 'false');
     }
     this.syncBeatLaneTapeIcon(stage);
+    this.tapeMenuCaptionEl.textContent = getTapeStageMenuDescription(stage);
   }
 
   private syncBeatLaneTapeIcon(stage: TrackStage): void {

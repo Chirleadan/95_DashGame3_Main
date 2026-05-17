@@ -232,3 +232,40 @@ export function getDefaultTrackStage(): TrackStage {
     ) ?? TRACK_CATALOG[0]!.stages[0]!
   );
 }
+
+/** One-line tape perk summary for the main-menu cassette picker. */
+export function getTapeStageMenuDescription(stage: TrackStage): string {
+  const track = findTrackForStage(stage.id);
+  if (!track) return '';
+
+  switch (track.id) {
+    case 'track-1':
+      if (stage.stage >= 3) {
+        return 'On-beat dashes become huge, refresh instantly, and the view warps while your tape plays.';
+      }
+      if (stage.stage === 2) {
+        return 'On-beat dashes reach farther and wider, and a perfect beat resets your dash cooldown.';
+      }
+      return 'On-beat dashes grow longer and wider, and hitting the beat resets your dash cooldown.';
+    case 'track-2':
+      if (stage.stage >= 3) {
+        return 'While the tape plays you move faster with shorter dashes, and every landing sends a large shockwave.';
+      }
+      if (stage.stage === 2) {
+        return 'While the tape plays you move faster with shorter dashes, and every landing sends a medium shockwave.';
+      }
+      return 'While the tape plays you move faster with shorter dashes, and every landing sends a shockwave.';
+    case 'track-3': {
+      const count = stage.boost.phantomBeatDashCount;
+      if (count <= 0) {
+        return 'On-beat dashes can call in extra phantom strikes on nearby enemies.';
+      }
+      if (count === 1) {
+        return 'On-beat dashes call in one extra phantom strike on a nearby enemy.';
+      }
+      return `On-beat dashes call in ${count} extra phantom strikes on nearby enemies.`;
+    }
+    default:
+      return 'Press E in a run to play this tape for temporary invincibility and rhythm power-ups.';
+  }
+}
