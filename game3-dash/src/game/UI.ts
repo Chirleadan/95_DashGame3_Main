@@ -51,6 +51,7 @@ import {
   type TrackStage,
 } from './TrackCatalog.ts';
 import { MusicMarquee } from './MusicMarquee.ts';
+import { UiButtonSfx } from './UiButtonSfx.ts';
 import {
   isDesktopMenuNoiseViewport,
   MENU_NOISE_WEBP_URLS,
@@ -192,6 +193,7 @@ export class UI {
   private readonly hudEl: HTMLElement;
   private readonly hudExtraEl: HTMLElement;
   private readonly beatUiEl: HTMLElement;
+  private readonly beatLaneStackEl: HTMLElement;
   private artifactsPanelEl!: HTMLElement;
   private readonly hpBarsBottom: HTMLElement;
   private readonly hpBarSegments: HTMLElement[] = [];
@@ -299,6 +301,7 @@ export class UI {
   private readonly vaultBearingRot: SVGGElement;
   private artifactsChangeHandler: (() => void) | null = null;
   private trackStageSelectHandler: ((stage: TrackStage) => void) | null = null;
+  private readonly buttonSfx = new UiButtonSfx();
 
   constructor(container: HTMLElement) {
     loadBalanceSettings();
@@ -495,6 +498,7 @@ export class UI {
     beatStack.style.width = `${CONFIG.beatLaneWidthFraction * 100}%`;
     beatStack.appendChild(this.beatLaneHost);
     beatStack.appendChild(this.beatRoundTimerEl);
+    this.beatLaneStackEl = beatStack;
     container.insertBefore(beatStack, container.firstChild);
     this.resizeBeatLane();
 
@@ -829,6 +833,8 @@ export class UI {
     this.damageFlashEl.className = 'damage-screen-flash';
     this.damageFlashEl.setAttribute('aria-hidden', 'true');
     document.body.appendChild(this.damageFlashEl);
+
+    this.buttonSfx.mount();
   }
 
   /** Brief white fullscreen flash when the hero loses HP. */
@@ -849,6 +855,7 @@ export class UI {
   }
 
   disposeMenuOverlays(): void {
+    this.buttonSfx.unmount();
     this.musicMarquee.remove();
     this.mainMenuEl.remove();
     this.deathScreenEl.remove();
@@ -2037,10 +2044,12 @@ export class UI {
     this.hpBarsBottom.hidden = inMenu;
     if (inMenu) {
       this.beatUiEl.hidden = true;
+      this.beatLaneStackEl.hidden = true;
       this.artifactsPanelEl.hidden = true;
       this.fpsMeterEl.hidden = true;
       return;
     }
+    this.beatLaneStackEl.hidden = false;
     this.hudExtraEl.hidden = !showDev;
     this.beatUiEl.hidden = !showDev;
     this.artifactsPanelEl.hidden = !showDev;

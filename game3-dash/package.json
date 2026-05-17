@@ -19,7 +19,8 @@
     "db:migrate": "npm run db:migrate --prefix backend",
     "preview": "vite preview",
     "guides:webm": "node tools/convert-guides-to-webm.mjs",
-    "menu-noise:webp": "node tools/convert-menu-noise-to-webp.mjs"
+    "menu-noise:webp": "node tools/convert-menu-noise-to-webp.mjs",
+    "buttons:opus": "node tools/convert-button-sfx-to-opus.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",

@@ -1,3 +1,4 @@
+import { BUTTON_SFX_ALL_URLS } from './ButtonSfxCatalog.ts';
 import { CONFIG } from './config.ts';
 import { RUN_UPGRADE_ART_BY_ID } from './RunUpgradeArt.ts';
 import { TAPE_CASSETTES } from './TapeCatalog.ts';
@@ -112,6 +113,7 @@ export function getCoreGameAssetManifest(selectedStage: TrackStage): PreloadAsse
   for (const url of PLAYER_TEXTURE_URLS) add(url, 'image');
   for (const url of ENEMY_TEXTURE_URLS) add(url, 'image');
   for (const url of GAME_SFX_URLS) add(url, 'audio');
+  for (const url of BUTTON_SFX_ALL_URLS) add(url, 'audio');
   for (const url of UI_IMAGE_URLS) add(url, 'image');
   for (const url of FONT_URLS) add(url, 'font');
 

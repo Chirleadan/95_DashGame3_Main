@@ -155,6 +155,8 @@ export class Game {
   private beatHitCount = 0;
   private readonly dashSerialsWithBeatHit = new Set<number>();
   private raf = 0;
+  private readyForDisplayResolve: (() => void) | null = null;
+  private readonly readyForDisplayPromise: Promise<void>;
   /** Orthographic camera shake after dash kills (decays each frame). */
   private cameraShake = 0;
   private readonly groundHit = new THREE.Vector3();
@@ -283,6 +285,9 @@ export class Game {
   private readonly lightningMeterEl: HTMLDivElement;
 
   constructor(mount: HTMLElement) {
+    this.readyForDisplayPromise = new Promise((resolve) => {
+      this.readyForDisplayResolve = resolve;
+    });
     this.mount = mount;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x9eaaad);
@@ -1109,12 +1114,20 @@ export class Game {
     this.ui.resizeBeatLane();
   };
 
+  whenReadyForDisplay(): Promise<void> {
+    return this.readyForDisplayPromise;
+  }
+
   private loop(): void {
     this.raf = requestAnimationFrame(this.loop);
     const dt = Math.min(this.clock.getDelta(), 0.05);
     this.update(dt);
     this.syncRenderCamera();
     this.composer.render();
+    if (this.readyForDisplayResolve) {
+      this.readyForDisplayResolve();
+      this.readyForDisplayResolve = null;
+    }
   }
 
   private update(dt: number): void {

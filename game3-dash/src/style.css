@@ -48,6 +48,47 @@ body {
   height: 100%;
 }
 
+#app.app--booting {
+  visibility: hidden;
+}
+
+.boot-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 250000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background-color: #ff25b6;
+  background-image: url('/assets/back 1.png');
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  color: #ff6b9d;
+  font-family: 'FA-1 Game', monospace;
+  pointer-events: none;
+  user-select: none;
+}
+
+.boot-splash__label {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+
+.boot-splash .flashing-lights-warning {
+  position: absolute;
+  top: clamp(10px, 1.6vh, 16px);
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  color: rgba(255, 107, 157, 0.92);
+}
+
 #app canvas {
   display: block;
   width: 100%;
@@ -305,11 +346,7 @@ body {
   display: flex;
   gap: 10px;
   align-items: baseline;
-  padding: 8px 14px;
-  border-radius: 10px;
-  background: rgba(8, 10, 16, 0.82);
-  border: 1px solid rgba(255, 214, 90, 0.22);
-  backdrop-filter: blur(8px);
+  padding: 0;
   font-size: 15px;
   line-height: 1.2;
   pointer-events: none;
@@ -319,19 +356,21 @@ body {
 .hud-wallet.hud-wallet--over-menu {
   position: fixed;
   left: clamp(16px, 2.2vw, 28px);
-  top: clamp(14px, 2vh, 22px);
+  top: var(--menu-wallet-top, clamp(14px, 2vh, 22px));
   z-index: 100001;
 }
 
 .hud-wallet .label {
-  color: #c9a008;
+  color: #ffffff;
   font-weight: 600;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
 }
 
 .hud-wallet .hud-xp-num {
-  color: #ffe566;
+  color: #ffffff;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
 }
 
 .hud-wallet__loot-sep {
@@ -807,6 +846,9 @@ body {
 .game-overlay--menu {
   --menu-ui-scale: 0.85;
   --main-menu-mark-size: calc(clamp(48px, 11.2vw, 208px) * var(--menu-ui-scale));
+  --menu-wallet-top: clamp(14px, 2vh, 22px);
+  --menu-wallet-block-height: 1.35rem;
+  --menu-noise-top: calc(var(--menu-wallet-top) + var(--menu-wallet-block-height) + 12px);
   overflow: hidden;
   background-color: #ff25b6;
   background-image: url('/assets/back 1.png');
@@ -817,12 +859,12 @@ body {
 
 .main-menu-noise {
   position: fixed;
-  left: clamp(14px, 2.2vw, 28px);
-  top: clamp(14px, 2vh, 22px);
-  z-index: 2;
+  left: clamp(16px, 2.2vw, 28px);
+  top: var(--menu-noise-top, clamp(52px, 8vh, 72px));
+  z-index: 100000;
   display: none;
   max-width: min(28vw, 240px);
-  max-height: min(22vh, 180px);
+  max-height: min(20vh, 160px);
   width: auto;
   height: auto;
   object-fit: contain;
@@ -2378,7 +2420,11 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #000;
+  background-color: #ff25b6;
+  background-image: url('/assets/back 1.png');
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
   color: #ff6b9d;
   font-family: 'FA-1 Game', monospace;
 }
