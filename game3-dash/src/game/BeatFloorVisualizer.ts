@@ -14,7 +14,9 @@ type BeatTraveler = {
   departEnd: number;
   /** Only the first beat after track start flies in from far away. */
   spawnFar: boolean;
-  /** Locked when the traveler spawns — does not chase the hero mid-flight. */
+  /**
+   * Aimed beat cell: tracks the hero until `approachStart`, then frozen for this flight.
+   */
   hitCellX?: number;
   hitCellZ?: number;
 };
@@ -152,14 +154,23 @@ export class BeatFloorVisualizer {
     const out: { cellX: number; cellZ: number }[] = [];
     const cell = ARENA_CHECKER_CELL_WORLD;
 
+    const playerCellX = Math.floor(playerX / cell);
+    const playerCellZ = Math.floor(playerZ / cell);
+
     for (const traveler of this.travelers) {
-      if (audioTime < traveler.approachStart || audioTime > traveler.departEnd) {
+      if (audioTime > traveler.departEnd) {
+        continue;
+      }
+
+      if (audioTime < traveler.approachStart) {
+        traveler.hitCellX = playerCellX;
+        traveler.hitCellZ = playerCellZ;
         continue;
       }
 
       if (traveler.hitCellX === undefined || traveler.hitCellZ === undefined) {
-        traveler.hitCellX = Math.floor(playerX / cell);
-        traveler.hitCellZ = Math.floor(playerZ / cell);
+        traveler.hitCellX = playerCellX;
+        traveler.hitCellZ = playerCellZ;
       }
       const hitCellX = traveler.hitCellX;
       const hitCellZ = traveler.hitCellZ;
