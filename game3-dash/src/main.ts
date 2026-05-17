@@ -1,6 +1,13 @@
 import './style.css';
 import { LoadingScreen } from './game/LoadingScreen.ts';
-import { syncMobileGameRootClass } from './game/MobileViewport.ts';
+import {
+  bindMobilePortraitOrientationLock,
+  syncMobileGameRootClass,
+  tryLockMobilePortraitOrientation,
+} from './game/MobileViewport.ts';
+
+syncMobileGameRootClass();
+bindMobilePortraitOrientationLock();
 
 function dismissBootSplash(): void {
   document.getElementById('boot-splash')?.remove();
@@ -21,8 +28,15 @@ function waitFrames(count: number): Promise<void> {
 
 async function bootstrap(mount: HTMLDivElement): Promise<void> {
   syncMobileGameRootClass();
+  tryLockMobilePortraitOrientation();
   window.addEventListener('resize', syncMobileGameRootClass);
-  window.addEventListener('orientationchange', syncMobileGameRootClass);
+  window.addEventListener('orientationchange', () => {
+    syncMobileGameRootClass();
+    tryLockMobilePortraitOrientation();
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
+  });
   document.body.classList.add('game-booting');
   mount.classList.add('app--booting');
 

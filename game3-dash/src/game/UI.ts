@@ -2076,7 +2076,9 @@ export class UI {
     }
     this.tapeMenuPanel.hidden = false;
     this.tapeMenuHintEl.hidden = false;
-    this.tapeMenuCaptionEl.hidden = false;
+    this.tapeMenuCaptionEl.hidden = document.documentElement.classList.contains(
+      'mobile-game-portrait',
+    );
     this.tapeBackBtn.hidden = false;
   }
 

@@ -2115,8 +2115,7 @@ html.mobile-game.mobile-game-portrait .main-menu-bg-art {
   background: linear-gradient(180deg, #222836 0%, #161a24 100%);
 }
 
-@media (min-width: 900px) and (orientation: landscape),
-((hover: none) and (pointer: coarse) and (orientation: landscape)) {
+@media (min-width: 900px) and (orientation: landscape) {
   #main-menu-panel {
     padding: 0;
     background: transparent;
@@ -2939,6 +2938,24 @@ html.mobile-game.mobile-game-portrait .main-menu-bg-art {
 
 /* --- Mobile / touch-first (see MobileViewport.ts) --- */
 
+/* When the phone is turned sideways, rotate the page so the game stays vertical. */
+html.mobile-game.mobile-game-physical-landscape {
+  overflow: hidden;
+}
+
+html.mobile-game.mobile-game-physical-landscape body {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vh;
+  height: 100vw;
+  max-width: 100vh;
+  max-height: 100vw;
+  transform: rotate(90deg) translate3d(0, -100%, 0);
+  transform-origin: top left;
+  overflow: hidden;
+}
+
 .mobile-move-controls {
   position: absolute;
   left: 50%;
@@ -2949,11 +2966,6 @@ html.mobile-game.mobile-game-portrait .main-menu-bg-art {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
-}
-
-html.mobile-game.mobile-game-landscape .mobile-move-controls {
-  left: max(12px, env(safe-area-inset-left, 0px));
-  transform: none;
 }
 
 .mobile-move-controls[hidden] {
@@ -3063,4 +3075,267 @@ html.mobile-game .run-upgrade-card__art {
 html.mobile-game .hud-wallet__mana-group,
 html.mobile-game .beat-lane-tape-mana {
   display: none !important;
+}
+
+/* --- Main menu sub-screens (phone portrait) --- */
+
+html.mobile-game.mobile-game-portrait {
+  --menu-pink-sheet: rgba(255, 37, 182, 0.5);
+}
+
+html.mobile-game.mobile-game-portrait .game-overlay--menu .game-overlay__panel--titles,
+html.mobile-game.mobile-game-portrait .game-overlay--menu .game-overlay__panel--guides,
+html.mobile-game.mobile-game-portrait .game-overlay--menu .game-overlay__panel--highscores,
+html.mobile-game.mobile-game-portrait .game-overlay--menu .game-overlay__panel--upgrade {
+  background: var(--menu-pink-sheet);
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-sizing: border-box;
+}
+
+/* 1. Best score */
+html.mobile-game.mobile-game-portrait #highscore-menu-panel {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(94vw, 420px);
+  max-width: min(94vw, 420px);
+  max-height: min(78vh, 560px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+html.mobile-game.mobile-game-portrait .highscore-menu {
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+/* 2. Guides — video centered, ~1.2× smaller */
+html.mobile-game.mobile-game-portrait #guides-menu-panel {
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  width: min(92vw, 400px);
+  max-width: min(92vw, 400px);
+  max-height: 28vh;
+  overflow-y: auto;
+}
+
+html.mobile-game.mobile-game-portrait .guides-menu-media {
+  left: 50%;
+  top: 50%;
+  bottom: auto;
+  width: min(68vw, 668px);
+  min-height: clamp(120px, 28vh, 320px);
+  max-height: clamp(120px, 28vh, 320px);
+  transform: translate(-50%, -50%) scale(0.833);
+  transform-origin: center center;
+}
+
+html.mobile-game.mobile-game-portrait .guides-menu-loading {
+  min-height: clamp(120px, 28vh, 320px);
+}
+
+html.mobile-game.mobile-game-portrait .guides-menu-gif {
+  max-height: clamp(120px, 28vh, 320px);
+  transform: none;
+}
+
+html.mobile-game.mobile-game-portrait .guides-nav {
+  right: auto;
+  left: 50%;
+  bottom: max(64px, calc(env(safe-area-inset-bottom, 0px) + 52px));
+  transform: translateX(-50%);
+  align-items: center;
+  max-width: 92vw;
+}
+
+html.mobile-game.mobile-game-portrait .guides-nav__btn {
+  font-size: 0.82rem;
+}
+
+/* 3. Library — detail top, spell grid bottom */
+html.mobile-game.mobile-game-portrait .library-menu-cluster {
+  position: fixed;
+  inset: max(8px, env(safe-area-inset-top, 0px)) max(10px, env(safe-area-inset-right, 0px))
+    max(64px, calc(env(safe-area-inset-bottom, 0px) + 52px)) max(10px, env(safe-area-inset-left, 0px));
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 10px;
+  max-width: none;
+  transform: none;
+  pointer-events: none;
+}
+
+html.mobile-game.mobile-game-portrait .library-menu-detail {
+  order: 1;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  max-height: min(38vh, 240px);
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+html.mobile-game.mobile-game-portrait .library-menu-detail .run-upgrade-card--preview.run-upgrade-card--library {
+  min-height: 0;
+  padding: 10px 12px;
+  grid-template-columns: minmax(0, 1fr) 72px;
+  gap: 8px 10px;
+}
+
+html.mobile-game.mobile-game-portrait .library-menu-detail .run-upgrade-card--library .run-upgrade-card__title {
+  font-size: 0.82rem;
+  padding: 6px 8px;
+}
+
+html.mobile-game.mobile-game-portrait .library-menu-detail .run-upgrade-card--library .run-upgrade-card__desc {
+  font-size: 0.74rem;
+  line-height: 1.28;
+  padding: 6px 8px;
+}
+
+html.mobile-game.mobile-game-portrait .library-menu-detail .run-upgrade-card--library .run-upgrade-card__art {
+  width: 72px;
+  max-width: 72px;
+  height: 72px;
+}
+
+html.mobile-game.mobile-game-portrait .library-menu-grid {
+  order: 2;
+  flex: 0 1 auto;
+  width: 100%;
+  max-height: min(40vh, 300px);
+  overflow-y: auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(64px, 1fr);
+  gap: 8px;
+  align-content: start;
+}
+
+html.mobile-game.mobile-game-portrait .library-spell-btn {
+  min-width: 0;
+  min-height: 64px;
+  padding: 5px;
+}
+
+html.mobile-game.mobile-game-portrait .library-menu-loading {
+  margin: auto;
+  font-size: 0.9rem;
+}
+
+/* 4. Upgrades */
+html.mobile-game.mobile-game-portrait #upgrade-menu-panel {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(94vw, 400px);
+  max-width: min(94vw, 400px);
+  max-height: min(78vh, 520px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+html.mobile-game.mobile-game-portrait #upgrade-menu-panel .game-overlay__subtitle {
+  font-size: 1rem;
+  margin-bottom: 6px;
+}
+
+html.mobile-game.mobile-game-portrait #upgrade-menu-panel .upgrade-menu__cost-hint {
+  font-size: 0.72rem;
+  margin-bottom: 8px;
+}
+
+html.mobile-game.mobile-game-portrait #upgrade-menu-panel .upgrade-menu__rows {
+  gap: 10px;
+}
+
+html.mobile-game.mobile-game-portrait #upgrade-menu-panel .upgrade-menu__head .label {
+  font-size: 0.78rem;
+}
+
+html.mobile-game.mobile-game-portrait #upgrade-menu-panel .upgrade-cells {
+  gap: 4px;
+}
+
+html.mobile-game.mobile-game-portrait #upgrade-menu-panel .upgrade-cell {
+  width: 28px;
+  height: 28px;
+  font-size: 0.72rem;
+}
+
+/* 5. Tapes — column, smaller, hint on top */
+html.mobile-game.mobile-game-portrait .tape-menu-hint {
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top, 0px));
+  left: 50%;
+  bottom: auto;
+  transform: translateX(-50%);
+  width: min(92vw, 400px);
+  max-height: min(22vh, 160px);
+  overflow-y: auto;
+  text-align: center;
+  z-index: 4;
+}
+
+html.mobile-game.mobile-game-portrait .tape-menu-hint p {
+  font-size: 0.78rem;
+  line-height: 1.32;
+}
+
+html.mobile-game.mobile-game-portrait .tape-cassette-rack:not([hidden]) {
+  position: fixed;
+  left: 50%;
+  top: auto;
+  bottom: max(64px, calc(env(safe-area-inset-bottom, 0px) + 52px));
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: clamp(10px, 2vh, 16px);
+  width: max-content;
+  max-width: 92vw;
+  max-height: min(58vh, 420px);
+  overflow-y: auto;
+  transform: translateX(-50%);
+  -webkit-overflow-scrolling: touch;
+}
+
+html.mobile-game.mobile-game-portrait .tape-cassette-column {
+  flex: 0 0 auto;
+}
+
+html.mobile-game.mobile-game-portrait .tape-cassette__img {
+  width: min(72vw, 144px);
+  max-width: min(72vw, 144px);
+  height: auto;
+}
+
+html.mobile-game.mobile-game-portrait .tape-cassette-stages {
+  justify-content: center;
+}
+
+html.mobile-game.mobile-game-portrait .tape-menu-caption {
+  display: none;
+}
+
+html.mobile-game.mobile-game-portrait #titles-menu-panel {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(92vw, 400px);
+  max-height: min(78vh, 520px);
+  overflow-y: auto;
+}
+
+html.mobile-game.mobile-game-portrait .game-overlay--menu .game-overlay__btn--menu-sub-back {
+  z-index: 5;
 }

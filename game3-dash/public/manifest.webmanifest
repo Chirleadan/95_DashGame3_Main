@@ -1,0 +1,17 @@
+{
+  "name": "Arena MVP",
+  "short_name": "Arena MVP",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "portrait-primary",
+  "background_color": "#05060a",
+  "theme_color": "#ff25b6",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

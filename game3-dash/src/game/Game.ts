@@ -15,6 +15,7 @@ import { MobileMovementControls } from './MobileMovementControls.ts';
 import {
   getCameraZoomHalfExtentLimits,
   getDefaultCameraViewHalfExtent,
+  getGameViewportSize,
 } from './MobileViewport.ts';
 import { screenToGroundXZ } from './screenToGround.ts';
 import {
@@ -310,8 +311,7 @@ export class Game {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x9eaaad);
 
-    const w = mount.clientWidth || window.innerWidth;
-    const h = mount.clientHeight || window.innerHeight;
+    const { width: w, height: h } = getGameViewportSize();
     const aspect = w / Math.max(1, h);
     const view = this.cameraViewHalfExtentCurrent;
     this.camera = new THREE.OrthographicCamera(
@@ -1079,8 +1079,7 @@ export class Game {
   }
 
   private onResize = (): void => {
-    const w = this.mount.clientWidth || window.innerWidth;
-    const h = this.mount.clientHeight || window.innerHeight;
+    const { width: w, height: h } = getGameViewportSize();
     const aspect = w / Math.max(1, h);
     const view = this.cameraViewHalfExtentCurrent;
     this.camera.left = (-view * aspect) / 2;
