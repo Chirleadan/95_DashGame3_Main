@@ -2167,6 +2167,11 @@ export class Game {
     return this.runPhase === 'playing' && this.audio.isPlaying;
   }
 
+  /** Run mana cannot increase from loot while the tape plays. */
+  private canGainRunMana(): boolean {
+    return !this.isTapeTrackPlaying();
+  }
+
   private damagePlayerAndPulse(amount: number): void {
     if (this.player.hp <= 0) return;
     if (this.isTapeTrackPlaying()) return;
@@ -2909,7 +2914,7 @@ export class Game {
       return { amount, color: LOOT_FLOAT_COLOR_GOLD, label: 'Gold' };
     }
     if (enemy.isManaSack()) {
-      if (this.audio.isPlaying) return null;
+      if (!this.canGainRunMana()) return null;
       const amount = 10;
       this.runMana += amount;
       return { amount, color: LOOT_FLOAT_COLOR_MANA, label: 'Mana' };
@@ -2963,8 +2968,10 @@ export class Game {
     if (Math.random() >= CONFIG.enemyKillBonusLootChance) return;
     if (Math.random() < 0.5) {
       this.runGold += 1;
-    } else {
+    } else if (this.canGainRunMana()) {
       this.runMana += 1;
+    } else {
+      return;
     }
     this.syncRunLootUi();
   }
