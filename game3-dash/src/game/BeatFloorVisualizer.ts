@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.ts';
-import type { BeatEvent, Beatmap } from './Beatmap.ts';
 
 /** World XZ size of one checker cell (matches arena floor texture repeat). */
 export const ARENA_CHECKER_CELL_WORLD = 4;
@@ -8,12 +7,7 @@ export const ARENA_CHECKER_CELL_WORLD = 4;
 const TRACK_FLOOR_TINT = new THREE.Color(0xffb8d8);
 const FLOOR_COLOR_NORMAL = new THREE.Color(0xffffff);
 
-type BeatFloorPulse = {
-  hitTime: number;
-  startTime: number;
-  startRadius: number;
-  endRadius: number;
-};
+type LitCell = { cellX: number; cellZ: number };
 
 export function createArenaCheckerCanvasTexture(): THREE.CanvasTexture {
   const cellSize = 32;
@@ -56,7 +50,6 @@ export function createArenaCheckerCanvasTexture(): THREE.CanvasTexture {
   return texture;
 }
 
-/** White beat-ring cell: base fill + sub-grid lines (shared by all highlight meshes). */
 function createBeatCellHighlightTexture(subdivisions: number): THREE.CanvasTexture {
   const size = 64;
   const canvas = document.createElement('canvas');
@@ -92,21 +85,18 @@ function createBeatCellHighlightTexture(subdivisions: number): THREE.CanvasTextu
 }
 
 /**
- * Track playback: pink-tinted floor (same checker pattern) + per-cell white
- * highlights forming shrinking rings toward the hero on each beat.
+ * Track playback: pink floor tint + random white lit tiles (30% near hero per beat).
+ * Shrinking beat rings are disabled for now.
  */
 export class BeatFloorVisualizer {
-  private static readonly PULSE_START_RADIUS_MULT = 3.5;
-  private static readonly PULSE_END_RADIUS_WORLD = 2.5;
-  private static readonly RING_BAND_WORLD = ARENA_CHECKER_CELL_WORLD * 1.4;
-  private static readonly PULSE_FADE_SEC = 0.07;
   private static readonly CELL_MESH_SIZE = ARENA_CHECKER_CELL_WORLD * 0.96;
-  /** Below enemies (4+) and player (5–10); above the floor mesh (0). */
   private static readonly CELL_RENDER_ORDER = 1;
   private static readonly CELL_Y = CONFIG.floorY + 0.011;
   private static readonly CELL_OPACITY = 0.15;
-  /** Mini-grid lines per beat highlight cell (visual subdivide). */
   private static readonly CELL_SUBGRID_DIVISIONS = 4;
+  /** Share of candidate floor cells lit on each beat. */
+  private static readonly BEAT_LIT_TILE_FRACTION = 0.3;
+  private static readonly VIEW_CELL_RADIUS_MULT = 2.25;
 
   private readonly floorMat: THREE.MeshStandardMaterial;
   private readonly highlightGroup: THREE.Group;
@@ -114,9 +104,8 @@ export class BeatFloorVisualizer {
   private readonly cellMeshPool: THREE.Mesh[] = [];
   private readonly activeCellMeshes: THREE.Mesh[] = [];
   private readonly cellGeo: THREE.PlaneGeometry;
-  private readonly pulses: BeatFloorPulse[] = [];
+  private readonly litCells: LitCell[] = [];
   private trackVisualsActive = false;
-  private shimmerPhase = 0;
 
   constructor(scene: THREE.Scene, floorMat: THREE.MeshStandardMaterial) {
     this.floorMat = floorMat;
@@ -132,148 +121,71 @@ export class BeatFloorVisualizer {
     );
   }
 
-  onTrackStarted(beatmap: Beatmap, audioTime: number): void {
+  onTrackStarted(): void {
     this.trackVisualsActive = true;
     this.floorMat.color.copy(TRACK_FLOOR_TINT);
-    this.pulses.length = 0;
-    this.scheduleBeats(beatmap.beats, audioTime);
+    this.litCells.length = 0;
     this.releaseHighlightCells();
   }
 
   onTrackEnded(): void {
     if (!this.trackVisualsActive) return;
     this.trackVisualsActive = false;
-    this.pulses.length = 0;
+    this.litCells.length = 0;
     this.floorMat.color.copy(FLOOR_COLOR_NORMAL);
     this.releaseHighlightCells();
   }
 
-  update(
-    dt: number,
-    audioTime: number,
-    playerX: number,
-    playerZ: number,
-    advancePulses: boolean,
-  ): void {
+  /** New random 30% tile highlights for this beat (held until the next beat). */
+  onBeat(playerX: number, playerZ: number): void {
     if (!this.trackVisualsActive) return;
-    if (advancePulses) this.shimmerPhase += dt;
-    this.cullPulses(audioTime);
-    this.syncBeatRingCells(playerX, playerZ, audioTime, advancePulses);
+    this.litCells.length = 0;
+    this.pickRandomLitCells(playerX, playerZ);
+    this.rebuildLitCellMeshes();
   }
 
-  private scheduleBeats(beats: readonly BeatEvent[], fromTime: number): void {
-    let prevTime = fromTime;
-    const startR =
-      CONFIG.cameraViewHalfExtent *
-      2 *
-      BeatFloorVisualizer.PULSE_START_RADIUS_MULT;
-    const endR = BeatFloorVisualizer.PULSE_END_RADIUS_WORLD;
-    for (let i = 0; i < beats.length; i++) {
-      const hitTime = beats[i]!.time;
-      if (hitTime <= fromTime + 0.02) {
-        prevTime = hitTime;
-        continue;
-      }
-      const gap = hitTime - prevTime;
-      const dur = THREE.MathUtils.clamp(gap * 0.9, 0.32, 1.05);
-      this.pulses.push({
-        hitTime,
-        startTime: hitTime - dur,
-        startRadius: startR,
-        endRadius: endR,
-      });
-      prevTime = hitTime;
-    }
+  update(_dt: number, _playerX: number, _playerZ: number): void {
+    /* Lit tiles stay until the next beat; nothing to animate per frame. */
   }
 
-  private cullPulses(audioTime: number): void {
-    const cutoff = audioTime - BeatFloorVisualizer.PULSE_FADE_SEC;
-    for (let i = this.pulses.length - 1; i >= 0; i--) {
-      if (this.pulses[i]!.hitTime < cutoff) {
-        this.pulses.splice(i, 1);
-      }
-    }
-  }
-
-  private syncBeatRingCells(
-    playerX: number,
-    playerZ: number,
-    audioTime: number,
-    drawRings: boolean,
-  ): void {
-    this.releaseHighlightCells();
-    if (!drawRings || this.pulses.length === 0) return;
-
-    const band = BeatFloorVisualizer.RING_BAND_WORLD;
-    const t = this.shimmerPhase;
-    let maxRadius = BeatFloorVisualizer.PULSE_END_RADIUS_WORLD;
-    for (const pulse of this.pulses) {
-      if (audioTime >= pulse.startTime) {
-        maxRadius = Math.max(maxRadius, pulse.startRadius);
-      }
-    }
-
+  private pickRandomLitCells(playerX: number, playerZ: number): void {
     const cell = ARENA_CHECKER_CELL_WORLD;
-    const cellRange = Math.ceil((maxRadius + band) / cell) + 1;
     const playerCellX = Math.floor(playerX / cell);
     const playerCellZ = Math.floor(playerZ / cell);
-    const y = BeatFloorVisualizer.CELL_Y;
+    const range = Math.ceil(
+      (CONFIG.cameraViewHalfExtent * BeatFloorVisualizer.VIEW_CELL_RADIUS_MULT) /
+        cell,
+    );
 
-    for (let dz = -cellRange; dz <= cellRange; dz++) {
-      for (let dx = -cellRange; dx <= cellRange; dx++) {
-        const wx = (playerCellX + dx + 0.5) * cell;
-        const wz = (playerCellZ + dz + 0.5) * cell;
-        const dist = Math.hypot(wx - playerX, wz - playerZ);
-
-        let ringWeight = 0;
-        let pulseFade = 1;
-        for (const pulse of this.pulses) {
-          if (
-            audioTime < pulse.startTime ||
-            audioTime > pulse.hitTime + BeatFloorVisualizer.PULSE_FADE_SEC
-          ) {
-            continue;
-          }
-          const span = Math.max(1e-4, pulse.hitTime - pulse.startTime);
-          const u = THREE.MathUtils.clamp((audioTime - pulse.startTime) / span, 0, 1);
-          const eased = 1 - (1 - u) ** 2.15;
-          const radius =
-            pulse.startRadius + (pulse.endRadius - pulse.startRadius) * eased;
-          const delta = Math.abs(dist - radius);
-          if (delta > band) continue;
-
-          const edge = 1 - delta / band;
-          const shimmer =
-            0.5 +
-            0.5 *
-              Math.sin(
-                t * 24 +
-                  (playerCellX + dx) * 2.1 +
-                  (playerCellZ + dz) * 1.7 +
-                  dist * 0.4 +
-                  pulse.hitTime * 4,
-              );
-          const fadeOut =
-            audioTime > pulse.hitTime
-              ? 1 -
-                (audioTime - pulse.hitTime) / BeatFloorVisualizer.PULSE_FADE_SEC
-              : 1;
-          const w = edge * (0.45 + 0.55 * shimmer);
-          if (w > ringWeight) {
-            ringWeight = w;
-            pulseFade = fadeOut;
-          }
-        }
-
-        if (ringWeight < 0.2) continue;
-        const mesh = this.obtainCellMesh();
-        mesh.position.set(wx, y, wz);
-        const mat = mesh.material as THREE.MeshBasicMaterial;
-        mat.opacity = BeatFloorVisualizer.CELL_OPACITY * pulseFade;
-        mesh.visible = true;
-        this.highlightGroup.add(mesh);
-        this.activeCellMeshes.push(mesh);
+    const candidates: LitCell[] = [];
+    for (let dz = -range; dz <= range; dz++) {
+      for (let dx = -range; dx <= range; dx++) {
+        candidates.push({ cellX: playerCellX + dx, cellZ: playerCellZ + dz });
       }
+    }
+
+    const want = Math.max(
+      1,
+      Math.floor(candidates.length * BeatFloorVisualizer.BEAT_LIT_TILE_FRACTION),
+    );
+    shuffleInPlace(candidates);
+    for (let i = 0; i < want && i < candidates.length; i++) {
+      this.litCells.push(candidates[i]!);
+    }
+  }
+
+  private rebuildLitCellMeshes(): void {
+    this.releaseHighlightCells();
+    const cell = ARENA_CHECKER_CELL_WORLD;
+    const y = BeatFloorVisualizer.CELL_Y;
+    for (const { cellX, cellZ } of this.litCells) {
+      const mesh = this.obtainCellMesh();
+      mesh.position.set((cellX + 0.5) * cell, y, (cellZ + 0.5) * cell);
+      const mat = mesh.material as THREE.MeshBasicMaterial;
+      mat.opacity = BeatFloorVisualizer.CELL_OPACITY;
+      mesh.visible = true;
+      this.highlightGroup.add(mesh);
+      this.activeCellMeshes.push(mesh);
     }
   }
 
@@ -303,5 +215,14 @@ export class BeatFloorVisualizer {
       this.cellMeshPool.push(mesh);
     }
     this.activeCellMeshes.length = 0;
+  }
+}
+
+function shuffleInPlace<T>(arr: T[]): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = arr[i]!;
+    arr[i] = arr[j]!;
+    arr[j] = t;
   }
 }

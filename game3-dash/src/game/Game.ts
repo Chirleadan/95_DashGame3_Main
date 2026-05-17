@@ -605,9 +605,7 @@ export class Game {
   }
 
   private applyLensDistortionEffective(): void {
-    const boost = this.audio.isPlaying
-      ? this.selectedTrackStage.boost.lensDistortionWhilePlaying
-      : 0;
+    const boost = this.audio.isPlaying ? CONFIG.lensDistortionWhileTrackPlaysBoost : 0;
     this.lensPass.setAmount(this.lensDistortionBase + boost);
   }
 
@@ -755,7 +753,7 @@ export class Game {
       await this.audio.play();
       this.ui.showGetReadyOverlay();
       if (this.beatmap) {
-        this.beatFloor.onTrackStarted(this.beatmap, this.audio.currentTime);
+        this.beatFloor.onTrackStarted();
       }
       this.scheduleBackgroundPauseForTrack();
       this.ui.setBeatmapState('Playing');
@@ -1268,13 +1266,7 @@ export class Game {
     const maxSlots = this.getMaxEnemySlots();
 
     this.updateBeatPlayback(dt);
-    this.beatFloor.update(
-      dt,
-      this.audio.currentTime,
-      this.player.x,
-      this.player.z,
-      this.audio.isPlaying,
-    );
+    this.beatFloor.update(dt, this.player.x, this.player.z);
 
     this.player.update(
       dt,
@@ -2788,6 +2780,9 @@ export class Game {
 
   private onBeatReached(beat: BeatEvent): void {
     this.beatEffects.triggerBeat(beat);
+    if (this.audio.isPlaying) {
+      this.beatFloor.onBeat(this.player.x, this.player.z);
+    }
   }
 
   /** Beat lane canvas: after movement so the center hit ring matches `player.isDashing`. */
