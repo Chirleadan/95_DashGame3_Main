@@ -56,6 +56,41 @@ export function createArenaCheckerCanvasTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+/** White beat-ring cell: base fill + sub-grid lines (shared by all highlight meshes). */
+function createBeatCellHighlightTexture(subdivisions: number): THREE.CanvasTexture {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Beat cell highlight texture canvas unavailable');
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, size, size);
+
+  const step = size / subdivisions;
+  ctx.strokeStyle = 'rgba(40, 40, 48, 0.55)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i < subdivisions; i++) {
+    const p = i * step;
+    ctx.beginPath();
+    ctx.moveTo(p + 0.5, 0);
+    ctx.lineTo(p + 0.5, size);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, p + 0.5);
+    ctx.lineTo(size, p + 0.5);
+    ctx.stroke();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 /**
  * Track playback: pink-tinted floor (same checker pattern) + per-cell white
  * highlights forming shrinking rings toward the hero on each beat.
@@ -69,9 +104,13 @@ export class BeatFloorVisualizer {
   /** Below enemies (4+) and player (5–10); above the floor mesh (0). */
   private static readonly CELL_RENDER_ORDER = 1;
   private static readonly CELL_Y = CONFIG.floorY + 0.011;
+  private static readonly CELL_OPACITY = 0.15;
+  /** Mini-grid lines per beat highlight cell (visual subdivide). */
+  private static readonly CELL_SUBGRID_DIVISIONS = 4;
 
   private readonly floorMat: THREE.MeshStandardMaterial;
   private readonly highlightGroup: THREE.Group;
+  private readonly cellHighlightMap: THREE.CanvasTexture;
   private readonly cellMeshPool: THREE.Mesh[] = [];
   private readonly activeCellMeshes: THREE.Mesh[] = [];
   private readonly cellGeo: THREE.PlaneGeometry;
@@ -87,6 +126,9 @@ export class BeatFloorVisualizer {
     this.cellGeo = new THREE.PlaneGeometry(
       BeatFloorVisualizer.CELL_MESH_SIZE,
       BeatFloorVisualizer.CELL_MESH_SIZE,
+    );
+    this.cellHighlightMap = createBeatCellHighlightTexture(
+      BeatFloorVisualizer.CELL_SUBGRID_DIVISIONS,
     );
   }
 
@@ -183,7 +225,8 @@ export class BeatFloorVisualizer {
         const wz = (playerCellZ + dz + 0.5) * cell;
         const dist = Math.hypot(wx - playerX, wz - playerZ);
 
-        let bestStrength = 0;
+        let ringWeight = 0;
+        let pulseFade = 1;
         for (const pulse of this.pulses) {
           if (
             audioTime < pulse.startTime ||
@@ -215,17 +258,18 @@ export class BeatFloorVisualizer {
               ? 1 -
                 (audioTime - pulse.hitTime) / BeatFloorVisualizer.PULSE_FADE_SEC
               : 1;
-          bestStrength = Math.max(
-            bestStrength,
-            edge * fadeOut * (0.5 + 0.55 * shimmer),
-          );
+          const w = edge * (0.45 + 0.55 * shimmer);
+          if (w > ringWeight) {
+            ringWeight = w;
+            pulseFade = fadeOut;
+          }
         }
 
-        if (bestStrength < 0.2) continue;
+        if (ringWeight < 0.2) continue;
         const mesh = this.obtainCellMesh();
         mesh.position.set(wx, y, wz);
         const mat = mesh.material as THREE.MeshBasicMaterial;
-        mat.opacity = Math.min(0.98, 0.35 + bestStrength * 0.65);
+        mat.opacity = BeatFloorVisualizer.CELL_OPACITY * pulseFade;
         mesh.visible = true;
         this.highlightGroup.add(mesh);
         this.activeCellMeshes.push(mesh);
@@ -237,9 +281,10 @@ export class BeatFloorVisualizer {
     const mesh = this.cellMeshPool.pop();
     if (mesh) return mesh;
     const mat = new THREE.MeshBasicMaterial({
+      map: this.cellHighlightMap,
       color: 0xffffff,
       transparent: true,
-      opacity: 0.9,
+      opacity: BeatFloorVisualizer.CELL_OPACITY,
       depthTest: true,
       depthWrite: false,
       side: THREE.DoubleSide,
