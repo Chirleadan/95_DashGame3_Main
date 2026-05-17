@@ -20,12 +20,12 @@ export type SpiralDashInput =
   | { mode: 'path'; points: readonly { x: number; z: number }[]; drawDurationSec: number }
   | { mode: 'click'; x: number; z: number };
 
-const PLAYER_IDLE_TEXTURE = getGameTexture('/assets/player/player_idle_1.png');
-const PLAYER_DASH_TEXTURE = getGameTexture('/assets/player/player_dash_1.png');
-const PLAYER_STEP_1_TEXTURE = getGameTexture('/assets/player/player_step_1.png');
-const PLAYER_STEP_2_TEXTURE = getGameTexture('/assets/player/player_step_2.png');
-const PLAYER_STEP_3_TEXTURE = getGameTexture('/assets/player/player_step_3.png');
-const PLAYER_STEP_4_TEXTURE = getGameTexture('/assets/player/player_step_4.png');
+const PLAYER_IDLE_TEXTURE = getGameTexture('/assets/player/player_idle_1.webp');
+const PLAYER_DASH_TEXTURE = getGameTexture('/assets/player/player_dash_1.webp');
+const PLAYER_STEP_1_TEXTURE = getGameTexture('/assets/player/player_step_1.webp');
+const PLAYER_STEP_2_TEXTURE = getGameTexture('/assets/player/player_step_2.webp');
+const PLAYER_STEP_3_TEXTURE = getGameTexture('/assets/player/player_step_3.webp');
+const PLAYER_STEP_4_TEXTURE = getGameTexture('/assets/player/player_step_4.webp');
 
 export class Player {
   readonly mesh: THREE.Group;

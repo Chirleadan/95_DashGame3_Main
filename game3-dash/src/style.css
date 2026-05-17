@@ -71,7 +71,7 @@ body.game-booting .game-overlay--menu,
   justify-content: center;
   gap: 0.75rem;
   background-color: #ff25b6;
-  background-image: url('/assets/back 1.png');
+  background-image: url('/assets/back 1.webp');
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;
@@ -1021,7 +1021,7 @@ body.game-booting .game-overlay--menu,
   position: absolute;
   inset: 0;
   z-index: 2;
-  background-image: url('/assets/back 1.png');
+  background-image: url('/assets/back 1.webp');
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;

@@ -102,9 +102,9 @@ export const CONFIG = {
    * During a run (`playing` / `runUpgrade`): need at least this much mana to start the track (E or button).
    * Starting spends `playTrackManaCost` mana on success; refunded if playback fails to start.
    */
-  playTrackMinManaToActivate: 0,
+  playTrackMinManaToActivate: 15,
   /** Mana removed when the beatmap track starts during a run. */
-  playTrackManaCost: 0,
+  playTrackManaCost: 15,
   /** Chance [0–1] to drop +1 gold or +1 mana when any enemy is killed. */
   enemyKillBonusLootChance: 0.05,
   /** Delay before background music pauses after Play track starts (milliseconds). */

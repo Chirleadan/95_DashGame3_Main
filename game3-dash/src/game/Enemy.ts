@@ -24,17 +24,17 @@ export type EnemyKind =
 const ENEMY_BODY_COLOR = 0xff3344;
 const SHOOTER_BODY_COLOR = 0x58d7ff;
 const ENEMY_SPRITE_URLS: Partial<Record<EnemyKind, string>> = {
-  normal: '/assets/enemies/normal/idle.png',
-  shooter: '/assets/enemies/shooter/idle.png',
-  tank: '/assets/enemies/tank/idle.png',
-  angel: '/assets/enemies/angel/idle.png',
-  vault: '/assets/enemies/vault/vault_1.png',
+  normal: '/assets/enemies/normal/idle.webp',
+  shooter: '/assets/enemies/shooter/idle.webp',
+  tank: '/assets/enemies/tank/idle.webp',
+  angel: '/assets/enemies/angel/idle.webp',
+  vault: '/assets/enemies/vault/vault_1.webp',
 };
 const ENEMY_DEATH_SPRITE_URLS: Partial<Record<EnemyKind, string>> = {
-  normal: '/assets/enemies/normal/mob_death.png',
-  shooter: '/assets/enemies/shooter/shooter_death.png',
-  tank: '/assets/enemies/tank/tank_death.png',
-  angel: '/assets/enemies/angel/angel_death.png',
+  normal: '/assets/enemies/normal/mob_death.webp',
+  shooter: '/assets/enemies/shooter/shooter_death.webp',
+  tank: '/assets/enemies/tank/tank_death.webp',
+  angel: '/assets/enemies/angel/angel_death.webp',
 };
 
 function disposeObject3DTree(root: THREE.Object3D): void {

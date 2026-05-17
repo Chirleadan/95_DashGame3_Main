@@ -13,24 +13,24 @@ export type PreloadAsset = {
 };
 
 const PLAYER_TEXTURE_URLS = [
-  '/assets/player/player_idle_1.png',
-  '/assets/player/player_dash_1.png',
-  '/assets/player/player_step_1.png',
-  '/assets/player/player_step_2.png',
-  '/assets/player/player_step_3.png',
-  '/assets/player/player_step_4.png',
+  '/assets/player/player_idle_1.webp',
+  '/assets/player/player_dash_1.webp',
+  '/assets/player/player_step_1.webp',
+  '/assets/player/player_step_2.webp',
+  '/assets/player/player_step_3.webp',
+  '/assets/player/player_step_4.webp',
 ] as const;
 
 const ENEMY_TEXTURE_URLS = [
-  '/assets/enemies/normal/idle.png',
-  '/assets/enemies/normal/mob_death.png',
-  '/assets/enemies/shooter/idle.png',
-  '/assets/enemies/shooter/shooter_death.png',
-  '/assets/enemies/tank/idle.png',
-  '/assets/enemies/tank/tank_death.png',
-  '/assets/enemies/angel/idle.png',
-  '/assets/enemies/angel/angel_death.png',
-  '/assets/enemies/vault/vault_1.png',
+  '/assets/enemies/normal/idle.webp',
+  '/assets/enemies/normal/mob_death.webp',
+  '/assets/enemies/shooter/idle.webp',
+  '/assets/enemies/shooter/shooter_death.webp',
+  '/assets/enemies/tank/idle.webp',
+  '/assets/enemies/tank/tank_death.webp',
+  '/assets/enemies/angel/idle.webp',
+  '/assets/enemies/angel/angel_death.webp',
+  '/assets/enemies/vault/vault_1.webp',
 ] as const;
 
 const GAME_SFX_URLS = [
@@ -41,7 +41,7 @@ const GAME_SFX_URLS = [
   '/audio/hit_3.mp3',
 ] as const;
 
-const UI_IMAGE_URLS = ['/assets/back 1.png'] as const;
+const UI_IMAGE_URLS = ['/assets/back 1.webp'] as const;
 
 const FONT_URLS = [
   '/fonts/Pulsewidth-1.0.0.otf',

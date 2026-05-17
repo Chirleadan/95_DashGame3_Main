@@ -7,17 +7,17 @@ function lvlupIcon(fileName: string): string {
 
 /** Upgrade choice `id` → icon URL. Choices without art keep the empty framed slot. */
 export const RUN_UPGRADE_ART_BY_ID: Readonly<Record<string, string>> = {
-  dash: lvlupIcon('Dash Range.png'),
-  speed: lvlupIcon('Character  Speed.png'),
-  shields: lvlupIcon('Shields.png'),
-  shieldRegen: lvlupIcon('Shield Regen.png'),
-  enemySlow: lvlupIcon('Enemy Slow.png'),
-  rockets: lvlupIcon('Rockets.png'),
-  artifactLightning: lvlupIcon('Artifact  Lightning.png'),
-  artifactSideDashes: lvlupIcon('Claw-Dash.png'),
-  artifactOrbitShield: lvlupIcon('Projectile Shields.png'),
-  artifactPhaseDash: lvlupIcon('Phase Dash.png'),
-  artifactSpiral: lvlupIcon('spiral.png'),
+  dash: lvlupIcon('Dash Range.webp'),
+  speed: lvlupIcon('Character  Speed.webp'),
+  shields: lvlupIcon('Shields.webp'),
+  shieldRegen: lvlupIcon('Shield Regen.webp'),
+  enemySlow: lvlupIcon('Enemy Slow.webp'),
+  rockets: lvlupIcon('Rockets.webp'),
+  artifactLightning: lvlupIcon('Artifact  Lightning.webp'),
+  artifactSideDashes: lvlupIcon('Claw-Dash.webp'),
+  artifactOrbitShield: lvlupIcon('Projectile Shields.webp'),
+  artifactPhaseDash: lvlupIcon('Phase Dash.webp'),
+  artifactSpiral: lvlupIcon('spiral.webp'),
 };
 
 export function getRunUpgradeArtUrl(choiceId: string): string | undefined {

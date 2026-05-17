@@ -38,7 +38,7 @@ Rare run upgrade `artifactSpiral` ("Artifact: Spiral"). Treat all spiral behavio
 | Movement | `Player.ts` | `startSpiralDashPath`, `startSpiralClickTeleport`, `advanceAlongSpiralDash`, `SpiralDashInput` |
 | Tuning | `config.ts` | `spiralCameraCatchUpSec`, `spiralGroundSampleMinDist`, `spiralPathMaxLengthWorld`, dash time clamps, `spiralEnemySpeedMult` |
 | Library | `RunUpgradeLibrary.ts` | `id: 'artifactSpiral'` |
-| Icon | `RunUpgradeArt.ts` | `spiral.png` |
+| Icon | `RunUpgradeArt.ts` | `spiral.webp` |
 
 ## CONFIG defaults (see `config.ts`)
 
