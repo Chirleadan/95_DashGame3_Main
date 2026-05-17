@@ -14,11 +14,8 @@ type BeatTraveler = {
   departEnd: number;
   /** Only the first beat after track start flies in from far away. */
   spawnFar: boolean;
-  /**
-   * Aimed beat cell: tracks the hero until `approachStart`, then frozen for this flight.
-   */
+  /** Beat column (X): tracks hero until launch, then frozen. Row (Z) always follows hero. */
   hitCellX?: number;
-  hitCellZ?: number;
 };
 
 export function createArenaCheckerCanvasTexture(): THREE.CanvasTexture {
@@ -164,16 +161,13 @@ export class BeatFloorVisualizer {
 
       if (audioTime < traveler.approachStart) {
         traveler.hitCellX = playerCellX;
-        traveler.hitCellZ = playerCellZ;
         continue;
       }
 
-      if (traveler.hitCellX === undefined || traveler.hitCellZ === undefined) {
+      if (traveler.hitCellX === undefined) {
         traveler.hitCellX = playerCellX;
-        traveler.hitCellZ = playerCellZ;
       }
       const hitCellX = traveler.hitCellX;
-      const hitCellZ = traveler.hitCellZ;
 
       const mult = traveler.spawnFar
         ? BeatFloorVisualizer.TRAVEL_HALF_CELLS_MULT_FAR
@@ -194,7 +188,7 @@ export class BeatFloorVisualizer {
         const eased = u ** 2;
         cellX = hitCellX + (endCellX - hitCellX) * eased;
       }
-      out.push({ cellX: Math.round(cellX), cellZ: hitCellZ });
+      out.push({ cellX: Math.round(cellX), cellZ: playerCellZ });
     }
     return out;
   }
