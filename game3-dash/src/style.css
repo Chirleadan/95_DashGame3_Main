@@ -663,10 +663,8 @@ body {
   left: 50%;
   top: 50%;
   z-index: 2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
+  width: 98px;
+  height: 98px;
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
@@ -676,6 +674,11 @@ body {
 }
 
 .beat-lane-tape-mana {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  z-index: 1;
+  transform: translateX(-50%);
   font-family: 'FA-1 Game', monospace;
   font-size: 15px;
   font-weight: 600;
@@ -684,6 +687,7 @@ body {
   color: rgba(200, 220, 255, 0.95);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
   white-space: nowrap;
+  text-align: center;
 }
 
 .beat-lane-tape-mana[hidden] {
@@ -691,23 +695,27 @@ body {
 }
 
 .beat-lane-tape-icon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
   display: block;
   width: 98px;
   height: 98px;
+  transform: translate(-50%, -50%);
+  transform-origin: center center;
   object-fit: contain;
   opacity: 0.9;
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.65));
-  transform-origin: center center;
   animation: beat-lane-tape-sway 4.2s ease-in-out infinite;
 }
 
 @keyframes beat-lane-tape-sway {
   0%,
   100% {
-    transform: rotate(-5deg);
+    transform: translate(-50%, -50%) rotate(-5deg);
   }
   50% {
-    transform: rotate(5deg);
+    transform: translate(-50%, -50%) rotate(5deg);
   }
 }
 
@@ -1376,7 +1384,9 @@ body {
   left: 64%;
   bottom: clamp(12px, 3.5vh, 40px);
   z-index: 2;
+  display: grid;
   width: min(119.6vw, 728px);
+  min-height: clamp(156px, 36.4vh, 416px);
   max-height: clamp(156px, 36.4vh, 416px);
   transform: translateX(-50%);
   transform-origin: center bottom;
@@ -1384,7 +1394,31 @@ body {
   user-select: none;
 }
 
+.guides-menu-media > * {
+  grid-area: 1 / 1;
+  align-self: end;
+  justify-self: center;
+}
+
 .guides-menu-media[hidden] {
+  display: none !important;
+}
+
+.guides-menu-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: clamp(156px, 36.4vh, 416px);
+  font-family: 'FA-1 Game', monospace;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  color: rgba(220, 228, 245, 0.88);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+  text-align: center;
+}
+
+.guides-menu-loading[hidden] {
   display: none !important;
 }
 

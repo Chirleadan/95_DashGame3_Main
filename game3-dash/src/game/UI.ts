@@ -254,6 +254,9 @@ export class UI {
   private readonly guidesMediaHost: HTMLElement;
   private readonly guidesVideoEl: HTMLVideoElement;
   private readonly guidesGifFallbackEl: HTMLImageElement;
+  private readonly guidesLoadingEl: HTMLElement;
+  private guideMediaRequestId = 0;
+  private guideMediaLoadTimer: number | null = null;
   private readonly guidesTitleEl: HTMLElement;
   private readonly guidesBodyEl: HTMLElement;
   private readonly guidesNavEl: HTMLElement;
@@ -468,8 +471,8 @@ export class UI {
     this.beatLaneTapeIconEl.className = 'beat-lane-tape-icon';
     this.beatLaneTapeIconEl.alt = '';
     this.beatLaneTapeIconEl.draggable = false;
-    this.beatLaneTapeStackEl.appendChild(this.beatLaneTapeManaEl);
     this.beatLaneTapeStackEl.appendChild(this.beatLaneTapeIconEl);
+    this.beatLaneTapeStackEl.appendChild(this.beatLaneTapeManaEl);
     this.beatLaneHost.appendChild(this.beatLaneCanvas);
     this.beatLaneHost.appendChild(this.beatLaneTapeStackEl);
     this.beatLaneHost.appendChild(this.playTrackPromptEl);
@@ -646,7 +649,7 @@ export class UI {
     this.guidesVideoEl.autoplay = true;
     this.guidesVideoEl.playsInline = true;
     this.guidesVideoEl.setAttribute('playsinline', '');
-    this.guidesVideoEl.preload = 'none';
+    this.guidesVideoEl.preload = 'auto';
     this.guidesVideoEl.disablePictureInPicture = true;
     this.guidesVideoEl.controls = false;
     this.guidesVideoEl.draggable = false;
@@ -656,8 +659,18 @@ export class UI {
     this.guidesGifFallbackEl.alt = '';
     this.guidesGifFallbackEl.hidden = true;
     this.guidesGifFallbackEl.draggable = false;
+    this.guidesGifFallbackEl.decoding = 'async';
 
-    this.guidesMediaHost.append(this.guidesVideoEl, this.guidesGifFallbackEl);
+    this.guidesLoadingEl = document.createElement('div');
+    this.guidesLoadingEl.className = 'guides-menu-loading';
+    this.guidesLoadingEl.textContent = 'лоудинг превью';
+    this.guidesLoadingEl.hidden = true;
+
+    this.guidesMediaHost.append(
+      this.guidesLoadingEl,
+      this.guidesVideoEl,
+      this.guidesGifFallbackEl,
+    );
     mainMenuUiScale.appendChild(this.guidesMediaHost);
     this.buildGuidesMenu();
     this.highScoreMenuPanel = this.mainMenuEl.querySelector('#highscore-menu-panel')!;
@@ -1166,44 +1179,130 @@ export class UI {
   }
 
   private pauseGuideMedia(): void {
+    this.clearGuideMediaLoadTimer();
     this.guidesVideoEl.pause();
   }
 
-  private showGuideGifFallback(topic: GuideTopic): void {
+  private clearGuideMediaLoadTimer(): void {
+    if (this.guideMediaLoadTimer == null) return;
+    window.clearTimeout(this.guideMediaLoadTimer);
+    this.guideMediaLoadTimer = null;
+  }
+
+  private showGuideLoading(): void {
+    this.guidesLoadingEl.hidden = false;
+    this.guidesVideoEl.hidden = true;
+    this.guidesGifFallbackEl.hidden = true;
+  }
+
+  private hideGuideLoading(): void {
+    this.guidesLoadingEl.hidden = true;
+  }
+
+  private isGuideMediaReady(): boolean {
+    if (
+      !this.guidesGifFallbackEl.hidden &&
+      this.guidesGifFallbackEl.complete &&
+      this.guidesGifFallbackEl.naturalWidth > 0
+    ) {
+      return true;
+    }
+    return (
+      !this.guidesVideoEl.hidden &&
+      this.guidesVideoEl.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+    );
+  }
+
+  private resumeGuideMedia(topic: GuideTopic): void {
+    if (
+      !this.guidesGifFallbackEl.hidden &&
+      this.guidesGifFallbackEl.complete &&
+      this.guidesGifFallbackEl.naturalWidth > 0
+    ) {
+      this.hideGuideLoading();
+      return;
+    }
+    if (this.guidesVideoEl.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      this.hideGuideLoading();
+      this.guidesGifFallbackEl.hidden = true;
+      this.guidesVideoEl.hidden = false;
+      void this.guidesVideoEl.play().catch(() =>
+        this.showGuideGifFallback(topic, this.guideMediaRequestId),
+      );
+    }
+  }
+
+  private showGuideGifFallback(topic: GuideTopic, requestId: number): void {
+    if (requestId !== this.guideMediaRequestId) return;
+    if (this.guidesGifFallbackEl.dataset.guideId !== topic.id) return;
+
+    this.guidesVideoEl.pause();
     this.guidesVideoEl.hidden = true;
     this.guidesGifFallbackEl.hidden = false;
     this.guidesGifFallbackEl.alt = topic.label;
-    this.guidesGifFallbackEl.src = '';
-    this.guidesGifFallbackEl.src = `${encodeURI(topic.gifUrl)}?guide=${topic.id}`;
+
+    const revealGif = () => {
+      if (requestId !== this.guideMediaRequestId) return;
+      if (this.guidesGifFallbackEl.dataset.guideId !== topic.id) return;
+      this.clearGuideMediaLoadTimer();
+      this.hideGuideLoading();
+    };
+
+    this.guidesGifFallbackEl.onload = revealGif;
+    this.guidesGifFallbackEl.onerror = () => {
+      if (requestId !== this.guideMediaRequestId) return;
+    };
+
+    const gifSrc = `${encodeURI(topic.gifUrl)}?guide=${topic.id}`;
+    if (this.guidesGifFallbackEl.getAttribute('src') !== gifSrc) {
+      this.guidesGifFallbackEl.src = gifSrc;
+    } else if (
+      this.guidesGifFallbackEl.complete &&
+      this.guidesGifFallbackEl.naturalWidth > 0
+    ) {
+      revealGif();
+    }
   }
 
   private setGuideMedia(topic: GuideTopic): void {
-    if (this.guidesVideoEl.dataset.guideId === topic.id) return;
+    const requestId = ++this.guideMediaRequestId;
+    this.clearGuideMediaLoadTimer();
+
+    const sameTopic = this.guidesVideoEl.dataset.guideId === topic.id;
+    if (sameTopic && this.isGuideMediaReady()) {
+      this.resumeGuideMedia(topic);
+      return;
+    }
 
     this.guidesVideoEl.dataset.guideId = topic.id;
     this.guidesGifFallbackEl.dataset.guideId = topic.id;
-    this.guidesGifFallbackEl.hidden = true;
-    this.guidesVideoEl.hidden = false;
+    this.showGuideLoading();
 
     const webmSrc = `${encodeURI(topic.webmUrl)}?guide=${topic.id}`;
 
     const useGifFallback = () => {
-      if (this.guidesVideoEl.dataset.guideId !== topic.id) return;
-      this.showGuideGifFallback(topic);
+      if (requestId !== this.guideMediaRequestId) return;
+      this.showGuideGifFallback(topic, requestId);
     };
+
+    this.guideMediaLoadTimer = window.setTimeout(() => {
+      if (requestId !== this.guideMediaRequestId) return;
+      useGifFallback();
+    }, 12_000);
 
     this.guidesVideoEl.setAttribute('aria-label', topic.label);
     this.guidesVideoEl.onerror = useGifFallback;
     this.guidesVideoEl.onloadeddata = () => {
+      if (requestId !== this.guideMediaRequestId) return;
       if (this.guidesVideoEl.dataset.guideId !== topic.id) return;
+      this.clearGuideMediaLoadTimer();
+      this.hideGuideLoading();
       this.guidesGifFallbackEl.hidden = true;
       this.guidesVideoEl.hidden = false;
       void this.guidesVideoEl.play().catch(useGifFallback);
     };
 
     this.guidesVideoEl.pause();
-    this.guidesVideoEl.removeAttribute('src');
-    this.guidesVideoEl.load();
     this.guidesVideoEl.src = webmSrc;
     this.guidesVideoEl.load();
   }
