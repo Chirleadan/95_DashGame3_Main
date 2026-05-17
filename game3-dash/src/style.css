@@ -2325,9 +2325,10 @@ body.game-booting .game-overlay--menu,
   z-index: 3;
   display: flex;
   flex-direction: row;
+  flex-wrap: nowrap;
   align-items: flex-end;
-  gap: 12px;
-  max-width: min(98vw, 1840px);
+  gap: 14px;
+  max-width: calc(100vw - 56px);
   transform: translateX(-20vw);
   pointer-events: none;
 }
@@ -2422,55 +2423,58 @@ body.game-booting .game-overlay--menu,
 
 .library-menu-detail {
   position: relative;
-  flex: 0 1 auto;
-  width: min(92vw, 1120px);
-  max-width: min(92vw, 1120px);
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  width: clamp(300px, 44vw, 520px);
+  min-width: 300px;
+  max-width: 520px;
   pointer-events: none;
 }
 
 .library-menu-detail .run-upgrade-card--preview.run-upgrade-card--library {
   width: 100%;
   max-width: none;
-  min-height: clamp(120px, 18vh, 168px);
+  min-height: 148px;
   height: auto;
   aspect-ratio: unset;
   background: rgba(31, 33, 41, 0.7);
   overflow: hidden;
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(96px, 12%, 128px);
+  grid-template-columns: minmax(0, 1fr) 104px;
   grid-template-rows: auto auto;
-  gap: 10px 16px;
-  padding: 14px 18px 16px;
+  grid-template-areas:
+    'title title'
+    'desc art';
+  gap: 10px 14px;
+  padding: 14px 16px 16px;
   align-items: start;
 }
 
 .library-menu-detail .run-upgrade-card--library .run-upgrade-card__title {
-  grid-column: 1 / -1;
+  grid-area: title;
   min-height: 0;
   padding: 8px 10px;
-  font-size: 1rem;
-  line-height: 1.15;
+  font-size: 1.02rem;
+  line-height: 1.2;
 }
 
 .library-menu-detail .run-upgrade-card--library .run-upgrade-card__desc {
-  grid-column: 1;
-  grid-row: 2;
+  grid-area: desc;
   flex: none;
   min-width: 0;
   padding: 8px 10px;
-  font-size: 0.92rem;
-  line-height: 1.28;
+  font-size: 0.94rem;
+  line-height: 1.32;
   overflow-wrap: break-word;
   word-break: normal;
-  white-space: normal;
 }
 
 .library-menu-detail .run-upgrade-card--library .run-upgrade-card__art {
-  grid-column: 2;
-  grid-row: 2;
-  width: 100%;
-  max-width: none;
+  grid-area: art;
+  width: 104px;
+  height: 104px;
+  max-width: 104px;
   margin-top: 0;
   align-self: start;
   aspect-ratio: 1;
@@ -2496,12 +2500,9 @@ body.game-booting .game-overlay--menu,
   }
 
   .library-menu-detail {
-    width: min(90vw, 1200px);
-    max-width: min(90vw, 1200px);
-  }
-
-  .library-menu-detail .run-upgrade-card--preview.run-upgrade-card--library {
-    min-height: clamp(128px, 19vh, 176px);
+    width: clamp(340px, 40vw, 520px);
+    min-width: 340px;
+    max-width: 520px;
   }
 }
 
