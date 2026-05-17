@@ -7,6 +7,11 @@ export const ARENA_CHECKER_CELL_WORLD = 4;
 const TRACK_FLOOR_TINT = new THREE.Color(0xffb8d8);
 const FLOOR_COLOR_NORMAL = new THREE.Color(0xffffff);
 
+/** Lighter checker tile in `createArenaCheckerCanvasTexture` (`#285c78`). */
+function isLightFloorCell(cellX: number, cellZ: number): boolean {
+  return (cellX + cellZ) % 2 === 1;
+}
+
 type LitCell = { cellX: number; cellZ: number };
 
 export function createArenaCheckerCanvasTexture(): THREE.CanvasTexture {
@@ -50,57 +55,19 @@ export function createArenaCheckerCanvasTexture(): THREE.CanvasTexture {
   return texture;
 }
 
-function createBeatCellHighlightTexture(subdivisions: number): THREE.CanvasTexture {
-  const size = 64;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Beat cell highlight texture canvas unavailable');
-
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, size, size);
-
-  const step = size / subdivisions;
-  ctx.strokeStyle = 'rgba(40, 40, 48, 0.55)';
-  ctx.lineWidth = 1;
-  for (let i = 1; i < subdivisions; i++) {
-    const p = i * step;
-    ctx.beginPath();
-    ctx.moveTo(p + 0.5, 0);
-    ctx.lineTo(p + 0.5, size);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(0, p + 0.5);
-    ctx.lineTo(size, p + 0.5);
-    ctx.stroke();
-  }
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.magFilter = THREE.NearestFilter;
-  tex.minFilter = THREE.NearestFilter;
-  tex.needsUpdate = true;
-  return tex;
-}
-
 /**
- * Track playback: pink floor tint + random white lit tiles (30% near hero per beat).
- * Shrinking beat rings are disabled for now.
+ * Track playback: pink floor tint + random solid-white lit tiles on light checker cells only.
  */
 export class BeatFloorVisualizer {
   private static readonly CELL_MESH_SIZE = ARENA_CHECKER_CELL_WORLD * 0.96;
   private static readonly CELL_RENDER_ORDER = 1;
   private static readonly CELL_Y = CONFIG.floorY + 0.011;
-  private static readonly CELL_OPACITY = 0.15;
-  private static readonly CELL_SUBGRID_DIVISIONS = 4;
-  /** Share of candidate floor cells lit on each beat. */
-  private static readonly BEAT_LIT_TILE_FRACTION = 0.3;
+  /** Was 30%; now 4× fewer → 7.5% of light tiles in range. */
+  private static readonly BEAT_LIT_TILE_FRACTION = 0.075;
   private static readonly VIEW_CELL_RADIUS_MULT = 2.25;
 
   private readonly floorMat: THREE.MeshStandardMaterial;
   private readonly highlightGroup: THREE.Group;
-  private readonly cellHighlightMap: THREE.CanvasTexture;
   private readonly cellMeshPool: THREE.Mesh[] = [];
   private readonly activeCellMeshes: THREE.Mesh[] = [];
   private readonly cellGeo: THREE.PlaneGeometry;
@@ -115,9 +82,6 @@ export class BeatFloorVisualizer {
     this.cellGeo = new THREE.PlaneGeometry(
       BeatFloorVisualizer.CELL_MESH_SIZE,
       BeatFloorVisualizer.CELL_MESH_SIZE,
-    );
-    this.cellHighlightMap = createBeatCellHighlightTexture(
-      BeatFloorVisualizer.CELL_SUBGRID_DIVISIONS,
     );
   }
 
@@ -136,7 +100,6 @@ export class BeatFloorVisualizer {
     this.releaseHighlightCells();
   }
 
-  /** New random 30% tile highlights for this beat (held until the next beat). */
   onBeat(playerX: number, playerZ: number): void {
     if (!this.trackVisualsActive) return;
     this.litCells.length = 0;
@@ -145,7 +108,7 @@ export class BeatFloorVisualizer {
   }
 
   update(_dt: number, _playerX: number, _playerZ: number): void {
-    /* Lit tiles stay until the next beat; nothing to animate per frame. */
+    /* Lit tiles stay until the next beat. */
   }
 
   private pickRandomLitCells(playerX: number, playerZ: number): void {
@@ -160,9 +123,14 @@ export class BeatFloorVisualizer {
     const candidates: LitCell[] = [];
     for (let dz = -range; dz <= range; dz++) {
       for (let dx = -range; dx <= range; dx++) {
-        candidates.push({ cellX: playerCellX + dx, cellZ: playerCellZ + dz });
+        const cellX = playerCellX + dx;
+        const cellZ = playerCellZ + dz;
+        if (!isLightFloorCell(cellX, cellZ)) continue;
+        candidates.push({ cellX, cellZ });
       }
     }
+
+    if (candidates.length === 0) return;
 
     const want = Math.max(
       1,
@@ -181,8 +149,6 @@ export class BeatFloorVisualizer {
     for (const { cellX, cellZ } of this.litCells) {
       const mesh = this.obtainCellMesh();
       mesh.position.set((cellX + 0.5) * cell, y, (cellZ + 0.5) * cell);
-      const mat = mesh.material as THREE.MeshBasicMaterial;
-      mat.opacity = BeatFloorVisualizer.CELL_OPACITY;
       mesh.visible = true;
       this.highlightGroup.add(mesh);
       this.activeCellMeshes.push(mesh);
@@ -193,10 +159,8 @@ export class BeatFloorVisualizer {
     const mesh = this.cellMeshPool.pop();
     if (mesh) return mesh;
     const mat = new THREE.MeshBasicMaterial({
-      map: this.cellHighlightMap,
       color: 0xffffff,
-      transparent: true,
-      opacity: BeatFloorVisualizer.CELL_OPACITY,
+      transparent: false,
       depthTest: true,
       depthWrite: false,
       side: THREE.DoubleSide,
