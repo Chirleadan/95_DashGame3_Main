@@ -73,6 +73,53 @@ const UPGRADE_CELL_ROWS: readonly UpgradeCellRowConfig[] = [
   { statKey: 'playerMaxHp', label: 'Hero shields' },
 ];
 
+type GuideTopicId = 'dash' | 'damage' | 'vaults' | 'enemies' | 'tape';
+
+type GuideTopic = {
+  id: GuideTopicId;
+  label: string;
+  gifUrl: string;
+  body: string;
+};
+
+const GUIDE_TOPICS: readonly GuideTopic[] = [
+  {
+    id: 'dash',
+    label: 'Dash Combat',
+    gifUrl: '/assets/guides/Dash Combat.gif',
+    body:
+      'Press Left Click to dash and kill enemies. Fast combo kills give more points.',
+  },
+  {
+    id: 'damage',
+    label: 'Damage',
+    gifUrl: '/assets/guides/damage.gif',
+    body:
+      'Touch an enemy or projectile and you lose one shield. It also triggers a blast that kills nearby enemies.',
+  },
+  {
+    id: 'vaults',
+    label: 'Vaults',
+    gifUrl: '/assets/guides/vault.gif',
+    body:
+      'Attack the vault and break its shields to level up and get a chance to drop a tape fragment.',
+  },
+  {
+    id: 'enemies',
+    label: 'Enemies',
+    gifUrl: '/assets/guides/enemies.gif',
+    body:
+      'There are different enemy types. Some have layers and need multiple hits; the longer you play, the more layers they get.',
+  },
+  {
+    id: 'tape',
+    label: 'Tape Mode',
+    gifUrl: '/assets/guides/Tape Mode.gif',
+    body:
+      'Press E to activate the tape and become invincible and get power-ups. Play the rhythm mini-game: missing the beat damages you.',
+  },
+];
+
 function upgradeCellState(
   cellIndex: number,
   selectedIndex: number,
@@ -189,7 +236,12 @@ export class UI {
   private readonly titlesBackBtn: HTMLButtonElement;
   private readonly upgradeBackBtn: HTMLButtonElement;
   private readonly guidesMenuPanel: HTMLElement;
+  private readonly guidesGifEl: HTMLImageElement;
+  private readonly guidesTitleEl: HTMLElement;
+  private readonly guidesBodyEl: HTMLElement;
+  private readonly guidesNavEl: HTMLElement;
   private readonly guidesBackBtn: HTMLButtonElement;
+  private selectedGuideId: GuideTopicId = GUIDE_TOPICS[0]!.id;
   private readonly highScoreMenuPanel: HTMLElement;
   private readonly highScoreBackBtn: HTMLButtonElement;
   private readonly highScoreMenuList: HTMLElement;
@@ -481,8 +533,12 @@ export class UI {
       <div id="tape-menu-panel" class="tape-cassette-rack" hidden></div>
       <button id="tape-back" type="button" class="game-overlay__btn game-overlay__btn--menu-sub-back" hidden>Back</button>
       <div id="guides-menu-panel" class="game-overlay__panel game-overlay__panel--guides" hidden>
-        <div class="guides-menu menu-sub-column"></div>
+        <div class="guides-menu">
+          <h2 class="guides-menu__title"></h2>
+          <p class="guides-menu__body"></p>
+        </div>
       </div>
+      <nav id="guides-nav" class="guides-nav" hidden aria-label="Guides"></nav>
       <button id="guides-back" type="button" class="game-overlay__btn game-overlay__btn--menu-sub-back" hidden>Back</button>
       <div id="highscore-menu-panel" class="game-overlay__panel game-overlay__panel--highscores" hidden>
         <div id="highscore-menu-list" class="highscore-menu"></div>
@@ -552,7 +608,18 @@ export class UI {
     this.titlesBackBtn = this.mainMenuEl.querySelector('#titles-back')!;
     this.upgradeBackBtn = this.mainMenuEl.querySelector('#upgrade-back')!;
     this.guidesMenuPanel = this.mainMenuEl.querySelector('#guides-menu-panel')!;
+    this.guidesTitleEl = this.guidesMenuPanel.querySelector('.guides-menu__title')!;
+    this.guidesBodyEl = this.guidesMenuPanel.querySelector('.guides-menu__body')!;
+    this.guidesNavEl = this.mainMenuEl.querySelector('#guides-nav')!;
     this.guidesBackBtn = this.mainMenuEl.querySelector('#guides-back')!;
+    this.guidesGifEl = document.createElement('img');
+    this.guidesGifEl.id = 'guides-menu-gif';
+    this.guidesGifEl.className = 'guides-menu-gif';
+    this.guidesGifEl.alt = '';
+    this.guidesGifEl.hidden = true;
+    this.guidesGifEl.draggable = false;
+    mainMenuUiScale.appendChild(this.guidesGifEl);
+    this.buildGuidesMenu();
     this.highScoreMenuPanel = this.mainMenuEl.querySelector('#highscore-menu-panel')!;
     this.highScoreBackBtn = this.mainMenuEl.querySelector('#highscore-back')!;
     this.highScoreMenuList = this.mainMenuEl.querySelector('#highscore-menu-list')!;
@@ -1004,6 +1071,8 @@ export class UI {
     this.titlesMenuPanel.hidden = true;
     this.titlesBackBtn.hidden = true;
     this.guidesMenuPanel.hidden = true;
+    this.guidesGifEl.hidden = true;
+    this.guidesNavEl.hidden = true;
     this.guidesBackBtn.hidden = true;
     this.highScoreMenuPanel.hidden = true;
     this.highScoreBackBtn.hidden = true;
@@ -1023,10 +1092,48 @@ export class UI {
     this.mainMenuPanel.hidden = false;
   }
 
+  private buildGuidesMenu(): void {
+    this.guidesNavEl.replaceChildren();
+    for (const topic of GUIDE_TOPICS) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'guides-nav__btn';
+      btn.dataset.guideId = topic.id;
+      btn.textContent = topic.label;
+      btn.setAttribute('aria-pressed', 'false');
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.selectGuideTopic(topic.id);
+      });
+      this.guidesNavEl.appendChild(btn);
+    }
+    this.selectGuideTopic(this.selectedGuideId);
+  }
+
+  private selectGuideTopic(id: GuideTopicId): void {
+    const topic = GUIDE_TOPICS.find((entry) => entry.id === id) ?? GUIDE_TOPICS[0]!;
+    this.selectedGuideId = topic.id;
+    this.guidesTitleEl.textContent = topic.label;
+    this.guidesBodyEl.textContent = topic.body;
+    if (this.guidesGifEl.getAttribute('src') !== topic.gifUrl) {
+      this.guidesGifEl.src = topic.gifUrl;
+    }
+    this.guidesGifEl.alt = topic.label;
+    const buttons = this.guidesNavEl.querySelectorAll<HTMLButtonElement>('.guides-nav__btn');
+    for (const btn of buttons) {
+      const active = btn.dataset.guideId === topic.id;
+      btn.classList.toggle('guides-nav__btn--active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+  }
+
   private openGuidesMenu(): void {
     this.hideAllMenuSubpanels();
     this.mainMenuPanel.hidden = true;
+    this.selectGuideTopic(this.selectedGuideId);
     this.guidesMenuPanel.hidden = false;
+    this.guidesGifEl.hidden = false;
+    this.guidesNavEl.hidden = false;
     this.guidesBackBtn.hidden = false;
   }
 
