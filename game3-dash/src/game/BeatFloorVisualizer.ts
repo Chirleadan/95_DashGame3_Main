@@ -1,18 +1,18 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.ts';
+import type { BeatEvent, Beatmap } from './Beatmap.ts';
 
 /** World XZ size of one checker cell (matches arena floor texture repeat). */
 export const ARENA_CHECKER_CELL_WORLD = 4;
 
-/** Main-menu backdrop (`style.css` `.boot-splash` / `.game-overlay--menu`). */
+/** Main-menu backdrop (`style.css`). */
 const MENU_BACKGROUND_COLOR = 0xff25b6;
 
-/** Lighter checker tile in `createArenaCheckerCanvasTexture` (`#285c78`). */
-function isLightFloorCell(cellX: number, cellZ: number): boolean {
-  return (cellX + cellZ) % 2 === 1;
-}
-
-type LitCell = { cellX: number; cellZ: number };
+type BeatTraveler = {
+  hitTime: number;
+  approachStart: number;
+  departEnd: number;
+};
 
 export function createArenaCheckerCanvasTexture(): THREE.CanvasTexture {
   const cellSize = 32;
@@ -56,104 +56,30 @@ export function createArenaCheckerCanvasTexture(): THREE.CanvasTexture {
 }
 
 /**
- * Track playback: random menu-pink lit tiles on light checker cells only (per beat).
+ * One menu-pink tile per beat: travels along the hero's floor row (screen R→L),
+ * reaches the hero on the beat, then continues left.
  */
 export class BeatFloorVisualizer {
   private static readonly CELL_MESH_SIZE = ARENA_CHECKER_CELL_WORLD * 0.96;
   private static readonly CELL_RENDER_ORDER = 1;
   private static readonly CELL_Y = CONFIG.floorY + 0.011;
-  /** 7.5% → half again ≈ 3.75% of light tiles in range. */
-  private static readonly BEAT_LIT_TILE_FRACTION = 0.0375;
-  private static readonly VIEW_CELL_RADIUS_MULT = 2.25;
+  /** Half-width of travel in cells (right of hero → hero → left). */
+  private static readonly TRAVEL_HALF_CELLS_MULT = 2.35;
 
   private readonly highlightGroup: THREE.Group;
-  private readonly cellMeshPool: THREE.Mesh[] = [];
-  private readonly activeCellMeshes: THREE.Mesh[] = [];
-  private readonly cellGeo: THREE.PlaneGeometry;
-  private readonly litCells: LitCell[] = [];
+  private readonly travelerMesh: THREE.Mesh;
+  private readonly travelers: BeatTraveler[] = [];
   private trackVisualsActive = false;
 
   constructor(scene: THREE.Scene) {
     this.highlightGroup = new THREE.Group();
     this.highlightGroup.renderOrder = BeatFloorVisualizer.CELL_RENDER_ORDER;
     scene.add(this.highlightGroup);
-    this.cellGeo = new THREE.PlaneGeometry(
+
+    const geo = new THREE.PlaneGeometry(
       BeatFloorVisualizer.CELL_MESH_SIZE,
       BeatFloorVisualizer.CELL_MESH_SIZE,
     );
-  }
-
-  onTrackStarted(): void {
-    this.trackVisualsActive = true;
-    this.litCells.length = 0;
-    this.releaseHighlightCells();
-  }
-
-  onTrackEnded(): void {
-    if (!this.trackVisualsActive) return;
-    this.trackVisualsActive = false;
-    this.litCells.length = 0;
-    this.releaseHighlightCells();
-  }
-
-  onBeat(playerX: number, playerZ: number): void {
-    if (!this.trackVisualsActive) return;
-    this.litCells.length = 0;
-    this.pickRandomLitCells(playerX, playerZ);
-    this.rebuildLitCellMeshes();
-  }
-
-  update(_dt: number, _playerX: number, _playerZ: number): void {
-    /* Lit tiles stay until the next beat. */
-  }
-
-  private pickRandomLitCells(playerX: number, playerZ: number): void {
-    const cell = ARENA_CHECKER_CELL_WORLD;
-    const playerCellX = Math.floor(playerX / cell);
-    const playerCellZ = Math.floor(playerZ / cell);
-    const range = Math.ceil(
-      (CONFIG.cameraViewHalfExtent * BeatFloorVisualizer.VIEW_CELL_RADIUS_MULT) /
-        cell,
-    );
-
-    const candidates: LitCell[] = [];
-    for (let dz = -range; dz <= range; dz++) {
-      for (let dx = -range; dx <= range; dx++) {
-        const cellX = playerCellX + dx;
-        const cellZ = playerCellZ + dz;
-        if (!isLightFloorCell(cellX, cellZ)) continue;
-        candidates.push({ cellX, cellZ });
-      }
-    }
-
-    if (candidates.length === 0) return;
-
-    const want = Math.max(
-      1,
-      Math.floor(candidates.length * BeatFloorVisualizer.BEAT_LIT_TILE_FRACTION),
-    );
-    shuffleInPlace(candidates);
-    for (let i = 0; i < want && i < candidates.length; i++) {
-      this.litCells.push(candidates[i]!);
-    }
-  }
-
-  private rebuildLitCellMeshes(): void {
-    this.releaseHighlightCells();
-    const cell = ARENA_CHECKER_CELL_WORLD;
-    const y = BeatFloorVisualizer.CELL_Y;
-    for (const { cellX, cellZ } of this.litCells) {
-      const mesh = this.obtainCellMesh();
-      mesh.position.set((cellX + 0.5) * cell, y, (cellZ + 0.5) * cell);
-      mesh.visible = true;
-      this.highlightGroup.add(mesh);
-      this.activeCellMeshes.push(mesh);
-    }
-  }
-
-  private obtainCellMesh(): THREE.Mesh {
-    const mesh = this.cellMeshPool.pop();
-    if (mesh) return mesh;
     const mat = new THREE.MeshBasicMaterial({
       color: MENU_BACKGROUND_COLOR,
       transparent: false,
@@ -161,28 +87,122 @@ export class BeatFloorVisualizer {
       depthWrite: false,
       side: THREE.DoubleSide,
     });
-    const m = new THREE.Mesh(this.cellGeo, mat);
-    m.rotation.x = -Math.PI / 2;
-    m.renderOrder = BeatFloorVisualizer.CELL_RENDER_ORDER;
-    m.frustumCulled = false;
-    return m;
+    this.travelerMesh = new THREE.Mesh(geo, mat);
+    this.travelerMesh.rotation.x = -Math.PI / 2;
+    this.travelerMesh.renderOrder = BeatFloorVisualizer.CELL_RENDER_ORDER;
+    this.travelerMesh.frustumCulled = false;
+    this.travelerMesh.visible = false;
+    this.highlightGroup.add(this.travelerMesh);
   }
 
-  private releaseHighlightCells(): void {
-    for (const mesh of this.activeCellMeshes) {
-      mesh.visible = false;
-      this.highlightGroup.remove(mesh);
-      this.cellMeshPool.push(mesh);
+  onTrackStarted(beatmap: Beatmap, audioTime: number): void {
+    this.trackVisualsActive = true;
+    this.travelers.length = 0;
+    this.scheduleTravelers(beatmap.beats, audioTime);
+    this.travelerMesh.visible = false;
+  }
+
+  onTrackEnded(): void {
+    if (!this.trackVisualsActive) return;
+    this.trackVisualsActive = false;
+    this.travelers.length = 0;
+    this.travelerMesh.visible = false;
+  }
+
+  update(
+    _dt: number,
+    audioTime: number,
+    playerX: number,
+    playerZ: number,
+    trackPlaying: boolean,
+  ): void {
+    if (!this.trackVisualsActive || !trackPlaying) {
+      this.travelerMesh.visible = false;
+      return;
     }
-    this.activeCellMeshes.length = 0;
-  }
-}
 
-function shuffleInPlace<T>(arr: T[]): void {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const t = arr[i]!;
-    arr[i] = arr[j]!;
-    arr[j] = t;
+    const cell = this.getTravelerCell(audioTime, playerX, playerZ);
+    if (!cell) {
+      this.travelerMesh.visible = false;
+      return;
+    }
+
+    this.travelerMesh.position.set(
+      (cell.cellX + 0.5) * ARENA_CHECKER_CELL_WORLD,
+      BeatFloorVisualizer.CELL_Y,
+      (cell.cellZ + 0.5) * ARENA_CHECKER_CELL_WORLD,
+    );
+    this.travelerMesh.visible = true;
+  }
+
+  private scheduleTravelers(beats: readonly BeatEvent[], fromTime: number): void {
+    let prevTime = fromTime;
+    for (let i = 0; i < beats.length; i++) {
+      const hitTime = beats[i]!.time;
+      if (hitTime <= fromTime + 0.02) {
+        prevTime = hitTime;
+        continue;
+      }
+      const gap = hitTime - prevTime;
+      const approachDur = THREE.MathUtils.clamp(gap * 0.9, 0.32, 1.05);
+      const departDur = THREE.MathUtils.clamp(gap * 0.45, 0.2, 0.55);
+      this.travelers.push({
+        hitTime,
+        approachStart: hitTime - approachDur,
+        departEnd: hitTime + departDur,
+      });
+      prevTime = hitTime;
+    }
+  }
+
+  private getTravelerCell(
+    audioTime: number,
+    playerX: number,
+    playerZ: number,
+  ): { cellX: number; cellZ: number } | null {
+    const traveler = this.findActiveTraveler(audioTime);
+    if (!traveler) return null;
+
+    const cell = ARENA_CHECKER_CELL_WORLD;
+    const playerCellX = Math.floor(playerX / cell);
+    const rowCellZ = Math.floor(playerZ / cell);
+    const halfCells = Math.max(
+      8,
+      Math.ceil(
+        (CONFIG.cameraViewHalfExtent * BeatFloorVisualizer.TRAVEL_HALF_CELLS_MULT) /
+          cell,
+      ),
+    );
+    const startCellX = playerCellX + halfCells;
+    const endCellX = playerCellX - halfCells;
+
+    let cellX: number;
+    if (audioTime <= traveler.hitTime) {
+      const span = Math.max(1e-4, traveler.hitTime - traveler.approachStart);
+      const u = THREE.MathUtils.clamp((audioTime - traveler.approachStart) / span, 0, 1);
+      const eased = 1 - (1 - u) ** 2.1;
+      cellX = Math.round(startCellX + (playerCellX - startCellX) * eased);
+    } else {
+      const span = Math.max(1e-4, traveler.departEnd - traveler.hitTime);
+      const u = THREE.MathUtils.clamp((audioTime - traveler.hitTime) / span, 0, 1);
+      const eased = 1 - (1 - u) ** 2;
+      cellX = Math.round(playerCellX + (endCellX - playerCellX) * eased);
+    }
+
+    return { cellX, cellZ: rowCellZ };
+  }
+
+  private findActiveTraveler(audioTime: number): BeatTraveler | null {
+    let best: BeatTraveler | null = null;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (const t of this.travelers) {
+      if (audioTime < t.approachStart || audioTime > t.departEnd) continue;
+      const d = Math.abs(t.hitTime - audioTime);
+      if (d < bestDist) {
+        bestDist = d;
+        best = t;
+      }
+    }
+    return best;
   }
 }
