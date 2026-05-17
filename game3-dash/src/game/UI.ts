@@ -1284,7 +1284,7 @@ export class UI {
         if (this.mainMenuEl.hidden) return;
         this.fireMainMenuSweep();
         scheduleNext();
-      }, 5000);
+      }, 3000);
     };
     this.fireMainMenuSweep();
     scheduleNext();
