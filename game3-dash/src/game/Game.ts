@@ -43,6 +43,7 @@ import {
 } from './BalanceSettings.ts';
 import { isArtifactEnabled } from './Artifacts.ts';
 import { rollResourceSackDropAmount } from './Loot.ts';
+import { ARTIFACT_SPIRAL_DESCRIPTION } from './RunUpgradeLibrary.ts';
 import {
   findTrackForStage,
   type TrackStage,
@@ -2911,17 +2912,17 @@ export class Game {
 
   private grantResourceLootFromSack(
     enemy: Enemy,
-  ): { amount: number; color: string } | null {
+  ): { amount: number; color: string; label: 'Gold' | 'Mana' } | null {
     if (enemy.isGoldSack()) {
       const amount = rollResourceSackDropAmount();
       this.runGold += amount;
-      return { amount, color: LOOT_FLOAT_COLOR_GOLD };
+      return { amount, color: LOOT_FLOAT_COLOR_GOLD, label: 'Gold' };
     }
     if (enemy.isManaSack()) {
       if (this.audio.isPlaying) return null;
       const amount = 10;
       this.runMana += amount;
-      return { amount, color: LOOT_FLOAT_COLOR_MANA };
+      return { amount, color: LOOT_FLOAT_COLOR_MANA, label: 'Mana' };
     }
     return null;
   }
@@ -2950,7 +2951,12 @@ export class Game {
       enemy.mesh.position.z,
     );
     if (pos) {
-      this.ui.spawnLootGainFloat(pos.x, pos.y, `+${loot.amount}`, loot.color);
+      this.ui.spawnLootGainFloat(
+        pos.x,
+        pos.y,
+        `+${loot.amount} ${loot.label}`,
+        loot.color,
+      );
     }
     this.syncRunLootUi();
   }
@@ -3151,7 +3157,7 @@ export class Game {
       choices.push({
         id: 'artifactSpiral',
         label: 'Artifact: Spiral',
-        description: 'Hold mouse and draw an arc. Your dash follows the drawn curve.',
+        description: ARTIFACT_SPIRAL_DESCRIPTION,
         accentColor: RUN_UPGRADE_COLOR_RARE_ARTIFACT,
         dropWeight: 0.1,
         secondary: true,

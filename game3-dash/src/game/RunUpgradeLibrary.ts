@@ -12,6 +12,10 @@ export const RUN_UPGRADE_COLOR_ARTIFACT = '#ffd35c';
 export const RUN_UPGRADE_COLOR_RARE_ARTIFACT = '#e00b3d';
 export const RUN_UPGRADE_COLOR_DEFAULT = '#f7fbff';
 
+/** Player-facing Spiral artifact blurb (level-up modal + main-menu Library). */
+export const ARTIFACT_SPIRAL_DESCRIPTION =
+  'WARNING: FUN BUT BUGGY. Hold mouse and draw an arc. Your dash follows the drawn curve.';
+
 /** All in-run level-up spells for the main-menu Library. */
 export const RUN_UPGRADE_LIBRARY: readonly RunUpgradeLibraryEntry[] = [
   {
@@ -76,7 +80,7 @@ export const RUN_UPGRADE_LIBRARY: readonly RunUpgradeLibraryEntry[] = [
   {
     id: 'artifactSpiral',
     label: 'Artifact: Spiral',
-    description: 'Hold mouse and draw an arc. Your dash follows the drawn curve.',
+    description: ARTIFACT_SPIRAL_DESCRIPTION,
     accentColor: RUN_UPGRADE_COLOR_RARE_ARTIFACT,
   },
 ];

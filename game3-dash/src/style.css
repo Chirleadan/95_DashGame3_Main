@@ -380,6 +380,38 @@ body.game-booting .game-overlay--menu,
   mix-blend-mode: normal;
 }
 
+.damage-edge-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(
+      ellipse 118% 108% at 50% 50%,
+      rgba(0, 0, 0, 0) 38%,
+      rgba(255, 140, 170, 0.2) 58%,
+      rgba(255, 70, 120, 0.48) 78%,
+      rgba(210, 35, 95, 0.72) 100%
+    );
+}
+
+.damage-edge-vignette--pulse {
+  animation: damage-edge-vignette-pulse 0.62s ease-out forwards;
+}
+
+@keyframes damage-edge-vignette-pulse {
+  0% {
+    opacity: 0;
+  }
+  14% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 .hud-wallet {
   position: absolute;
   left: 16px;

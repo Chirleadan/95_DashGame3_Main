@@ -351,6 +351,8 @@ export class UI {
   private runUpgradeClickEnableAtMs = 0;
   /** Full-viewport white flash on player damage (covers canvas + HUD). */
   private readonly damageFlashEl: HTMLElement;
+  /** Pink edge vignette on shield loss (enemy hit or beat miss). */
+  private readonly damageEdgeVignetteEl: HTMLElement;
   private readonly vaultBearingHost: HTMLElement;
   private readonly vaultBearingRot: SVGGElement;
   private artifactsChangeHandler: (() => void) | null = null;
@@ -911,6 +913,11 @@ export class UI {
     this.damageFlashEl.setAttribute('aria-hidden', 'true');
     document.body.appendChild(this.damageFlashEl);
 
+    this.damageEdgeVignetteEl = document.createElement('div');
+    this.damageEdgeVignetteEl.className = 'damage-edge-vignette';
+    this.damageEdgeVignetteEl.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(this.damageEdgeVignetteEl);
+
     for (const el of [
       this.hudEl,
       this.hpBarsBottom,
@@ -927,8 +934,10 @@ export class UI {
     this.buttonSfx.mount();
   }
 
-  /** Brief white fullscreen flash when the hero loses HP. */
+  /** White flash + pink edge vignette when the hero loses a shield segment. */
   triggerDamageScreenFlash(): void {
+    this.pulseDamageEdgeVignette();
+
     const el = this.damageFlashEl;
     el.style.transition = 'none';
     el.style.opacity = '0.36';
@@ -937,6 +946,18 @@ export class UI {
       el.style.transition = 'opacity 0.2s ease-out';
       el.style.opacity = '0';
     });
+  }
+
+  private pulseDamageEdgeVignette(): void {
+    const el = this.damageEdgeVignetteEl;
+    el.classList.remove('damage-edge-vignette--pulse');
+    void el.offsetWidth;
+    el.classList.add('damage-edge-vignette--pulse');
+    el.addEventListener(
+      'animationend',
+      () => el.classList.remove('damage-edge-vignette--pulse'),
+      { once: true },
+    );
   }
 
   /** Remove fullscreen menu overlays from the document (call from Game.dispose). */
@@ -948,7 +969,7 @@ export class UI {
     this.musicMarquee.setLayout(mode);
   }
 
-  /** Floating "+N" when a gold / mana sack is broken (canvas-local coordinates). */
+  /** Floating "+N Gold" / "+N Mana" when a resource sack is broken (canvas-local coordinates). */
   spawnLootGainFloat(x: number, y: number, text: string, color: string): void {
     const el = document.createElement('div');
     el.className = 'loot-gain-float';
@@ -968,6 +989,7 @@ export class UI {
     this.deathScreenEl.remove();
     this.runUpgradeOverlayEl.remove();
     this.damageFlashEl.remove();
+    this.damageEdgeVignetteEl.remove();
   }
 
   showRunUpgradeModal(opts: {

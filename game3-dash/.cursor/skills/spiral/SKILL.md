@@ -2,7 +2,7 @@
 name: spiral
 description: >-
   Guides work on the Spiral run artifact (drawn arc dash, click teleport, preview
-  ribbon, enemy speed penalty). WARNING FAN BAT VERY BUGGY. Use when the user
+  ribbon, enemy speed penalty). Player copy uses WARNING: FUN BUT BUGGY. Use when the user
   mentions Spiral, artifactSpiral, spiral dash, spiral path, or edits spiral-related
   code in Game.ts, Player.ts, or CONFIG spiral keys.
 disable-model-invocation: true
@@ -10,7 +10,7 @@ disable-model-invocation: true
 
 # Spiral artifact
 
-**WARNING FAN BAT VERY BUGGY**
+**WARNING: FUN BUT BUGGY** (player-facing; see `ARTIFACT_SPIRAL_DESCRIPTION` in `RunUpgradeLibrary.ts`)
 
 Rare run upgrade `artifactSpiral` ("Artifact: Spiral"). Treat all spiral behavior as unstable until manually verified in-game.
 
@@ -57,12 +57,12 @@ Rare run upgrade `artifactSpiral` ("Artifact: Spiral"). Treat all spiral behavio
 
 ## Agent rules
 
-**WARNING FAN BAT VERY BUGGY**
+**WARNING: FUN BUT BUGGY** (player-facing; see `ARTIFACT_SPIRAL_DESCRIPTION` in `RunUpgradeLibrary.ts`)
 
 - Prefer minimal, targeted fixes; avoid refactors that touch non-spiral dash logic.
 - After any change, note what was **not** play-tested (path edge cases, tank clip during spiral dash, overlap with Phase Dash / Lightning, click vs draw threshold).
 - Do not assume spiral matches normal dash collision, kill sweep, or cooldown semantics—they diverge in several branches.
-- When adding features, document new CONFIG keys and keep `RunUpgradeLibrary` description in English; include **WARNING FAN BAT VERY BUGGY** if describing player-visible behavior.
+- When adding features, document new CONFIG keys and keep `RunUpgradeLibrary` description in English; include **WARNING: FUN BUT BUGGY** (player-facing; see `ARTIFACT_SPIRAL_DESCRIPTION` in `RunUpgradeLibrary.ts`) if describing player-visible behavior.
 
 ## Known risk areas (investigate before “done”)
 
