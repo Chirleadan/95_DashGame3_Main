@@ -42,11 +42,14 @@ async function bootstrap(mount: HTMLDivElement): Promise<void> {
   const { Game } = await gameModulePromise;
   const game = new Game(mount);
   await game.whenReadyForDisplay();
-  await waitFrames(1);
+  // Prepare menu + menu HUD layout while boot CSS still hides #app run UI and the overlay.
+  game.showMainMenu();
+  await waitFrames(2);
   mount.classList.remove('app--booting');
   document.body.classList.remove('game-booting');
+  await waitFrames(1);
+  // Reveal menu only after the pink overlay is ready; loading was covering the gap until now.
   loading.hide();
-  game.showMainMenu();
 
   window.addEventListener('beforeunload', () => {
     game.dispose();
