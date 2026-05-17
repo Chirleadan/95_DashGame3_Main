@@ -2315,7 +2315,7 @@ export class UI {
   }
 
   /**
-   * During a run: minimal HUD (XP only) unless cheat mode (full dev panels).
+   * During a run: compact HUD (XP). Cheat mode does not show in-run dev panels.
    * Main menu: hide gameplay HUD.
    */
   /** Top-left wallet: persistent gold (+ run gold from caller); run mana when `mana` is set. */
@@ -2335,9 +2335,10 @@ export class UI {
     this.setWalletDisplay(total, null);
   }
 
-  syncRunHudLayout(layout: 'menu' | 'run', cheatMode: boolean): void {
+  syncRunHudLayout(layout: 'menu' | 'run', _cheatMode: boolean): void {
     const inMenu = layout === 'menu';
-    const showDev = !inMenu && cheatMode;
+    /** Lens/bloom/dither + artifact toggles stay out of the run HUD (cheat = all level-up picks only). */
+    const showDev = false;
     this.runHudLayoutMode = layout;
     this.setMusicMarqueeLayout(inMenu ? 'menu' : 'run');
     this.walletEl.hidden = false;

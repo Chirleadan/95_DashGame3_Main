@@ -30,6 +30,12 @@ export class Input {
   private prevKeyEscape = false;
   private keyEscapeEdge = false;
   private wheelZoomDelta = 0;
+  private readonly virtualMove = {
+    forward: false,
+    back: false,
+    left: false,
+    right: false,
+  };
 
   constructor(
     keyboardTarget: HTMLElement = document.body,
@@ -201,16 +207,31 @@ export class Input {
   }
 
   get forward(): boolean {
-    return this.down.has('KeyW');
+    return this.down.has('KeyW') || this.virtualMove.forward;
   }
   get back(): boolean {
-    return this.down.has('KeyS');
+    return this.down.has('KeyS') || this.virtualMove.back;
   }
   get left(): boolean {
-    return this.down.has('KeyA');
+    return this.down.has('KeyA') || this.virtualMove.left;
   }
   get right(): boolean {
-    return this.down.has('KeyD');
+    return this.down.has('KeyD') || this.virtualMove.right;
+  }
+
+  /** Touch movement pad (mobile only). */
+  setVirtualMoveDir(
+    dir: 'forward' | 'back' | 'left' | 'right',
+    active: boolean,
+  ): void {
+    this.virtualMove[dir] = active;
+  }
+
+  clearVirtualMove(): void {
+    this.virtualMove.forward = false;
+    this.virtualMove.back = false;
+    this.virtualMove.left = false;
+    this.virtualMove.right = false;
   }
 
   /** Movement intent in world XZ; not normalized. */

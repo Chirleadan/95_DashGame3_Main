@@ -1,5 +1,6 @@
 import './style.css';
 import { LoadingScreen } from './game/LoadingScreen.ts';
+import { syncMobileGameRootClass } from './game/MobileViewport.ts';
 
 function dismissBootSplash(): void {
   document.getElementById('boot-splash')?.remove();
@@ -19,6 +20,8 @@ function waitFrames(count: number): Promise<void> {
 }
 
 async function bootstrap(mount: HTMLDivElement): Promise<void> {
+  syncMobileGameRootClass();
+  window.addEventListener('resize', syncMobileGameRootClass);
   document.body.classList.add('game-booting');
   mount.classList.add('app--booting');
 

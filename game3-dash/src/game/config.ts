@@ -11,6 +11,8 @@ export const CONFIG = {
   arenaFloorVisualHalfExtent: 5000,
   /** Orthographic camera half-height (world); frustum top/bottom ±this, sides × aspect. */
   cameraViewHalfExtent: 26.1,
+  /** Touch viewport: default ortho half-height × this (3 = camera 3× farther). */
+  mobileCameraViewHalfExtentMult: 3,
   cameraZoomMinHalfExtent: 8,
   cameraZoomMaxHalfExtent: 40,
   cameraZoomWheelSpeed: 0.0015,

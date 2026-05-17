@@ -11,6 +11,11 @@ import { EnemySpawner } from './EnemySpawner.ts';
 import { circlesOverlap, segmentHitsCircle } from './Collision.ts';
 import { UI, type RunUpgradeChoiceView } from './UI.ts';
 import { CameraController } from './CameraController.ts';
+import { MobileMovementControls } from './MobileMovementControls.ts';
+import {
+  getCameraZoomHalfExtentLimits,
+  getDefaultCameraViewHalfExtent,
+} from './MobileViewport.ts';
 import { screenToGroundXZ } from './screenToGround.ts';
 import {
   ensureLvlupAssetsLoaded,
@@ -229,7 +234,8 @@ export class Game {
   private pendingDashSfx = false;
   private lastDeathSfxAtMs = -Infinity;
   /** Current ortho camera half-height (world units), changed by wheel zoom. */
-  private cameraViewHalfExtentCurrent: number = CONFIG.cameraViewHalfExtent;
+  private cameraViewHalfExtentCurrent: number = getDefaultCameraViewHalfExtent();
+  private readonly mobileMoveControls: MobileMovementControls;
   private selectedTrackStage: TrackStage = resolveStoredOrDefaultTrackStage();
   private beatmapLoadSerial = 0;
 
@@ -400,6 +406,8 @@ export class Game {
 
     this.input = new Input(window.document.documentElement, mount);
     this.input.centerPointerOn(this.renderer.domElement);
+    this.mobileMoveControls = new MobileMovementControls(mount);
+    this.mobileMoveControls.attach(this.input);
     this.player = new Player(this.scene);
     this.spawner = new EnemySpawner(this.scene, this.enemies);
     this.ui = new UI(mount);
@@ -2527,6 +2535,14 @@ export class Game {
     } else {
       this.ui.syncRunHudLayout('run', this.ui.isCheatModeEnabled());
     }
+    this.syncMobileMoveControls();
+  }
+
+  private syncMobileMoveControls(): void {
+    this.mobileMoveControls.setVisible(this.runPhase === 'playing');
+    if (this.runPhase !== 'playing') {
+      this.input.clearVirtualMove();
+    }
   }
 
   private getRunRocketIntervalSec(): number {
@@ -3802,10 +3818,8 @@ export class Game {
     const speed = Math.max(1e-6, CONFIG.cameraZoomWheelSpeed);
     const mult = Math.exp(delta * speed);
     const next = this.cameraViewHalfExtentCurrent * mult;
-    const clamped = Math.min(
-      CONFIG.cameraZoomMaxHalfExtent,
-      Math.max(CONFIG.cameraZoomMinHalfExtent, next),
-    );
+    const limits = getCameraZoomHalfExtentLimits();
+    const clamped = Math.min(limits.max, Math.max(limits.min, next));
     if (Math.abs(clamped - this.cameraViewHalfExtentCurrent) < 1e-6) return;
     this.cameraViewHalfExtentCurrent = clamped;
     this.onResize();
@@ -3818,6 +3832,7 @@ export class Game {
     this.backgroundAudio.pause();
     this.clearBackgroundPauseTimer();
     window.removeEventListener('resize', this.onResize);
+    this.mobileMoveControls.dispose();
     this.clearDamagePulseRings();
     this.clearPhantomSplashEffects();
     this.clearBloodEffects();
