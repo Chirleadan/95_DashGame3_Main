@@ -66,6 +66,9 @@ export class BeatFloorVisualizer {
   private static readonly RING_BAND_WORLD = ARENA_CHECKER_CELL_WORLD * 1.4;
   private static readonly PULSE_FADE_SEC = 0.07;
   private static readonly CELL_MESH_SIZE = ARENA_CHECKER_CELL_WORLD * 0.96;
+  /** Below enemies (4+) and player (5–10); above the floor mesh (0). */
+  private static readonly CELL_RENDER_ORDER = 1;
+  private static readonly CELL_Y = CONFIG.floorY + 0.011;
 
   private readonly floorMat: THREE.MeshStandardMaterial;
   private readonly highlightGroup: THREE.Group;
@@ -79,7 +82,7 @@ export class BeatFloorVisualizer {
   constructor(scene: THREE.Scene, floorMat: THREE.MeshStandardMaterial) {
     this.floorMat = floorMat;
     this.highlightGroup = new THREE.Group();
-    this.highlightGroup.renderOrder = 3;
+    this.highlightGroup.renderOrder = BeatFloorVisualizer.CELL_RENDER_ORDER;
     scene.add(this.highlightGroup);
     this.cellGeo = new THREE.PlaneGeometry(
       BeatFloorVisualizer.CELL_MESH_SIZE,
@@ -172,7 +175,7 @@ export class BeatFloorVisualizer {
     const cellRange = Math.ceil((maxRadius + band) / cell) + 1;
     const playerCellX = Math.floor(playerX / cell);
     const playerCellZ = Math.floor(playerZ / cell);
-    const y = CONFIG.floorY + 0.022;
+    const y = BeatFloorVisualizer.CELL_Y;
 
     for (let dz = -cellRange; dz <= cellRange; dz++) {
       for (let dx = -cellRange; dx <= cellRange; dx++) {
@@ -237,11 +240,13 @@ export class BeatFloorVisualizer {
       color: 0xffffff,
       transparent: true,
       opacity: 0.9,
+      depthTest: true,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
     const m = new THREE.Mesh(this.cellGeo, mat);
     m.rotation.x = -Math.PI / 2;
+    m.renderOrder = BeatFloorVisualizer.CELL_RENDER_ORDER;
     m.frustumCulled = false;
     return m;
   }
