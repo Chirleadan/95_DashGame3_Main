@@ -1,3 +1,4 @@
+import { getDashCooldownSec } from './BalanceSettings.ts';
 import { CONFIG } from './config.ts';
 
 /**
@@ -23,6 +24,8 @@ export type TrackStageBoost = {
    * Fired sequentially in-game with a short delay between each.
    */
   phantomBeatDashCount: number;
+  /** While the tape plays, replaces balance-menu dash cooldown (seconds). */
+  dashCooldownSecWhilePlaying?: number;
 };
 
 export type TrackStage = {
@@ -62,6 +65,7 @@ const TRACK_2_BASE_BOOST = {
   playerSpeedMultWhilePlaying: 0.5,
   onBeatDashLengthWidthMult: 1,
   resetDashCooldownOnBeat: true,
+  dashCooldownSecWhilePlaying: 1,
 } as const;
 
 const TRACK_2_STAGE_BOOSTS: Record<number, TrackStageBoost> = {
@@ -199,6 +203,17 @@ export const TRACK_CATALOG: readonly TrackEntry[] = [
     ],
   },
 ];
+
+/** Dash cooldown while a tape plays (track boost overrides balance menu). */
+export function resolveDashCooldownSecWhilePlaying(
+  boost: TrackStageBoost,
+  tapePlaying: boolean,
+): number {
+  if (!tapePlaying) return getDashCooldownSec();
+  const v = boost.dashCooldownSecWhilePlaying;
+  if (v != null && Number.isFinite(v) && v >= 0) return v;
+  return getDashCooldownSec();
+}
 
 export function findTrackStage(trackId: string, stageId: string): TrackStage | null {
   const track = TRACK_CATALOG.find((entry) => entry.id === trackId);

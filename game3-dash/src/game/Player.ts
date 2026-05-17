@@ -103,6 +103,9 @@ export class Player {
   /** Length & trail width scale for the current main dash (e.g. on-beat ×2). */
   private activeDashLenWidthMult = 1;
 
+  /** Cooldown applied when the current dash started (track boost or balance menu). */
+  private activeDashCooldownSec = getDashCooldownSec();
+
   /**
    * Increments on each new main dash start. Dash kills use it so each enemy
    * takes at most one dash-hit per dash (not once per animation frame).
@@ -833,7 +836,7 @@ export class Player {
             Math.min(1, CONFIG.reverseDashArtifactDurationFraction),
           );
           this.dash.timeLeft = getDashDurationSec() * mult * revDur;
-          this.dash.cooldownLeft = getDashCooldownSec();
+          this.dash.cooldownLeft = this.activeDashCooldownSec;
           if (!this.spiralArtifactActive) {
             this.dashEnemyFreezeLeft = getDashDurationSec() * mult * revDur;
           }
@@ -1171,7 +1174,12 @@ export class Player {
     enemies: readonly Enemy[],
     spiralDashEnabled = false,
     spiralDashInput: SpiralDashInput | null = null,
+    dashCooldownSec = getDashCooldownSec(),
   ): void {
+    this.activeDashCooldownSec =
+      Number.isFinite(dashCooldownSec) && dashCooldownSec >= 0
+        ? dashCooldownSec
+        : getDashCooldownSec();
     this.spiralArtifactActive = spiralDashEnabled;
     if (this.tankClipSlideActive) {
       this.advanceTankClipSlide();
@@ -1239,7 +1247,7 @@ export class Player {
     const mult =
       Number.isFinite(dashLenWidthMult) && dashLenWidthMult > 0 ? dashLenWidthMult : 1;
     if (this.microDashTimeLeft <= 0) {
-      this.dash.tryStart(dashTrigger, aimX, aimZ, mult);
+      this.dash.tryStart(dashTrigger, aimX, aimZ, mult, this.activeDashCooldownSec);
       if (
         spiralDashTrigger &&
         this.dash.timeLeft > 0 &&

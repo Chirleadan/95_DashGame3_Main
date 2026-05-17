@@ -17,6 +17,7 @@ export class Dash {
     aimDirX: number,
     aimDirZ: number,
     durationMult: number = 1,
+    cooldownSec?: number,
   ): void {
     if (!trigger || this.cooldownLeft > 0 || this.timeLeft > 0) {
       return;
@@ -35,7 +36,10 @@ export class Dash {
     this.dirZ = nz;
     const m = Number.isFinite(durationMult) && durationMult > 0 ? durationMult : 1;
     this.timeLeft = getDashDurationSec() * m;
-    this.cooldownLeft = getDashCooldownSec();
+    this.cooldownLeft =
+      cooldownSec != null && Number.isFinite(cooldownSec) && cooldownSec >= 0
+        ? cooldownSec
+        : getDashCooldownSec();
   }
 
   /** True while dash movement should apply (before this frame's timer decay). */

@@ -51,6 +51,7 @@ import { ARTIFACT_SPIRAL_DESCRIPTION } from './RunUpgradeLibrary.ts';
 import {
   findTrackForStage,
   type TrackStage,
+  resolveDashCooldownSecWhilePlaying,
 } from './TrackCatalog.ts';
 import {
   resolveStoredOrDefaultTrackStage,
@@ -1284,6 +1285,7 @@ export class Game {
       this.enemies,
       this.runSpiralDashUnlocked,
       spiralDashInput,
+      this.getActiveDashCooldownSec(),
     );
     if (this.player.consumeSpiralTeleportStarted()) {
       this.cameraController.beginTeleportCatchUp(CONFIG.spiralCameraCatchUpSec);
@@ -2495,6 +2497,13 @@ export class Game {
     return Number.isFinite(mult) && mult > 0 ? mult : 1;
   }
 
+  private getActiveDashCooldownSec(): number {
+    return resolveDashCooldownSecWhilePlaying(
+      this.selectedTrackStage.boost,
+      this.audio.isPlaying,
+    );
+  }
+
   private getRunEnemySlowFactor(): number {
     if (this.runEnemySlowLevel <= 0) return 1;
     const t = (Math.min(RUN_UPGRADE_MAX_LEVEL, this.runEnemySlowLevel) - 1) / 4;
@@ -2781,7 +2790,10 @@ export class Game {
       }
       return;
     }
-    this.damagePlayerForBeatMistake();
+    // During tape: only beat-timeout misses hurt — not extra off-beat dashes.
+    if (!this.isTapeTrackPlaying()) {
+      this.damagePlayerForBeatMistake();
+    }
   }
 
   private onBeatReached(beat: BeatEvent): void {
