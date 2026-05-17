@@ -36,6 +36,10 @@ export class MusicMarquee {
     parent.appendChild(this.root);
   }
 
+  setLayout(mode: 'menu' | 'run'): void {
+    this.root.classList.toggle('music-marquee--menu', mode === 'menu');
+  }
+
   setText(text: string | null): void {
     if (!text) {
       this.currentText = null;

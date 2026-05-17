@@ -46,6 +46,7 @@ async function bootstrap(mount: HTMLDivElement): Promise<void> {
   mount.classList.remove('app--booting');
   document.body.classList.remove('game-booting');
   loading.hide();
+  game.showMainMenu();
 
   window.addEventListener('beforeunload', () => {
     game.dispose();

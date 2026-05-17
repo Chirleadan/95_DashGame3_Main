@@ -55,6 +55,7 @@ body {
 /* Hide run HUD in #app until the first menu frame is ready (avoids flash on refresh). */
 body.game-booting #app > .hud-wallet,
 body.game-booting #app > .game-run-ui,
+body.game-booting .game-overlay--menu,
 #app.app--booting > .hud-wallet,
 #app.app--booting > .game-run-ui {
   display: none !important;
@@ -2402,18 +2403,66 @@ body.game-booting #app > .game-run-ui,
   transform: translateY(-1px);
 }
 
+.library-menu-loading {
+  margin: 0;
+  padding: 0 12px;
+  color: rgba(255, 255, 255, 0.92);
+  font-family: 'FA-1 Game', monospace;
+  font-size: clamp(1rem, 2vw, 1.35rem);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  user-select: none;
+}
+
+.library-menu-loading[hidden] {
+  display: none !important;
+}
+
 .library-menu-detail {
   position: relative;
   flex: 0 1 auto;
-  width: min(38vw, 320px);
-  max-width: min(38vw, 320px);
+  width: min(54vw, 560px);
+  max-width: min(54vw, 560px);
   pointer-events: none;
 }
 
-.library-menu-detail .run-upgrade-card--preview {
+.library-menu-detail .run-upgrade-card--preview.run-upgrade-card--library {
   width: 100%;
-  max-width: 320px;
-  aspect-ratio: 1;
+  max-width: none;
+  height: clamp(132px, 20vh, 196px);
+  aspect-ratio: unset;
+  background: rgba(31, 33, 41, 0.7);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(88px, 18%, 112px);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px 14px;
+  padding: 14px 16px;
+}
+
+.library-menu-detail .run-upgrade-card--library .run-upgrade-card__title {
+  grid-column: 1 / -1;
+  min-height: 0;
+  padding: 8px 10px;
+  font-size: 1rem;
+}
+
+.library-menu-detail .run-upgrade-card--library .run-upgrade-card__desc {
+  grid-column: 1;
+  grid-row: 2;
+  padding: 8px 10px;
+  font-size: 0.92rem;
+  line-height: 1.22;
+}
+
+.library-menu-detail .run-upgrade-card--library .run-upgrade-card__art {
+  grid-column: 2;
+  grid-row: 2;
+  width: 100%;
+  max-width: none;
+  margin-top: 0;
+  align-self: end;
 }
 
 @media (min-width: 900px) {
@@ -2436,12 +2485,12 @@ body.game-booting #app > .game-run-ui,
   }
 
   .library-menu-detail {
-    width: min(36vw, 340px);
-    max-width: min(36vw, 340px);
+    width: min(52vw, 600px);
+    max-width: min(52vw, 600px);
   }
 
-  .library-menu-detail .run-upgrade-card--preview {
-    max-width: 340px;
+  .library-menu-detail .run-upgrade-card--preview.run-upgrade-card--library {
+    height: clamp(148px, 21vh, 210px);
   }
 }
 
@@ -2517,6 +2566,35 @@ body.game-booting #app > .game-run-ui,
   z-index: 100002;
   pointer-events: none;
   user-select: none;
+}
+
+.music-marquee--menu {
+  left: 50%;
+  right: auto;
+  width: min(72vw, 720px);
+  transform: translateX(-50%);
+}
+
+.music-marquee--menu .music-marquee__viewport {
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 8%,
+    #000 92%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 8%,
+    #000 92%,
+    transparent 100%
+  );
+}
+
+.music-marquee--menu .music-marquee__text {
+  width: 100%;
+  text-align: center;
 }
 
 .music-marquee[hidden] {
@@ -2597,8 +2675,8 @@ body.game-booting #app > .game-run-ui,
 }
 
 .loading-screen .flashing-lights-warning {
-  color: rgba(255, 107, 157, 0.92);
-  text-shadow: 0 0 12px rgba(255, 107, 157, 0.35);
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
 }
 
 .game-overlay--menu > .flashing-lights-warning {
@@ -2612,12 +2690,8 @@ body.game-booting #app > .game-run-ui,
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #ff25b6;
-  background-image: url('/assets/back 1.png');
-  background-position: center;
-  background-size: cover;
-  background-repeat: no-repeat;
-  color: #ff6b9d;
+  background: #05060a;
+  color: #e8ecf5;
   font-family: 'FA-1 Game', monospace;
 }
 
@@ -2642,11 +2716,11 @@ body.game-booting #app > .game-run-ui,
 }
 
 .loading-screen__track {
-  stroke: rgba(255, 107, 157, 0.18);
+  stroke: rgba(255, 255, 255, 0.14);
 }
 
 .loading-screen__ring {
-  stroke: #ff6b9d;
+  stroke: rgba(255, 255, 255, 0.88);
   stroke-linecap: round;
   transition: stroke-dashoffset 0.12s ease-out;
 }
@@ -2662,7 +2736,7 @@ body.game-booting #app > .game-run-ui,
   margin: 0;
   font-size: 0.82rem;
   font-variant-numeric: tabular-nums;
-  color: rgba(255, 107, 157, 0.85);
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .loading-screen__error {

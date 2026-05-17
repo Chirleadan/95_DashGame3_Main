@@ -471,7 +471,6 @@ export class Game {
         this.goToMainMenuFromPause();
       }
     });
-    this.ui.showMainMenu();
     this.ui.ensureOnlinePlayerProfile();
     if (import.meta.env.DEV) {
       installLeaderboardDevTools({
@@ -1116,6 +1115,11 @@ export class Game {
 
   whenReadyForDisplay(): Promise<void> {
     return this.readyForDisplayPromise;
+  }
+
+  /** Called after the loading screen is dismissed (initial boot). */
+  showMainMenu(): void {
+    this.ui.showMainMenu();
   }
 
   private loop(): void {

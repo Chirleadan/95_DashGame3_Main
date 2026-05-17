@@ -63,6 +63,7 @@ import {
   isTapeStagePlayable,
   isTapeStageUnlocked,
 } from './TapeStageUnlocks.ts';
+import { ensureLvlupAssetsLoaded } from './AssetPreloader.ts';
 import { getRunUpgradeArtUrl } from './RunUpgradeArt.ts';
 import {
   findRunUpgradeLibraryEntry,
@@ -176,9 +177,13 @@ function applyRunUpgradeAccent(el: HTMLElement, accentColor?: string): void {
 
 function buildRunUpgradePreviewCard(
   choice: Pick<RunUpgradeChoiceView, 'id' | 'label' | 'description' | 'accentColor'>,
+  opts?: { library?: boolean },
 ): HTMLElement {
   const card = document.createElement('article');
   card.className = 'run-upgrade-card run-upgrade-card--preview';
+  if (opts?.library) {
+    card.classList.add('run-upgrade-card--library');
+  }
   applyRunUpgradeAccent(card, choice.accentColor);
 
   const title = document.createElement('span');
@@ -313,9 +318,12 @@ export class UI {
   private readonly guidesBackBtn: HTMLButtonElement;
   private selectedGuideId: GuideTopicId = GUIDE_TOPICS[0]!.id;
   private readonly libraryClusterEl: HTMLElement;
+  private readonly libraryLoadingEl: HTMLElement;
   private readonly libraryGridEl: HTMLElement;
   private readonly libraryDetailEl: HTMLElement;
   private readonly libraryBackBtn: HTMLButtonElement;
+  private libraryAssetsReady = false;
+  private libraryAssetsLoadPromise: Promise<void> | null = null;
   private runHudLayoutMode: 'menu' | 'run' = 'menu';
   private selectedLibrarySpellId: string = RUN_UPGRADE_LIBRARY[0]!.id;
   private readonly highScoreMenuPanel: HTMLElement;
@@ -630,8 +638,9 @@ export class UI {
         </div>
       </div>
       <div id="library-menu-cluster" class="library-menu-cluster" hidden>
-        <div id="library-menu-grid" class="library-menu-grid"></div>
-        <div id="library-menu-detail" class="library-menu-detail"></div>
+        <p id="library-menu-loading" class="library-menu-loading" hidden>Loading</p>
+        <div id="library-menu-detail" class="library-menu-detail" hidden></div>
+        <div id="library-menu-grid" class="library-menu-grid" hidden></div>
       </div>
       <nav id="guides-nav" class="guides-nav" hidden aria-label="Guides"></nav>
       <button id="library-back" type="button" class="game-overlay__btn game-overlay__btn--menu-sub-back" hidden>Back</button>
@@ -664,6 +673,7 @@ export class UI {
     this.mainMenuEl.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
     });
+    this.mainMenuEl.hidden = true;
     document.body.appendChild(this.mainMenuEl);
 
     this.mainMenuNoiseEl = document.createElement('img');
@@ -757,8 +767,9 @@ export class UI {
     mainMenuUiScale.appendChild(this.guidesMediaHost);
     this.buildGuidesMenu();
     this.libraryClusterEl = this.mainMenuEl.querySelector('#library-menu-cluster')!;
-    this.libraryGridEl = this.mainMenuEl.querySelector('#library-menu-grid')!;
+    this.libraryLoadingEl = this.mainMenuEl.querySelector('#library-menu-loading')!;
     this.libraryDetailEl = this.mainMenuEl.querySelector('#library-menu-detail')!;
+    this.libraryGridEl = this.mainMenuEl.querySelector('#library-menu-grid')!;
     this.libraryBackBtn = this.mainMenuEl.querySelector('#library-back')!;
     this.buildLibraryMenu();
     this.highScoreMenuPanel = this.mainMenuEl.querySelector('#highscore-menu-panel')!;
@@ -931,6 +942,10 @@ export class UI {
   /** Remove fullscreen menu overlays from the document (call from Game.dispose). */
   setMusicMarquee(text: string | null): void {
     this.musicMarquee.setText(text);
+  }
+
+  setMusicMarqueeLayout(mode: 'menu' | 'run'): void {
+    this.musicMarquee.setLayout(mode);
   }
 
   disposeMenuOverlays(): void {
@@ -1584,7 +1599,9 @@ export class UI {
   private selectLibrarySpell(id: string): void {
     const entry = findRunUpgradeLibraryEntry(id) ?? RUN_UPGRADE_LIBRARY[0]!;
     this.selectedLibrarySpellId = entry.id;
-    this.libraryDetailEl.replaceChildren(buildRunUpgradePreviewCard(entry));
+    this.libraryDetailEl.replaceChildren(
+      buildRunUpgradePreviewCard(entry, { library: true }),
+    );
 
     const buttons = this.libraryGridEl.querySelectorAll<HTMLButtonElement>('.library-spell-btn');
     for (const btn of buttons) {
@@ -1594,12 +1611,41 @@ export class UI {
     }
   }
 
+  private ensureLibraryAssetsReady(): Promise<void> {
+    if (this.libraryAssetsReady) {
+      return Promise.resolve();
+    }
+    if (!this.libraryAssetsLoadPromise) {
+      this.libraryAssetsLoadPromise = ensureLvlupAssetsLoaded().then(() => {
+        this.libraryAssetsReady = true;
+      });
+    }
+    return this.libraryAssetsLoadPromise;
+  }
+
+  private showLibraryLoading(): void {
+    this.libraryLoadingEl.hidden = false;
+    this.libraryDetailEl.hidden = true;
+    this.libraryGridEl.hidden = true;
+  }
+
+  private revealLibraryContent(): void {
+    this.libraryLoadingEl.hidden = true;
+    this.libraryDetailEl.hidden = false;
+    this.libraryGridEl.hidden = false;
+    this.selectLibrarySpell(this.selectedLibrarySpellId);
+  }
+
   private openLibraryMenu(): void {
     this.hideAllMenuSubpanels();
     this.setMainMenuHomePanelVisible(false);
-    this.selectLibrarySpell(this.selectedLibrarySpellId);
     this.libraryClusterEl.hidden = false;
     this.libraryBackBtn.hidden = false;
+    this.showLibraryLoading();
+    void this.ensureLibraryAssetsReady().then(() => {
+      if (this.libraryClusterEl.hidden) return;
+      this.revealLibraryContent();
+    });
   }
 
   private closeLibraryMenu(): void {
@@ -2207,6 +2253,7 @@ export class UI {
     const inMenu = layout === 'menu';
     const showDev = !inMenu && cheatMode;
     this.runHudLayoutMode = layout;
+    this.setMusicMarqueeLayout(inMenu ? 'menu' : 'run');
     this.walletEl.hidden = false;
     this.walletEl.classList.toggle('hud-wallet--over-menu', inMenu);
     this.hudEl.hidden = inMenu;
