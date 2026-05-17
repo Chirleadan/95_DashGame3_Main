@@ -182,6 +182,7 @@ export class UI {
   private readonly tapeFragmentToastEl: HTMLElement;
   private readonly titlesMenuPanel: HTMLElement;
   private readonly titlesBackBtn: HTMLButtonElement;
+  private readonly upgradeBackBtn: HTMLButtonElement;
   private readonly guidesMenuPanel: HTMLElement;
   private readonly guidesBackBtn: HTMLButtonElement;
   private readonly highScoreMenuPanel: HTMLElement;
@@ -495,8 +496,8 @@ export class UI {
         <p class="upgrade-menu__cost-hint">Next cell costs ${CONFIG.upgradeGoldCost} gold. White = active, gray = unlocked, gold = next buy.</p>
         <div id="upgrade-menu-rows" class="upgrade-menu__rows"></div>
         <div id="upgrade-vault-row" class="upgrade-menu__row"></div>
-        <button id="upgrade-back" type="button" class="game-overlay__btn game-overlay__btn--upgrade-back">Back</button>
       </div>
+      <button id="upgrade-back" type="button" class="game-overlay__btn game-overlay__btn--menu-sub-back" hidden>Back</button>
       </div>
     `;
     this.mainMenuEl.addEventListener('pointerdown', (e) => {
@@ -540,6 +541,7 @@ export class UI {
     this.tapeBackBtn = this.mainMenuEl.querySelector('#tape-back')!;
     this.titlesMenuPanel = this.mainMenuEl.querySelector('#titles-menu-panel')!;
     this.titlesBackBtn = this.mainMenuEl.querySelector('#titles-back')!;
+    this.upgradeBackBtn = this.mainMenuEl.querySelector('#upgrade-back')!;
     this.guidesMenuPanel = this.mainMenuEl.querySelector('#guides-menu-panel')!;
     this.guidesBackBtn = this.mainMenuEl.querySelector('#guides-back')!;
     this.highScoreMenuPanel = this.mainMenuEl.querySelector('#highscore-menu-panel')!;
@@ -989,6 +991,7 @@ export class UI {
     this.tapeMenuHintEl.hidden = true;
     this.tapeBackBtn.hidden = true;
     this.upgradeMenuPanel.hidden = true;
+    this.upgradeBackBtn.hidden = true;
     this.titlesMenuPanel.hidden = true;
     this.titlesBackBtn.hidden = true;
     this.guidesMenuPanel.hidden = true;
@@ -1003,6 +1006,7 @@ export class UI {
     this.hideAllMenuSubpanels();
     this.mainMenuPanel.hidden = true;
     this.upgradeMenuPanel.hidden = false;
+    this.upgradeBackBtn.hidden = false;
   }
 
   private closeUpgradeMenu(): void {
@@ -1560,6 +1564,7 @@ export class UI {
     const inMenu = layout === 'menu';
     const showDev = !inMenu && cheatMode;
     this.walletEl.hidden = false;
+    this.walletEl.classList.toggle('hud-wallet--over-menu', inMenu);
     this.hudEl.hidden = inMenu;
     this.hpBarsBottom.hidden = inMenu;
     if (inMenu) {
