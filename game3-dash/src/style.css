@@ -815,6 +815,29 @@ body {
   background-repeat: no-repeat;
 }
 
+.main-menu-noise {
+  position: fixed;
+  left: clamp(14px, 2.2vw, 28px);
+  top: clamp(14px, 2vh, 22px);
+  z-index: 2;
+  display: none;
+  max-width: min(28vw, 240px);
+  max-height: min(22vh, 180px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  object-position: left top;
+  pointer-events: none;
+  user-select: none;
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.38));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .main-menu-noise.main-menu-noise--visible {
+    display: block;
+  }
+}
+
 .game-overlay--menu::before {
   content: 'A-037';
   position: absolute;

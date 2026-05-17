@@ -51,6 +51,11 @@ import {
   type TrackStage,
 } from './TrackCatalog.ts';
 import { MusicMarquee } from './MusicMarquee.ts';
+import {
+  isDesktopMenuNoiseViewport,
+  MENU_NOISE_WEBP_URLS,
+  pickRandomMenuNoiseWebpUrl,
+} from './MenuNoiseCatalog.ts';
 import { getTapeCassetteImageUrl, TAPE_CASSETTES } from './TapeCatalog.ts';
 import {
   getHighestUnlockedTrackStage,
@@ -239,6 +244,9 @@ export class UI {
   private readonly shaderDotStrengthValEl: HTMLElement;
   private ditherSettingsHandler: ((settings: DitherUiSettings) => void) | null = null;
   private readonly mainMenuEl: HTMLElement;
+  private readonly mainMenuNoiseEl: HTMLImageElement;
+  private mainMenuNoiseTimer: number | null = null;
+  private mainMenuNoiseCurrentSrc: string | null = null;
   private readonly mainMenuPanel: HTMLElement;
   private readonly upgradeMenuPanel: HTMLElement;
   private readonly tapeMenuPanel: HTMLElement;
@@ -597,6 +605,16 @@ export class UI {
       e.stopPropagation();
     });
     document.body.appendChild(this.mainMenuEl);
+
+    this.mainMenuNoiseEl = document.createElement('img');
+    this.mainMenuNoiseEl.className = 'main-menu-noise';
+    this.mainMenuNoiseEl.alt = '';
+    this.mainMenuNoiseEl.decoding = 'async';
+    this.mainMenuNoiseEl.draggable = false;
+    this.mainMenuEl.appendChild(this.mainMenuNoiseEl);
+    window
+      .matchMedia('(hover: hover) and (pointer: fine)')
+      .addEventListener('change', () => this.refreshMainMenuNoise());
 
     const mainMenuUiScale = this.mainMenuEl.querySelector(
       '.main-menu-ui-scale',
@@ -1114,6 +1132,105 @@ export class UI {
     this.refreshUpgradeCellRows();
   }
 
+  private setMainMenuHomePanelVisible(visible: boolean): void {
+    this.mainMenuPanel.hidden = !visible;
+    this.refreshMainMenuNoise();
+  }
+
+  private isMainMenuNoiseActive(): boolean {
+    return (
+      !this.mainMenuEl.hidden &&
+      !this.mainMenuPanel.hidden &&
+      isDesktopMenuNoiseViewport()
+    );
+  }
+
+  private randomMenuNoiseDelayMs(): number {
+    return 3000 + Math.floor(Math.random() * 2001);
+  }
+
+  private pickNextMenuNoiseWebpUrl(): string {
+    if (MENU_NOISE_WEBP_URLS.length <= 1) {
+      return pickRandomMenuNoiseWebpUrl();
+    }
+    let next = pickRandomMenuNoiseWebpUrl();
+    for (let i = 0; i < 12 && next === this.mainMenuNoiseCurrentSrc; i++) {
+      next = pickRandomMenuNoiseWebpUrl();
+    }
+    return next;
+  }
+
+  private clearMainMenuNoiseTimer(): void {
+    if (this.mainMenuNoiseTimer == null) return;
+    window.clearTimeout(this.mainMenuNoiseTimer);
+    this.mainMenuNoiseTimer = null;
+  }
+
+  private hideMainMenuNoiseImage(): void {
+    this.mainMenuNoiseEl.classList.remove('main-menu-noise--visible');
+    this.mainMenuNoiseEl.removeAttribute('src');
+    this.mainMenuNoiseCurrentSrc = null;
+  }
+
+  private showMainMenuNoiseImage(webpUrl: string): void {
+    this.mainMenuNoiseCurrentSrc = webpUrl;
+    this.mainMenuNoiseEl.classList.add('main-menu-noise--visible');
+    this.mainMenuNoiseEl.onerror = () => {
+      const pngUrl = webpUrl.replace(/\.webp$/i, '.png');
+      if (this.mainMenuNoiseEl.getAttribute('src') !== pngUrl) {
+        this.mainMenuNoiseEl.src = pngUrl;
+      }
+    };
+    this.mainMenuNoiseEl.src = webpUrl;
+  }
+
+  private scheduleMainMenuNoiseStep(): void {
+    this.clearMainMenuNoiseTimer();
+    this.mainMenuNoiseTimer = window.setTimeout(() => {
+      this.mainMenuNoiseTimer = null;
+      this.stepMainMenuNoiseCycle();
+    }, this.randomMenuNoiseDelayMs());
+  }
+
+  private stepMainMenuNoiseCycle(): void {
+    if (!this.isMainMenuNoiseActive()) {
+      this.clearMainMenuNoiseTimer();
+      this.hideMainMenuNoiseImage();
+      return;
+    }
+
+    const hasImage =
+      this.mainMenuNoiseEl.classList.contains('main-menu-noise--visible') &&
+      !!this.mainMenuNoiseEl.getAttribute('src');
+
+    if (hasImage) {
+      if (Math.random() < 0.5) {
+        this.hideMainMenuNoiseImage();
+      } else {
+        this.showMainMenuNoiseImage(this.pickNextMenuNoiseWebpUrl());
+      }
+    } else {
+      this.showMainMenuNoiseImage(this.pickNextMenuNoiseWebpUrl());
+    }
+
+    this.scheduleMainMenuNoiseStep();
+  }
+
+  private refreshMainMenuNoise(): void {
+    this.clearMainMenuNoiseTimer();
+    if (!this.isMainMenuNoiseActive()) {
+      this.hideMainMenuNoiseImage();
+      return;
+    }
+
+    if (Math.random() < 0.5) {
+      this.hideMainMenuNoiseImage();
+    } else {
+      this.showMainMenuNoiseImage(this.pickNextMenuNoiseWebpUrl());
+    }
+    this.scheduleMainMenuNoiseStep();
+  }
+
   private hideAllMenuSubpanels(): void {
     this.tapeMenuPanel.hidden = true;
     this.tapeMenuHintEl.hidden = true;
@@ -1136,14 +1253,14 @@ export class UI {
     this.syncUpgradeControlsFromBalance();
     this.setWalletGold(getPlayerGold());
     this.hideAllMenuSubpanels();
-    this.mainMenuPanel.hidden = true;
+    this.setMainMenuHomePanelVisible(false);
     this.upgradeMenuPanel.hidden = false;
     this.upgradeBackBtn.hidden = false;
   }
 
   private closeUpgradeMenu(): void {
     this.hideAllMenuSubpanels();
-    this.mainMenuPanel.hidden = false;
+    this.setMainMenuHomePanelVisible(true);
   }
 
   private buildGuidesMenu(): void {
@@ -1309,7 +1426,7 @@ export class UI {
 
   private openGuidesMenu(): void {
     this.hideAllMenuSubpanels();
-    this.mainMenuPanel.hidden = true;
+    this.setMainMenuHomePanelVisible(false);
     this.selectGuideTopic(this.selectedGuideId);
     this.guidesMenuPanel.hidden = false;
     this.guidesMediaHost.hidden = false;
@@ -1320,13 +1437,13 @@ export class UI {
   private closeGuidesMenu(): void {
     this.pauseGuideMedia();
     this.hideAllMenuSubpanels();
-    this.mainMenuPanel.hidden = false;
+    this.setMainMenuHomePanelVisible(true);
   }
 
   private openHighScoreMenu(): void {
     this.buildHighScoreMenu();
     this.hideAllMenuSubpanels();
-    this.mainMenuPanel.hidden = true;
+    this.setMainMenuHomePanelVisible(false);
     this.highScoreMenuPanel.hidden = false;
     this.highScoreBackBtn.hidden = false;
     void this.loadGlobalLeaderboard(this.globalLeaderboardCheatMode);
@@ -1505,19 +1622,19 @@ export class UI {
 
   private closeHighScoreMenu(): void {
     this.hideAllMenuSubpanels();
-    this.mainMenuPanel.hidden = false;
+    this.setMainMenuHomePanelVisible(true);
   }
 
   private openTitlesMenu(): void {
     this.hideAllMenuSubpanels();
-    this.mainMenuPanel.hidden = true;
+    this.setMainMenuHomePanelVisible(false);
     this.titlesMenuPanel.hidden = false;
     this.titlesBackBtn.hidden = false;
   }
 
   private closeTitlesMenu(): void {
     this.hideAllMenuSubpanels();
-    this.mainMenuPanel.hidden = false;
+    this.setMainMenuHomePanelVisible(true);
   }
 
   private buildHighScoreMenu(): void {
@@ -1644,7 +1761,7 @@ export class UI {
 
   private openTrackMenu(): void {
     this.hideAllMenuSubpanels();
-    this.mainMenuPanel.hidden = true;
+    this.setMainMenuHomePanelVisible(false);
     this.buildTapeCassetteRack();
     if (this.selectedTrackStageForUi) {
       this.setSelectedTrackStage(this.selectedTrackStageForUi);
@@ -1657,7 +1774,7 @@ export class UI {
 
   private closeTrackMenu(): void {
     this.hideAllMenuSubpanels();
-    this.mainMenuPanel.hidden = false;
+    this.setMainMenuHomePanelVisible(true);
   }
 
   setSelectedTrackStage(stage: TrackStage): void {
@@ -2184,6 +2301,7 @@ export class UI {
 
   hideMainMenu(): void {
     this.mainMenuEl.hidden = true;
+    this.refreshMainMenuNoise();
     this.syncRunHudLayout('run', this.isCheatModeEnabled());
   }
 
