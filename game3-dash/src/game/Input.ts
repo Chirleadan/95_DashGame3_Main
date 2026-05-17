@@ -30,12 +30,9 @@ export class Input {
   private prevKeyEscape = false;
   private keyEscapeEdge = false;
   private wheelZoomDelta = 0;
-  private readonly virtualMove = {
-    forward: false,
-    back: false,
-    left: false,
-    right: false,
-  };
+  /** Touch joystick axis (−1…1); merged with keyboard in `movementVector`. */
+  private virtualMoveX = 0;
+  private virtualMoveZ = 0;
 
   constructor(
     keyboardTarget: HTMLElement = document.body,
@@ -207,37 +204,33 @@ export class Input {
   }
 
   get forward(): boolean {
-    return this.down.has('KeyW') || this.virtualMove.forward;
+    return this.down.has('KeyW');
   }
   get back(): boolean {
-    return this.down.has('KeyS') || this.virtualMove.back;
+    return this.down.has('KeyS');
   }
   get left(): boolean {
-    return this.down.has('KeyA') || this.virtualMove.left;
+    return this.down.has('KeyA');
   }
   get right(): boolean {
-    return this.down.has('KeyD') || this.virtualMove.right;
+    return this.down.has('KeyD');
   }
 
-  /** Touch movement pad (mobile only). */
-  setVirtualMoveDir(
-    dir: 'forward' | 'back' | 'left' | 'right',
-    active: boolean,
-  ): void {
-    this.virtualMove[dir] = active;
+  /** Touch joystick (mobile only); x = strafe, z = forward/back. */
+  setVirtualMoveVector(x: number, z: number): void {
+    this.virtualMoveX = Number.isFinite(x) ? x : 0;
+    this.virtualMoveZ = Number.isFinite(z) ? z : 0;
   }
 
   clearVirtualMove(): void {
-    this.virtualMove.forward = false;
-    this.virtualMove.back = false;
-    this.virtualMove.left = false;
-    this.virtualMove.right = false;
+    this.virtualMoveX = 0;
+    this.virtualMoveZ = 0;
   }
 
   /** Movement intent in world XZ; not normalized. */
   movementVector(): { x: number; z: number } {
-    let x = 0;
-    let z = 0;
+    let x = this.virtualMoveX;
+    let z = this.virtualMoveZ;
     if (this.forward) z -= 1;
     if (this.back) z += 1;
     if (this.left) x -= 1;

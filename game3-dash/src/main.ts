@@ -22,6 +22,7 @@ function waitFrames(count: number): Promise<void> {
 async function bootstrap(mount: HTMLDivElement): Promise<void> {
   syncMobileGameRootClass();
   window.addEventListener('resize', syncMobileGameRootClass);
+  window.addEventListener('orientationchange', syncMobileGameRootClass);
   document.body.classList.add('game-booting');
   mount.classList.add('app--booting');
 

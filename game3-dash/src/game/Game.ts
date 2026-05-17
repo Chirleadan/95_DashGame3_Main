@@ -439,6 +439,9 @@ export class Game {
     this.ui.onPlayRequested(() => {
       void this.requestStartAudioPlayback();
     });
+    this.ui.onBeatLaneTapePlayTap(() => {
+      void this.requestStartAudioPlayback();
+    });
     this.ui.onTrackStageSelected((stage) => {
       void this.selectTrackStage(stage);
     });

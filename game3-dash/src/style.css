@@ -837,6 +837,28 @@ body.game-booting .game-overlay--menu,
   pointer-events: none;
 }
 
+.beat-lane-tape-stack--tappable {
+  pointer-events: auto;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.beat-lane-tape-stack--tappable .beat-lane-tape-icon {
+  animation:
+    beat-lane-tape-sway 4.2s ease-in-out infinite,
+    beat-lane-tape-tap-pulse 0.86s ease-in-out infinite;
+}
+
+@keyframes beat-lane-tape-tap-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.65));
+  }
+  50% {
+    filter: drop-shadow(0 0 14px rgba(250, 35, 103, 0.85));
+  }
+}
+
 .beat-lane-tape-stack[hidden] {
   display: none;
 }
@@ -1026,6 +1048,12 @@ body.game-booting .game-overlay--menu,
   background-size: cover;
   background-repeat: no-repeat;
   pointer-events: none;
+}
+
+/* Phone portrait: menu art anchored left. */
+html.mobile-game.mobile-game-portrait .main-menu-bg-art {
+  background-position: left center;
+  background-size: auto 100%;
 }
 
 .main-menu-noise {
@@ -2087,7 +2115,8 @@ body.game-booting .game-overlay--menu,
   background: linear-gradient(180deg, #222836 0%, #161a24 100%);
 }
 
-@media (min-width: 900px) and (orientation: landscape) {
+@media (min-width: 900px) and (orientation: landscape),
+((hover: none) and (pointer: coarse) and (orientation: landscape)) {
   #main-menu-panel {
     padding: 0;
     background: transparent;
@@ -2922,57 +2951,56 @@ body.game-booting .game-overlay--menu,
   -webkit-user-select: none;
 }
 
+html.mobile-game.mobile-game-landscape .mobile-move-controls {
+  left: max(12px, env(safe-area-inset-left, 0px));
+  transform: none;
+}
+
 .mobile-move-controls[hidden] {
   display: none !important;
 }
 
-.mobile-move-pad {
-  display: grid;
-  grid-template-columns: repeat(3, 52px);
-  grid-template-rows: repeat(3, 52px);
-  gap: 6px;
+.mobile-joystick {
+  position: relative;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  background: rgba(8, 12, 22, 0.55);
+  box-shadow:
+    inset 0 0 24px rgba(0, 0, 0, 0.35),
+    0 4px 18px rgba(0, 0, 0, 0.35);
   pointer-events: auto;
-}
-
-.mobile-move-pad__btn {
-  margin: 0;
-  padding: 0;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  border-radius: 10px;
-  background: rgba(8, 12, 22, 0.72);
-  color: #f0f4ff;
-  font-family: 'FA-1 Game', monospace;
-  font-size: 1.35rem;
-  line-height: 1;
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
 }
 
-.mobile-move-pad__btn:active,
-.mobile-move-pad__btn:focus-visible {
-  border-color: #ff25b6;
-  background: rgba(255, 37, 182, 0.28);
-  outline: none;
+.mobile-joystick::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 42%;
+  height: 42%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  pointer-events: none;
 }
 
-.mobile-move-pad__btn--up {
-  grid-column: 2;
-  grid-row: 1;
-}
-
-.mobile-move-pad__btn--left {
-  grid-column: 1;
-  grid-row: 2;
-}
-
-.mobile-move-pad__btn--right {
-  grid-column: 3;
-  grid-row: 2;
-}
-
-.mobile-move-pad__btn--down {
-  grid-column: 2;
-  grid-row: 3;
+.mobile-joystick__thumb {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 37, 182, 0.35);
+  box-shadow:
+    0 0 14px rgba(255, 37, 182, 0.45),
+    inset 0 0 12px rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+  will-change: transform;
 }
 
 html.mobile-game .game-overlay--run-upgrade .game-overlay__panel--run-upgrade {
@@ -3030,4 +3058,9 @@ html.mobile-game .run-upgrade-card__desc {
 
 html.mobile-game .run-upgrade-card__art {
   width: min(46%, 46px);
+}
+
+html.mobile-game .hud-wallet__mana-group,
+html.mobile-game .beat-lane-tape-mana {
+  display: none !important;
 }

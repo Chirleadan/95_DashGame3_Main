@@ -64,6 +64,7 @@ import {
   isTapeStageUnlocked,
 } from './TapeStageUnlocks.ts';
 import { ensureLvlupAssetsLoaded } from './AssetPreloader.ts';
+import { isMobileGameViewport } from './MobileViewport.ts';
 import { getRunUpgradeArtUrl } from './RunUpgradeArt.ts';
 import {
   findRunUpgradeLibraryEntry,
@@ -359,6 +360,7 @@ export class UI {
   private readonly vaultBearingHost: HTMLElement;
   private readonly vaultBearingRot: SVGGElement;
   private artifactsChangeHandler: (() => void) | null = null;
+  private tapePlayTapHandler: (() => void) | null = null;
   private trackStageSelectHandler: ((stage: TrackStage) => void) | null = null;
   private readonly buttonSfx = new UiButtonSfx();
 
@@ -543,6 +545,13 @@ export class UI {
     this.beatLaneTapeIconEl.draggable = false;
     this.beatLaneTapeStackEl.appendChild(this.beatLaneTapeIconEl);
     this.beatLaneTapeStackEl.appendChild(this.beatLaneTapeManaEl);
+    this.beatLaneTapeStackEl.addEventListener('click', (e) => {
+      if (!this.beatLaneTapeStackEl.classList.contains('beat-lane-tape-stack--tappable')) {
+        return;
+      }
+      e.stopPropagation();
+      this.tapePlayTapHandler?.();
+    });
     this.beatLaneHost.appendChild(this.beatLaneCanvas);
     this.beatLaneHost.appendChild(this.beatLaneTapeStackEl);
     this.beatLaneHost.appendChild(this.playTrackPromptEl);
@@ -2322,7 +2331,7 @@ export class UI {
   setWalletDisplay(gold: number, mana: number | null): void {
     const g = Math.max(0, Math.floor(Number.isFinite(gold) ? gold : 0));
     this.walletGoldEl.textContent = String(g);
-    if (mana === null) {
+    if (mana === null || isMobileGameViewport()) {
       this.walletManaGroupEl.hidden = true;
       return;
     }
@@ -2429,6 +2438,7 @@ export class UI {
     if (
       showTapeStack &&
       tapeMana &&
+      !isMobileGameViewport() &&
       tapeMana.current < tapeMana.required
     ) {
       const current = Math.max(0, Math.floor(tapeMana.current));
@@ -2560,6 +2570,11 @@ export class UI {
     this.playBtn.addEventListener('click', handler);
   }
 
+  /** Touch: tap the beat-lane tape icon to start playback (when prompt is visible). */
+  onBeatLaneTapePlayTap(handler: () => void): void {
+    this.tapePlayTapHandler = handler;
+  }
+
   onMainMenuPlay(handler: () => void): void {
     const btn = this.mainMenuEl.querySelector('#main-menu-play')!;
     btn.addEventListener('click', (e) => {
@@ -2634,6 +2649,25 @@ export class UI {
     const showPrompt =
       enabled && this.runHudLayoutMode === 'run' && !this.beatLaneStackEl.hidden;
     this.playTrackPromptEl.hidden = !showPrompt;
+    if (showPrompt) {
+      this.syncPlayTrackPromptCopy();
+    }
+    this.beatLaneTapeStackEl.classList.toggle(
+      'beat-lane-tape-stack--tappable',
+      showPrompt && isMobileGameViewport(),
+    );
+  }
+
+  private syncPlayTrackPromptCopy(): void {
+    if (isMobileGameViewport()) {
+      this.playTrackPromptEl.innerHTML = `
+      <span>PRESS <span class="beat-play-prompt__key">TAPE</span></span>
+      <span>(ULTIMATE)</span>`;
+      return;
+    }
+    this.playTrackPromptEl.innerHTML = `
+      <span>PRESS <span class="beat-play-prompt__key">E</span> TO PLAY TAPE</span>
+      <span>(ULTIMATE)</span>`;
   }
 
   setBeatmapState(text: string): void {
