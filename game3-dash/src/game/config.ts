@@ -13,6 +13,14 @@ export const CONFIG = {
   cameraViewHalfExtent: 26.1,
   /** Touch viewport: default ortho half-height × this (3 = camera 3× farther). */
   mobileCameraViewHalfExtentMult: 3,
+  /** Touch HUD: combo label/count font × this (0.5 = half size). */
+  mobileComboFontScale: 0.5,
+  /** Touch HUD: XP bar block scale (⅓ = three times smaller). */
+  mobileHudXpScale: 1 / 3,
+  /** Touch HUD: beat lane height, note radius, and hit ring × this. */
+  mobileBeatLaneScale: 0.52,
+  /** Touch: in-run tape icon and menu cassette art × this. */
+  mobileTapeUiScale: 1.15,
   cameraZoomMinHalfExtent: 8,
   cameraZoomMaxHalfExtent: 40,
   cameraZoomWheelSpeed: 0.0015,

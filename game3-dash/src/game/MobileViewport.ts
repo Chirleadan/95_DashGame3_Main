@@ -72,6 +72,11 @@ export function bindMobilePortraitOrientationLock(): void {
   tryLockMobilePortraitOrientation();
 }
 
+/** Beat lane height / note radius scale on touch viewports (1 on desktop). */
+export function getMobileBeatLaneScale(): number {
+  return isMobileGameViewport() ? CONFIG.mobileBeatLaneScale : 1;
+}
+
 export function getDefaultCameraViewHalfExtent(): number {
   if (!isMobileGameViewport()) return CONFIG.cameraViewHalfExtent;
   return CONFIG.cameraViewHalfExtent * CONFIG.mobileCameraViewHalfExtentMult;

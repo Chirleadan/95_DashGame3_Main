@@ -64,7 +64,7 @@ import {
   isTapeStageUnlocked,
 } from './TapeStageUnlocks.ts';
 import { ensureLvlupAssetsLoaded } from './AssetPreloader.ts';
-import { isMobileGameViewport } from './MobileViewport.ts';
+import { getMobileBeatLaneScale, isMobileGameViewport } from './MobileViewport.ts';
 import { getRunUpgradeArtUrl } from './RunUpgradeArt.ts';
 import {
   findRunUpgradeLibraryEntry,
@@ -530,7 +530,7 @@ export class UI {
 
     this.beatLaneHost = document.createElement('div');
     this.beatLaneHost.className = 'beat-lane-host';
-    this.beatLaneHost.style.height = `${CONFIG.beatLaneHeightPx}px`;
+    this.beatLaneHost.style.height = `${CONFIG.beatLaneHeightPx * getMobileBeatLaneScale()}px`;
     this.beatLaneCanvas = document.createElement('canvas');
     this.beatLaneCtx = this.beatLaneCanvas.getContext('2d');
     this.beatLaneTapeStackEl = document.createElement('div');
@@ -2414,7 +2414,9 @@ export class UI {
       this.beatLaneHost.clientWidth ||
         Math.floor(mountW * CONFIG.beatLaneWidthFraction),
     );
-    const hCss = CONFIG.beatLaneHeightPx;
+    const laneScale = getMobileBeatLaneScale();
+    const hCss = CONFIG.beatLaneHeightPx * laneScale;
+    this.beatLaneHost.style.height = `${hCss}px`;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.beatLaneCanvas.width = Math.max(1, Math.floor(wCss * dpr));
     this.beatLaneCanvas.height = Math.max(1, Math.floor(hCss * dpr));
@@ -2458,12 +2460,13 @@ export class UI {
       this.beatLaneHost.clientWidth ||
         Math.floor(mountW * CONFIG.beatLaneWidthFraction),
     );
-    const hCss = CONFIG.beatLaneHeightPx;
+    const laneScale = getMobileBeatLaneScale();
+    const hCss = CONFIG.beatLaneHeightPx * laneScale;
     const dpr = Math.max(1, this.beatLaneCanvas.width / Math.max(1, wCss));
-    const v = CONFIG.beatLaneScrollPxPerSec;
+    const v = CONFIG.beatLaneScrollPxPerSec * laneScale;
     const centerX = wCss * 0.5;
     const cy = hCss * 0.5;
-    const r = CONFIG.beatLaneNoteRadiusPx;
+    const r = CONFIG.beatLaneNoteRadiusPx * laneScale;
     const hitRingR =
       r *
       1.1 *

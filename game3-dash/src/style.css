@@ -3077,6 +3077,38 @@ html.mobile-game .beat-lane-tape-mana {
   display: none !important;
 }
 
+/* Run HUD (touch) */
+html.mobile-game .combo-pop__label {
+  font-size: calc(var(--combo-label-size) * 0.5) !important;
+}
+
+html.mobile-game .combo-pop__count {
+  font-size: calc(var(--combo-count-size) * 0.5) !important;
+}
+
+html.mobile-game .hud-xp {
+  transform: scale(0.333333);
+  transform-origin: top left;
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+html.mobile-game .beat-round-timer {
+  font-size: 12px;
+  padding-bottom: 2px;
+}
+
+html.mobile-game .beat-lane-tape-stack {
+  width: calc(98px * 1.15);
+  height: calc(98px * 1.15);
+}
+
+html.mobile-game .beat-lane-tape-icon {
+  width: calc(98px * 1.15);
+  height: calc(98px * 1.15);
+}
+
 /* --- Main menu sub-screens (phone portrait) --- */
 
 html.mobile-game.mobile-game-portrait {
@@ -3217,6 +3249,10 @@ html.mobile-game.mobile-game-portrait .library-menu-grid {
   grid-auto-rows: minmax(64px, 1fr);
   gap: 8px;
   align-content: start;
+  padding: 10px;
+  border-radius: 12px;
+  box-sizing: border-box;
+  background: var(--menu-pink-sheet);
 }
 
 html.mobile-game.mobile-game-portrait .library-spell-btn {
@@ -3313,13 +3349,19 @@ html.mobile-game.mobile-game-portrait .tape-cassette-column {
 }
 
 html.mobile-game.mobile-game-portrait .tape-cassette__img {
-  width: min(72vw, 144px);
-  max-width: min(72vw, 144px);
+  width: min(82.8vw, 166px);
+  max-width: min(82.8vw, 166px);
   height: auto;
 }
 
 html.mobile-game.mobile-game-portrait .tape-cassette-stages {
   justify-content: center;
+  gap: clamp(11px, 2.3vw, 21px);
+}
+
+html.mobile-game.mobile-game-portrait .tape-stage-dot {
+  width: clamp(21px, 3.45vw, 29px);
+  height: clamp(21px, 3.45vw, 29px);
 }
 
 html.mobile-game.mobile-game-portrait .tape-menu-caption {
