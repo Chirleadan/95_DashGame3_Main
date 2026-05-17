@@ -156,8 +156,7 @@ export class Game {
   private readonly beatEffects: BeatEffects;
   private beatFloor!: BeatFloorVisualizer;
   private arenaFloorMat!: THREE.MeshStandardMaterial;
-  private arenaFloorBaseMap!: THREE.CanvasTexture;
-  private arenaFloorTrackMap!: THREE.CanvasTexture;
+  private arenaFloorMap!: THREE.CanvasTexture;
   private beatmap: Beatmap | null = null;
   private nextBeatIndex = 0;
   /** Beat indices the player dashed on-time (lane draws them green). */
@@ -614,10 +613,9 @@ export class Game {
 
   private addArena(): void {
     const size = CONFIG.arenaFloorVisualHalfExtent * 2 + 2;
-    this.arenaFloorBaseMap = createArenaCheckerCanvasTexture(false);
-    this.arenaFloorTrackMap = createArenaCheckerCanvasTexture(true);
+    this.arenaFloorMap = createArenaCheckerCanvasTexture();
     this.arenaFloorMat = new THREE.MeshStandardMaterial({
-      map: this.arenaFloorBaseMap,
+      map: this.arenaFloorMap,
       color: 0xffffff,
       metalness: 0.05,
       roughness: 0.92,
@@ -626,12 +624,7 @@ export class Game {
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     this.scene.add(floor);
-    this.beatFloor = new BeatFloorVisualizer(
-      this.scene,
-      this.arenaFloorMat,
-      this.arenaFloorBaseMap,
-      this.arenaFloorTrackMap,
-    );
+    this.beatFloor = new BeatFloorVisualizer(this.scene, this.arenaFloorMat);
 
     const edge = new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.PlaneGeometry(size, size)),
