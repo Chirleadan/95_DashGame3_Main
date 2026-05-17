@@ -1371,7 +1371,7 @@ body {
   line-height: 1.1;
 }
 
-.guides-menu-gif {
+.guides-menu-media {
   position: fixed;
   left: 64%;
   bottom: clamp(12px, 3.5vh, 40px);
@@ -1380,14 +1380,32 @@ body {
   max-height: clamp(156px, 36.4vh, 416px);
   transform: translateX(-50%);
   transform-origin: center bottom;
+  pointer-events: none;
+  user-select: none;
+}
+
+.guides-menu-media[hidden] {
+  display: none !important;
+}
+
+.guides-menu-gif {
+  display: block;
+  width: 100%;
+  max-height: clamp(156px, 36.4vh, 416px);
   object-fit: contain;
   object-position: center bottom;
+  vertical-align: bottom;
   pointer-events: none;
   user-select: none;
   filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.42));
 }
 
-.guides-menu-gif[hidden] {
+.guides-menu-gif--video {
+  background: transparent;
+}
+
+.guides-menu-gif--fallback[hidden],
+.guides-menu-gif--video[hidden] {
   display: none !important;
 }
 

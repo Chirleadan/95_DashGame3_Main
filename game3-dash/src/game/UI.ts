@@ -80,6 +80,7 @@ type GuideTopic = {
   id: GuideTopicId;
   label: string;
   gifUrl: string;
+  webmUrl: string;
   body: string;
 };
 
@@ -88,6 +89,7 @@ const GUIDE_TOPICS: readonly GuideTopic[] = [
     id: 'dash',
     label: 'Dash Combat',
     gifUrl: '/assets/guides/Dash Combat.gif',
+    webmUrl: '/assets/guides/dash-combat.webm',
     body:
       'Press Left Click to dash and kill enemies. Fast combo kills give more points.',
   },
@@ -95,6 +97,7 @@ const GUIDE_TOPICS: readonly GuideTopic[] = [
     id: 'damage',
     label: 'Damage',
     gifUrl: '/assets/guides/damage.gif',
+    webmUrl: '/assets/guides/damage.webm',
     body:
       'Touch an enemy or projectile and you lose one shield. It also triggers a blast that kills nearby enemies.',
   },
@@ -102,6 +105,7 @@ const GUIDE_TOPICS: readonly GuideTopic[] = [
     id: 'vaults',
     label: 'Vaults',
     gifUrl: '/assets/guides/vault.gif',
+    webmUrl: '/assets/guides/vault.webm',
     body:
       'Attack the vault and break its shields to level up and get a chance to drop a tape fragment.',
   },
@@ -109,6 +113,7 @@ const GUIDE_TOPICS: readonly GuideTopic[] = [
     id: 'enemies',
     label: 'Enemies',
     gifUrl: '/assets/guides/enemies.gif',
+    webmUrl: '/assets/guides/enemies.webm',
     body:
       'There are different enemy types. Some have layers and need multiple hits; the longer you play, the more layers they get.',
   },
@@ -116,6 +121,7 @@ const GUIDE_TOPICS: readonly GuideTopic[] = [
     id: 'tape',
     label: 'Tape Mode',
     gifUrl: '/assets/guides/Tape Mode.gif',
+    webmUrl: '/assets/guides/tape-mode.webm',
     body:
       'Press E to activate the tape and become invincible and get power-ups. Play the rhythm mini-game: missing the beat damages you.',
   },
@@ -245,7 +251,9 @@ export class UI {
   private readonly titlesBackBtn: HTMLButtonElement;
   private readonly upgradeBackBtn: HTMLButtonElement;
   private readonly guidesMenuPanel: HTMLElement;
-  private readonly guidesGifEl: HTMLImageElement;
+  private readonly guidesMediaHost: HTMLElement;
+  private readonly guidesVideoEl: HTMLVideoElement;
+  private readonly guidesGifFallbackEl: HTMLImageElement;
   private readonly guidesTitleEl: HTMLElement;
   private readonly guidesBodyEl: HTMLElement;
   private readonly guidesNavEl: HTMLElement;
@@ -626,13 +634,31 @@ export class UI {
     this.guidesBodyEl = this.guidesMenuPanel.querySelector('.guides-menu__body')!;
     this.guidesNavEl = this.mainMenuEl.querySelector('#guides-nav')!;
     this.guidesBackBtn = this.mainMenuEl.querySelector('#guides-back')!;
-    this.guidesGifEl = document.createElement('img');
-    this.guidesGifEl.id = 'guides-menu-gif';
-    this.guidesGifEl.className = 'guides-menu-gif';
-    this.guidesGifEl.alt = '';
-    this.guidesGifEl.hidden = true;
-    this.guidesGifEl.draggable = false;
-    mainMenuUiScale.appendChild(this.guidesGifEl);
+    this.guidesMediaHost = document.createElement('div');
+    this.guidesMediaHost.id = 'guides-menu-media';
+    this.guidesMediaHost.className = 'guides-menu-media';
+    this.guidesMediaHost.hidden = true;
+
+    this.guidesVideoEl = document.createElement('video');
+    this.guidesVideoEl.className = 'guides-menu-gif guides-menu-gif--video';
+    this.guidesVideoEl.muted = true;
+    this.guidesVideoEl.loop = true;
+    this.guidesVideoEl.autoplay = true;
+    this.guidesVideoEl.playsInline = true;
+    this.guidesVideoEl.setAttribute('playsinline', '');
+    this.guidesVideoEl.preload = 'none';
+    this.guidesVideoEl.disablePictureInPicture = true;
+    this.guidesVideoEl.controls = false;
+    this.guidesVideoEl.draggable = false;
+
+    this.guidesGifFallbackEl = document.createElement('img');
+    this.guidesGifFallbackEl.className = 'guides-menu-gif guides-menu-gif--fallback';
+    this.guidesGifFallbackEl.alt = '';
+    this.guidesGifFallbackEl.hidden = true;
+    this.guidesGifFallbackEl.draggable = false;
+
+    this.guidesMediaHost.append(this.guidesVideoEl, this.guidesGifFallbackEl);
+    mainMenuUiScale.appendChild(this.guidesMediaHost);
     this.buildGuidesMenu();
     this.highScoreMenuPanel = this.mainMenuEl.querySelector('#highscore-menu-panel')!;
     this.highScoreBackBtn = this.mainMenuEl.querySelector('#highscore-back')!;
@@ -1085,7 +1111,8 @@ export class UI {
     this.titlesMenuPanel.hidden = true;
     this.titlesBackBtn.hidden = true;
     this.guidesMenuPanel.hidden = true;
-    this.guidesGifEl.hidden = true;
+    this.pauseGuideMedia();
+    this.guidesMediaHost.hidden = true;
     this.guidesNavEl.hidden = true;
     this.guidesBackBtn.hidden = true;
     this.highScoreMenuPanel.hidden = true;
@@ -1129,8 +1156,7 @@ export class UI {
     this.selectedGuideId = topic.id;
     this.guidesTitleEl.textContent = topic.label;
     this.guidesBodyEl.textContent = topic.body;
-    this.setGuideGif(topic);
-    this.guidesGifEl.alt = topic.label;
+    this.setGuideMedia(topic);
     const buttons = this.guidesNavEl.querySelectorAll<HTMLButtonElement>('.guides-nav__btn');
     for (const btn of buttons) {
       const active = btn.dataset.guideId === topic.id;
@@ -1139,12 +1165,47 @@ export class UI {
     }
   }
 
-  /** Same img element otherwise keeps showing the first loaded GIF animation. */
-  private setGuideGif(topic: GuideTopic): void {
-    if (this.guidesGifEl.dataset.guideId === topic.id) return;
-    this.guidesGifEl.dataset.guideId = topic.id;
-    this.guidesGifEl.src = '';
-    this.guidesGifEl.src = `${encodeURI(topic.gifUrl)}?guide=${topic.id}`;
+  private pauseGuideMedia(): void {
+    this.guidesVideoEl.pause();
+  }
+
+  private showGuideGifFallback(topic: GuideTopic): void {
+    this.guidesVideoEl.hidden = true;
+    this.guidesGifFallbackEl.hidden = false;
+    this.guidesGifFallbackEl.alt = topic.label;
+    this.guidesGifFallbackEl.src = '';
+    this.guidesGifFallbackEl.src = `${encodeURI(topic.gifUrl)}?guide=${topic.id}`;
+  }
+
+  private setGuideMedia(topic: GuideTopic): void {
+    if (this.guidesVideoEl.dataset.guideId === topic.id) return;
+
+    this.guidesVideoEl.dataset.guideId = topic.id;
+    this.guidesGifFallbackEl.dataset.guideId = topic.id;
+    this.guidesGifFallbackEl.hidden = true;
+    this.guidesVideoEl.hidden = false;
+
+    const webmSrc = `${encodeURI(topic.webmUrl)}?guide=${topic.id}`;
+
+    const useGifFallback = () => {
+      if (this.guidesVideoEl.dataset.guideId !== topic.id) return;
+      this.showGuideGifFallback(topic);
+    };
+
+    this.guidesVideoEl.setAttribute('aria-label', topic.label);
+    this.guidesVideoEl.onerror = useGifFallback;
+    this.guidesVideoEl.onloadeddata = () => {
+      if (this.guidesVideoEl.dataset.guideId !== topic.id) return;
+      this.guidesGifFallbackEl.hidden = true;
+      this.guidesVideoEl.hidden = false;
+      void this.guidesVideoEl.play().catch(useGifFallback);
+    };
+
+    this.guidesVideoEl.pause();
+    this.guidesVideoEl.removeAttribute('src');
+    this.guidesVideoEl.load();
+    this.guidesVideoEl.src = webmSrc;
+    this.guidesVideoEl.load();
   }
 
   private openGuidesMenu(): void {
@@ -1152,12 +1213,13 @@ export class UI {
     this.mainMenuPanel.hidden = true;
     this.selectGuideTopic(this.selectedGuideId);
     this.guidesMenuPanel.hidden = false;
-    this.guidesGifEl.hidden = false;
+    this.guidesMediaHost.hidden = false;
     this.guidesNavEl.hidden = false;
     this.guidesBackBtn.hidden = false;
   }
 
   private closeGuidesMenu(): void {
+    this.pauseGuideMedia();
     this.hideAllMenuSubpanels();
     this.mainMenuPanel.hidden = false;
   }
