@@ -353,6 +353,9 @@ export class UI {
   private readonly damageFlashEl: HTMLElement;
   /** Pink edge vignette on shield loss (enemy hit or beat miss). */
   private readonly damageEdgeVignetteEl: HTMLElement;
+  /** Full-screen "GET READY" when a beatmap track starts. */
+  private readonly trackGetReadyEl: HTMLElement;
+  private trackGetReadyHideTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly vaultBearingHost: HTMLElement;
   private readonly vaultBearingRot: SVGGElement;
   private artifactsChangeHandler: (() => void) | null = null;
@@ -918,6 +921,15 @@ export class UI {
     this.damageEdgeVignetteEl.setAttribute('aria-hidden', 'true');
     document.body.appendChild(this.damageEdgeVignetteEl);
 
+    this.trackGetReadyEl = document.createElement('div');
+    this.trackGetReadyEl.className = 'track-get-ready-overlay';
+    this.trackGetReadyEl.setAttribute('aria-hidden', 'true');
+    const trackGetReadyText = document.createElement('span');
+    trackGetReadyText.className = 'track-get-ready-overlay__text';
+    trackGetReadyText.textContent = 'GET READY';
+    this.trackGetReadyEl.appendChild(trackGetReadyText);
+    document.body.appendChild(this.trackGetReadyEl);
+
     for (const el of [
       this.hudEl,
       this.hpBarsBottom,
@@ -960,6 +972,24 @@ export class UI {
     );
   }
 
+  /** Full-screen "GET READY" for 1s when a beatmap track starts (Bjork font). */
+  showGetReadyOverlay(): void {
+    const el = this.trackGetReadyEl;
+    if (this.trackGetReadyHideTimer !== null) {
+      clearTimeout(this.trackGetReadyHideTimer);
+      this.trackGetReadyHideTimer = null;
+    }
+    el.classList.remove('track-get-ready-overlay--show');
+    void el.offsetWidth;
+    el.classList.add('track-get-ready-overlay--show');
+    el.setAttribute('aria-hidden', 'false');
+    this.trackGetReadyHideTimer = setTimeout(() => {
+      this.trackGetReadyHideTimer = null;
+      el.classList.remove('track-get-ready-overlay--show');
+      el.setAttribute('aria-hidden', 'true');
+    }, 1000);
+  }
+
   /** Remove fullscreen menu overlays from the document (call from Game.dispose). */
   setMusicMarquee(text: string | null): void {
     this.musicMarquee.setText(text);
@@ -988,8 +1018,13 @@ export class UI {
     this.mainMenuEl.remove();
     this.deathScreenEl.remove();
     this.runUpgradeOverlayEl.remove();
+    if (this.trackGetReadyHideTimer !== null) {
+      clearTimeout(this.trackGetReadyHideTimer);
+      this.trackGetReadyHideTimer = null;
+    }
     this.damageFlashEl.remove();
     this.damageEdgeVignetteEl.remove();
+    this.trackGetReadyEl.remove();
   }
 
   showRunUpgradeModal(opts: {

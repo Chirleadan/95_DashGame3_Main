@@ -787,6 +787,7 @@ export class Game {
         this.resetBeatHitTracking();
       }
       await this.audio.play();
+      this.ui.showGetReadyOverlay();
       this.scheduleBackgroundPauseForTrack();
       this.ui.setBeatmapState('Playing');
       return true;

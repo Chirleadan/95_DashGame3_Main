@@ -389,10 +389,10 @@ body.game-booting .game-overlay--menu,
   background:
     radial-gradient(
       ellipse 118% 108% at 50% 50%,
-      rgba(0, 0, 0, 0) 38%,
-      rgba(255, 140, 170, 0.2) 58%,
-      rgba(255, 70, 120, 0.48) 78%,
-      rgba(210, 35, 95, 0.72) 100%
+      rgba(0, 0, 0, 0) 35%,
+      rgba(255, 95, 115, 0.25) 56%,
+      rgba(255, 45, 85, 0.6) 76%,
+      rgba(235, 20, 65, 0.9) 100%
     );
 }
 
@@ -409,6 +409,61 @@ body.game-booting .game-overlay--menu,
   }
   100% {
     opacity: 0;
+  }
+}
+
+.track-get-ready-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100002;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.track-get-ready-overlay--show {
+  visibility: visible;
+  animation: track-get-ready-overlay-show 1s ease-out forwards;
+}
+
+.track-get-ready-overlay__text {
+  font-family: 'Bjork Menu', 'FA-1 Game', sans-serif;
+  font-size: clamp(52px, 14vw, 132px);
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #ffffff;
+  -webkit-text-stroke: 3px #ff7aaa;
+  paint-order: stroke fill;
+  text-shadow:
+    0 0 28px rgba(255, 110, 160, 0.45),
+    3px 3px 0 #e85a8a,
+    -3px 3px 0 #e85a8a,
+    3px -3px 0 #e85a8a,
+    -3px -3px 0 #e85a8a;
+}
+
+@keyframes track-get-ready-overlay-show {
+  0% {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  10% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  82% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.02);
   }
 }
 
