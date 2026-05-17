@@ -77,7 +77,7 @@ export function createArenaCheckerCanvasTexture(): THREE.CanvasTexture {
 
 /**
  * Menu-pink tile per beat: flies in from a random screen edge, crosses the hero on the beat,
- * then exits. Lane (row or column) follows the hero until the beat, then stays fixed.
+ * then exits. Row/column follows the hero until 150 ms before the beat, then stays fixed.
  */
 export class BeatFloorVisualizer {
   private static readonly CELL_MESH_SIZE = ARENA_CHECKER_CELL_WORLD * 0.96;
@@ -86,6 +86,8 @@ export class BeatFloorVisualizer {
   private static readonly TRAVEL_HALF_CELLS_MULT_FAR = 6.75;
   private static readonly TRAVEL_HALF_CELLS_MULT_CLOSE = 2.35;
   private static readonly TRAVEL_DURATION_MULT = 2;
+  /** Perpendicular row/column locks this many seconds before the beat. */
+  private static readonly LANE_FREEZE_BEFORE_HIT_SEC = 0.15;
 
   private readonly highlightGroup: THREE.Group;
   private readonly cellGeo: THREE.PlaneGeometry;
@@ -255,20 +257,24 @@ export class BeatFloorVisualizer {
     return hitCoord + (end - hitCoord) * eased;
   }
 
-  /** Perpendicular lane: follows hero until the beat, then frozen. */
+  /** Perpendicular lane: follows hero until 150 ms before the beat, then frozen. */
   private laneCoordUntilHitThenFreeze(
     audioTime: number,
     traveler: BeatTraveler,
     playerLane: number,
     axis: 'x' | 'z',
   ): number {
-    if (audioTime <= traveler.hitTime) {
-      if (axis === 'x') traveler.frozenLaneX = playerLane;
-      else traveler.frozenLaneZ = playerLane;
+    const freezeAt =
+      traveler.hitTime - BeatFloorVisualizer.LANE_FREEZE_BEFORE_HIT_SEC;
+    if (audioTime < freezeAt) {
       return playerLane;
     }
-    if (axis === 'x') return traveler.frozenLaneX ?? playerLane;
-    return traveler.frozenLaneZ ?? playerLane;
+    if (axis === 'x') {
+      if (traveler.frozenLaneX === undefined) traveler.frozenLaneX = playerLane;
+      return traveler.frozenLaneX;
+    }
+    if (traveler.frozenLaneZ === undefined) traveler.frozenLaneZ = playerLane;
+    return traveler.frozenLaneZ;
   }
 
   private syncMeshes(positions: { cellX: number; cellZ: number }[]): void {
