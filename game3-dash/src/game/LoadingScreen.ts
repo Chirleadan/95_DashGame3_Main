@@ -1,8 +1,9 @@
 import {
   getEssentialPreloadFailures,
-  preloadGameAssets,
+  preloadCoreGameAssets,
   type PreloadGameAssetsResult,
 } from './AssetPreloader.ts';
+import { resolveStoredOrDefaultTrackStage } from './SelectedTape.ts';
 
 const RING_RADIUS = 44;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
@@ -74,7 +75,10 @@ export class LoadingScreen {
   async run(): Promise<boolean> {
     let result: PreloadGameAssetsResult = { failed: [] };
     try {
-      result = await preloadGameAssets((p) => this.setProgress(p.fraction));
+      result = await preloadCoreGameAssets(
+        resolveStoredOrDefaultTrackStage(),
+        (p) => this.setProgress(p.fraction),
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.showError(message);

@@ -12,6 +12,11 @@ import { circlesOverlap, segmentHitsCircle } from './Collision.ts';
 import { UI, type RunUpgradeChoiceView } from './UI.ts';
 import { CameraController } from './CameraController.ts';
 import { screenToGroundXZ } from './screenToGround.ts';
+import {
+  ensureLvlupAssetsLoaded,
+  ensureStageTrackAssetsLoaded,
+  preloadDeferredTrackAssets,
+} from './AssetPreloader.ts';
 import { loadBeatmap, type Beatmap, type BeatEvent } from './Beatmap.ts';
 import {
   getTapeTrackCredit,
@@ -472,6 +477,7 @@ export class Game {
     }
     this.syncWalletGoldUi();
     void this.ensureBackgroundMusicPlaying();
+    preloadDeferredTrackAssets(this.selectedTrackStage.id);
     void this.initBeatmap();
 
     window.addEventListener('resize', this.onResize);
@@ -705,6 +711,7 @@ export class Game {
     this.ui.setBeatDebug(0, null);
     this.ui.setBeatmapState('Loading...');
     this.syncBeatPlayButton();
+    await ensureStageTrackAssetsLoaded(stage);
     await this.initBeatmap();
   }
 
@@ -2930,7 +2937,7 @@ export class Game {
     if (this.runPendingUpgradeMilestones.length <= 0) return;
     // While the beat-track ability is active, queue upgrades but do not interrupt gameplay.
     if (this.audio.isPlaying) return;
-    this.openNextRunUpgradeModal();
+    void this.openNextRunUpgradeModal();
   }
 
   private collectReachedRunUpgradeMilestones(): void {
@@ -2941,10 +2948,11 @@ export class Game {
     }
   }
 
-  private openNextRunUpgradeModal(): void {
+  private async openNextRunUpgradeModal(): Promise<void> {
     if (this.runPendingUpgradeMilestones.length <= 0) return;
     this.runPhase = 'runUpgrade';
     this.syncRunHudLayout();
+    await ensureLvlupAssetsLoaded();
     const choices = this.getRunUpgradeChoices();
     const isCheatMode = this.ui.isCheatModeEnabled();
     this.ui.showRunUpgradeModal({

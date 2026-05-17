@@ -1,8 +1,12 @@
 import {
-  getGameAssetManifest,
+  getCoreGameAssetManifest,
+  getDeferredTrackManifest,
+  getLvlupAssetManifest,
+  getTrackStageAssets,
   type PreloadAsset,
   type PreloadAssetKind,
 } from './assetManifest.ts';
+import type { TrackStage } from './TrackCatalog.ts';
 import { getGameTexture } from './TextureCache.ts';
 
 export type PreloadProgress = {
@@ -12,6 +16,8 @@ export type PreloadProgress = {
 };
 
 const loadedUrls = new Set<string>();
+let lvlupPreloadStarted = false;
+let lvlupPreloadDone = false;
 
 function bump(
   onProgress: ((p: PreloadProgress) => void) | undefined,
@@ -23,6 +29,10 @@ function bump(
     total,
     fraction: total > 0 ? loaded / total : 1,
   });
+}
+
+export function isGameAssetUrlLoaded(url: string): boolean {
+  return loadedUrls.has(url.trim());
 }
 
 async function preloadImage(url: string): Promise<void> {
@@ -113,10 +123,10 @@ export type PreloadGameAssetsResult = {
   failed: { url: string; kind: PreloadAssetKind; essential: boolean; message: string }[];
 };
 
-export async function preloadGameAssets(
+export async function preloadAssets(
+  manifest: readonly PreloadAsset[],
   onProgress?: (progress: PreloadProgress) => void,
 ): Promise<PreloadGameAssetsResult> {
-  const manifest = getGameAssetManifest();
   const total = manifest.length;
   let loaded = 0;
   const failed: PreloadGameAssetsResult['failed'] = [];
@@ -147,6 +157,55 @@ export async function preloadGameAssets(
   }
 
   return { failed };
+}
+
+export async function preloadCoreGameAssets(
+  selectedStage: TrackStage,
+  onProgress?: (progress: PreloadProgress) => void,
+): Promise<PreloadGameAssetsResult> {
+  return preloadAssets(getCoreGameAssetManifest(selectedStage), onProgress);
+}
+
+/** Ensures one tape stage is cached (menu selection / before run). */
+export async function ensureStageTrackAssetsLoaded(
+  stage: TrackStage,
+): Promise<PreloadGameAssetsResult> {
+  return preloadAssets(getTrackStageAssets(stage, true));
+}
+
+/** Background warm-up for tapes not selected at boot. */
+export function preloadDeferredTrackAssets(excludeStageId: string): void {
+  const manifest = getDeferredTrackManifest(excludeStageId);
+  if (manifest.length === 0) return;
+  void preloadAssets(manifest).then((result) => {
+    const essentialFailures = result.failed.filter((f) => f.essential);
+    if (essentialFailures.length > 0) {
+      console.warn(
+        '[Preload] deferred track failures:',
+        essentialFailures.map((f) => f.url).join(', '),
+      );
+    }
+  });
+}
+
+/** First run level-up overlay: load perk icons once. */
+export async function ensureLvlupAssetsLoaded(): Promise<void> {
+  if (lvlupPreloadDone) return;
+  if (!lvlupPreloadStarted) {
+    lvlupPreloadStarted = true;
+    const result = await preloadAssets(getLvlupAssetManifest());
+    lvlupPreloadDone = true;
+    if (result.failed.length > 0) {
+      console.warn(
+        '[Preload] lvlup icon failures:',
+        result.failed.map((f) => f.url).join(', '),
+      );
+    }
+    return;
+  }
+  while (!lvlupPreloadDone) {
+    await new Promise((resolve) => window.setTimeout(resolve, 16));
+  }
 }
 
 export function getEssentialPreloadFailures(

@@ -1,7 +1,7 @@
 import { CONFIG } from './config.ts';
 import { RUN_UPGRADE_ART_BY_ID } from './RunUpgradeArt.ts';
 import { TAPE_CASSETTES } from './TapeCatalog.ts';
-import { TRACK_CATALOG } from './TrackCatalog.ts';
+import { TRACK_CATALOG, type TrackStage } from './TrackCatalog.ts';
 
 export type PreloadAssetKind = 'image' | 'audio' | 'json' | 'font';
 
@@ -40,10 +40,7 @@ const GAME_SFX_URLS = [
   '/audio/hit_3.mp3',
 ] as const;
 
-const UI_IMAGE_URLS = [
-  '/assets/back 1.png',
-  '/assets/tapes/recorder.png',
-] as const;
+const UI_IMAGE_URLS = ['/assets/back 1.png'] as const;
 
 const FONT_URLS = [
   '/fonts/Pulsewidth-1.0.0.otf',
@@ -51,14 +48,65 @@ const FONT_URLS = [
   '/fonts/bjork.ttf',
 ] as const;
 
-/** All assets that should be warmed before the menu is shown. */
-export function getGameAssetManifest(): PreloadAsset[] {
+function mergeManifestAssets(
+  entries: Iterable<PreloadAsset>,
+): PreloadAsset[] {
   const byUrl = new Map<string, PreloadAsset>();
+  for (const asset of entries) {
+    const normalized = asset.url.trim();
+    if (!normalized) continue;
+    const existing = byUrl.get(normalized);
+    if (!existing) {
+      byUrl.set(normalized, { ...asset, url: normalized });
+      continue;
+    }
+    if (asset.essential) {
+      existing.essential = true;
+    }
+  }
+  return [...byUrl.values()];
+}
+
+export function getTrackStageAssets(
+  stage: TrackStage,
+  essential = true,
+): PreloadAsset[] {
+  return [
+    { url: stage.beatmapUrl, kind: 'json', essential },
+    { url: stage.audioUrl, kind: 'audio', essential },
+  ];
+}
+
+/** Beatmap + audio for enabled stages except the one already in core preload. */
+export function getDeferredTrackManifest(excludeStageId: string): PreloadAsset[] {
+  const entries: PreloadAsset[] = [];
+  for (const track of TRACK_CATALOG) {
+    for (const stage of track.stages) {
+      if (!stage.enabled || stage.id === excludeStageId) continue;
+      entries.push(...getTrackStageAssets(stage, false));
+    }
+  }
+  return mergeManifestAssets(entries);
+}
+
+export function getLvlupAssetManifest(): PreloadAsset[] {
+  return mergeManifestAssets(
+    Object.values(RUN_UPGRADE_ART_BY_ID).map((url) => ({
+      url,
+      kind: 'image' as const,
+      essential: false,
+    })),
+  );
+}
+
+/**
+ * Assets required before the main menu: gameplay sprites, menu UI, selected tape only.
+ */
+export function getCoreGameAssetManifest(selectedStage: TrackStage): PreloadAsset[] {
+  const entries: PreloadAsset[] = [];
 
   const add = (url: string, kind: PreloadAssetKind, essential = true): void => {
-    const normalized = url.trim();
-    if (!normalized || byUrl.has(normalized)) return;
-    byUrl.set(normalized, { url: normalized, kind, essential });
+    entries.push({ url, kind, essential });
   };
 
   for (const url of PLAYER_TEXTURE_URLS) add(url, 'image');
@@ -74,17 +122,7 @@ export function getGameAssetManifest(): PreloadAsset[] {
     add(tape.imageUrl, 'image');
   }
 
-  for (const url of Object.values(RUN_UPGRADE_ART_BY_ID)) {
-    add(url, 'image', false);
-  }
+  entries.push(...getTrackStageAssets(selectedStage, true));
 
-  for (const track of TRACK_CATALOG) {
-    for (const stage of track.stages) {
-      if (!stage.enabled) continue;
-      add(stage.beatmapUrl, 'json');
-      add(stage.audioUrl, 'audio');
-    }
-  }
-
-  return [...byUrl.values()];
+  return mergeManifestAssets(entries);
 }
