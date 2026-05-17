@@ -658,22 +658,57 @@ body {
   vertical-align: top;
 }
 
-.beat-lane-tape-icon {
+.beat-lane-tape-stack {
   position: absolute;
   left: 50%;
   top: 50%;
   z-index: 2;
-  width: 85px;
-  height: 85px;
-  object-fit: contain;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
   transform: translate(-50%, -50%);
   pointer-events: none;
-  opacity: 0.9;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.65));
 }
 
-.beat-lane-tape-icon[hidden] {
+.beat-lane-tape-stack[hidden] {
   display: none;
+}
+
+.beat-lane-tape-mana {
+  font-family: 'FA-1 Game', monospace;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  color: rgba(200, 220, 255, 0.95);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  white-space: nowrap;
+}
+
+.beat-lane-tape-mana[hidden] {
+  display: none;
+}
+
+.beat-lane-tape-icon {
+  display: block;
+  width: 98px;
+  height: 98px;
+  object-fit: contain;
+  opacity: 0.9;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.65));
+  transform-origin: center center;
+  animation: beat-lane-tape-sway 4.2s ease-in-out infinite;
+}
+
+@keyframes beat-lane-tape-sway {
+  0%,
+  100% {
+    transform: rotate(-5deg);
+  }
+  50% {
+    transform: rotate(5deg);
+  }
 }
 
 .beat-round-timer {
@@ -2228,6 +2263,37 @@ body {
   to {
     transform: translateX(-50%);
   }
+}
+
+.flashing-lights-warning {
+  position: fixed;
+  top: clamp(14px, 2.8vh, 32px);
+  right: clamp(14px, 2.5vw, 32px);
+  z-index: 5;
+  margin: 0;
+  max-width: min(46vw, 340px);
+  font-family: 'FA-1 Game', monospace;
+  font-size: clamp(0.62rem, 1.35vw, 0.9rem);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.1em;
+  text-align: right;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow:
+    0 2px 0 rgba(0, 0, 0, 0.35),
+    0 6px 16px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  user-select: none;
+}
+
+.loading-screen .flashing-lights-warning {
+  color: rgba(255, 107, 157, 0.92);
+  text-shadow: 0 0 12px rgba(255, 107, 157, 0.35);
+}
+
+.game-overlay--menu > .flashing-lights-warning {
+  z-index: 4;
 }
 
 .loading-screen {

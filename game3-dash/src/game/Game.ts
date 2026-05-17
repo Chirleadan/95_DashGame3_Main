@@ -2784,8 +2784,16 @@ export class Game {
   /** Beat lane canvas: after movement so the center hit ring matches `player.isDashing`. */
   private syncBeatLaneUi(): void {
     const tapePlaying = this.audio.isPlaying;
+    const tapeMana = this.getBeatLaneTapeManaDisplay(tapePlaying);
     if (!this.beatmap) {
-      this.ui.updateBeatLane(0, null, this.beatHitIndices, this.player.isDashing, tapePlaying);
+      this.ui.updateBeatLane(
+        0,
+        null,
+        this.beatHitIndices,
+        this.player.isDashing,
+        tapePlaying,
+        tapeMana,
+      );
       return;
     }
     this.ui.updateBeatLane(
@@ -2794,7 +2802,23 @@ export class Game {
       this.beatHitIndices,
       this.player.isDashing,
       tapePlaying,
+      tapeMana,
     );
+  }
+
+  private getBeatLaneTapeManaDisplay(tapePlaying: boolean): {
+    current: number;
+    required: number;
+  } | null {
+    if (tapePlaying) return null;
+    if (!CONFIG.playTrackManaCostEnabled) return null;
+    if (this.runPhase !== 'playing' && this.runPhase !== 'runUpgrade') {
+      return null;
+    }
+    return {
+      current: this.runMana,
+      required: CONFIG.playTrackMinManaToActivate,
+    };
   }
 
   /** Center-screen quarter-circle arc: bearing from canvas center to vault (screen pixels). */

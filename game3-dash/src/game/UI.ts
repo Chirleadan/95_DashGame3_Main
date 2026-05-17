@@ -151,6 +151,12 @@ export type RunUpgradeChoiceView = {
   secondary?: boolean;
 };
 
+/** Current / required mana shown above the beat-lane tape icon when too low to play. */
+export type BeatLaneTapeManaDisplay = {
+  current: number;
+  required: number;
+};
+
 function lowerBeatIndex(beats: readonly BeatEvent[], minTime: number): number {
   let lo = 0;
   let hi = beats.length;
@@ -196,6 +202,8 @@ export class UI {
   private readonly beatmapStateEl: HTMLElement;
   private readonly beatHitCountEl: HTMLElement;
   private readonly beatLaneHost: HTMLElement;
+  private readonly beatLaneTapeStackEl: HTMLElement;
+  private readonly beatLaneTapeManaEl: HTMLElement;
   private readonly beatLaneTapeIconEl: HTMLImageElement;
   private readonly beatRoundTimerEl: HTMLElement;
   private readonly beatLaneCanvas: HTMLCanvasElement;
@@ -442,13 +450,20 @@ export class UI {
     this.beatLaneHost.style.height = `${CONFIG.beatLaneHeightPx}px`;
     this.beatLaneCanvas = document.createElement('canvas');
     this.beatLaneCtx = this.beatLaneCanvas.getContext('2d');
+    this.beatLaneTapeStackEl = document.createElement('div');
+    this.beatLaneTapeStackEl.className = 'beat-lane-tape-stack';
+    this.beatLaneTapeStackEl.hidden = true;
+    this.beatLaneTapeManaEl = document.createElement('span');
+    this.beatLaneTapeManaEl.className = 'beat-lane-tape-mana';
+    this.beatLaneTapeManaEl.hidden = true;
     this.beatLaneTapeIconEl = document.createElement('img');
     this.beatLaneTapeIconEl.className = 'beat-lane-tape-icon';
     this.beatLaneTapeIconEl.alt = '';
     this.beatLaneTapeIconEl.draggable = false;
-    this.beatLaneTapeIconEl.hidden = true;
+    this.beatLaneTapeStackEl.appendChild(this.beatLaneTapeManaEl);
+    this.beatLaneTapeStackEl.appendChild(this.beatLaneTapeIconEl);
     this.beatLaneHost.appendChild(this.beatLaneCanvas);
-    this.beatLaneHost.appendChild(this.beatLaneTapeIconEl);
+    this.beatLaneHost.appendChild(this.beatLaneTapeStackEl);
     this.beatLaneHost.appendChild(this.playTrackPromptEl);
 
     this.beatRoundTimerEl = document.createElement('div');
@@ -509,6 +524,7 @@ export class UI {
     this.mainMenuEl.setAttribute('role', 'dialog');
     this.mainMenuEl.setAttribute('aria-modal', 'true');
     this.mainMenuEl.innerHTML = `
+      <p class="flashing-lights-warning">FLASHING LIGHTS WARNING</p>
       <div class="main-menu-ui-scale">
       <div id="main-menu-panel" class="game-overlay__panel">
         <h1 class="game-overlay__title">Arena</h1>
@@ -1509,7 +1525,7 @@ export class UI {
     const track = findTrackForStage(stage.id);
     const url = track ? getTapeCassetteImageUrl(track.id) : null;
     if (!url) {
-      this.beatLaneTapeIconEl.hidden = true;
+      this.beatLaneTapeStackEl.hidden = true;
       this.beatLaneTapeIconEl.removeAttribute('src');
       return;
     }
@@ -1814,9 +1830,22 @@ export class UI {
     hitBeatIndices: ReadonlySet<number>,
     heroDashing: boolean,
     tapePlaying = false,
+    tapeMana: BeatLaneTapeManaDisplay | null = null,
   ): void {
-    this.beatLaneTapeIconEl.hidden =
-      tapePlaying || !this.beatLaneTapeIconEl.getAttribute('src');
+    const showTapeStack =
+      !tapePlaying && !!this.beatLaneTapeIconEl.getAttribute('src');
+    this.beatLaneTapeStackEl.hidden = !showTapeStack;
+    if (
+      showTapeStack &&
+      tapeMana &&
+      tapeMana.current < tapeMana.required
+    ) {
+      const current = Math.max(0, Math.floor(tapeMana.current));
+      this.beatLaneTapeManaEl.textContent = `${current}/${tapeMana.required}`;
+      this.beatLaneTapeManaEl.hidden = false;
+    } else {
+      this.beatLaneTapeManaEl.hidden = true;
+    }
     const ctx = this.beatLaneCtx;
     if (!ctx) return;
 

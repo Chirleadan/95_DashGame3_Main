@@ -42,6 +42,11 @@ export class LoadingScreen {
     ) as HTMLElement;
     this.progressRing.style.strokeDasharray = `${RING_CIRCUMFERENCE}`;
     this.progressRing.style.strokeDashoffset = `${RING_CIRCUMFERENCE}`;
+
+    const flashingWarning = document.createElement('p');
+    flashingWarning.className = 'flashing-lights-warning';
+    flashingWarning.textContent = 'FLASHING LIGHTS WARNING';
+    this.root.appendChild(flashingWarning);
   }
 
   mount(parent: HTMLElement = document.body): void {
