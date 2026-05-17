@@ -13,6 +13,10 @@ import { UI, type RunUpgradeChoiceView } from './UI.ts';
 import { CameraController } from './CameraController.ts';
 import { screenToGroundXZ } from './screenToGround.ts';
 import { loadBeatmap, type Beatmap, type BeatEvent } from './Beatmap.ts';
+import {
+  getTapeTrackCredit,
+  MUSIC_MARQUEE_AMBIENT,
+} from './MusicMarquee.ts';
 import { AudioManager } from './AudioManager.ts';
 import { BeatEffects } from './BeatEffects.ts';
 import { addPlayerGold, getPlayerGold } from './PlayerGold.ts';
@@ -770,6 +774,22 @@ export class Game {
     return this.runPhase === 'menu' ? 'menu' : 'game';
   }
 
+  private syncMusicMarquee(): void {
+    if (this.audio.isPlaying) {
+      const trackEntry = findTrackForStage(this.selectedTrackStage.id);
+      const credit = trackEntry
+        ? getTapeTrackCredit(trackEntry.id)
+        : null;
+      this.ui.setMusicMarquee(credit);
+      return;
+    }
+    if (this.backgroundAudio.isPlaying) {
+      this.ui.setMusicMarquee(MUSIC_MARQUEE_AMBIENT);
+      return;
+    }
+    this.ui.setMusicMarquee(null);
+  }
+
   private async ensureBackgroundMusicPlaying(): Promise<void> {
     this.clearBackgroundPauseTimer();
     if (this.audio.isPlaying) return;
@@ -1087,6 +1107,7 @@ export class Game {
     this.applyLensDistortionEffective();
 
     if (this.runPhase === 'death') {
+      this.ui.setMusicMarquee(null);
       this.clearDashPastTankDebugOverlay();
       this.deathScreenTimer += dt;
       this.beatEffects.update(dt);
@@ -1115,6 +1136,8 @@ export class Game {
       }
       return;
     }
+
+    this.syncMusicMarquee();
 
     if (this.runPhase === 'menu') {
       this.clearDashPastTankDebugOverlay();

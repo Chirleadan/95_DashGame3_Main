@@ -1935,6 +1935,71 @@ body {
   margin-top: 4px;
 }
 
+.music-marquee {
+  position: absolute;
+  top: 10px;
+  left: 9%;
+  right: 9%;
+  z-index: 24;
+  pointer-events: none;
+  user-select: none;
+}
+
+.music-marquee[hidden] {
+  display: none !important;
+}
+
+.music-marquee__viewport {
+  overflow: hidden;
+  width: 100%;
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 14%,
+    #000 86%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 14%,
+    #000 86%,
+    transparent 100%
+  );
+}
+
+.music-marquee__track {
+  display: flex;
+  width: max-content;
+  gap: 4rem;
+  animation: music-marquee-scroll 22s linear infinite;
+  will-change: transform;
+}
+
+.music-marquee__text {
+  flex: 0 0 auto;
+  padding: 0 0.5rem;
+  color: rgba(255, 255, 255, 0.92);
+  font-family: 'FA-1 Game', monospace;
+  font-size: clamp(11px, 1.35vw, 14px);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.45),
+    0 4px 14px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+}
+
+@keyframes music-marquee-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
 .loading-screen {
   position: fixed;
   inset: 0;

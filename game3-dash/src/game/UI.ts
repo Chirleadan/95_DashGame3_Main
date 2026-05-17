@@ -45,6 +45,7 @@ import {
   TRACK_CATALOG,
   type TrackStage,
 } from './TrackCatalog.ts';
+import { MusicMarquee } from './MusicMarquee.ts';
 import { TAPE_CASSETTES } from './TapeCatalog.ts';
 import {
   getHighestUnlockedTrackStage,
@@ -114,6 +115,7 @@ function lowerBeatIndex(beats: readonly BeatEvent[], minTime: number): number {
 
 export class UI {
   private readonly mount: HTMLElement;
+  private readonly musicMarquee: MusicMarquee;
   private readonly walletEl: HTMLElement;
   private readonly walletGoldEl: HTMLElement;
   private readonly walletManaGroupEl: HTMLElement;
@@ -219,6 +221,7 @@ export class UI {
       unlockVaultMaxLevel();
     }
     this.mount = container;
+    this.musicMarquee = new MusicMarquee(container);
 
     this.walletEl = document.createElement('div');
     this.walletEl.className = 'hud-wallet';
@@ -692,7 +695,12 @@ export class UI {
   }
 
   /** Remove fullscreen menu overlays from the document (call from Game.dispose). */
+  setMusicMarquee(text: string | null): void {
+    this.musicMarquee.setText(text);
+  }
+
   disposeMenuOverlays(): void {
+    this.musicMarquee.remove();
     this.mainMenuEl.remove();
     this.deathScreenEl.remove();
     this.runUpgradeOverlayEl.remove();
