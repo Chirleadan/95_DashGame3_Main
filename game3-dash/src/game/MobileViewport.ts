@@ -77,6 +77,13 @@ export function getMobileBeatLaneScale(): number {
   return isMobileGameViewport() ? CONFIG.mobileBeatLaneScale : 1;
 }
 
+/** Beat lane width fraction on touch viewports. */
+export function getMobileBeatLaneWidthFraction(): number {
+  return isMobileGameViewport()
+    ? CONFIG.mobileBeatLaneWidthFraction
+    : CONFIG.beatLaneWidthFraction;
+}
+
 export function getDefaultCameraViewHalfExtent(): number {
   if (!isMobileGameViewport()) return CONFIG.cameraViewHalfExtent;
   return CONFIG.cameraViewHalfExtent * CONFIG.mobileCameraViewHalfExtentMult;

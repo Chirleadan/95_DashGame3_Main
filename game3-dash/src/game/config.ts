@@ -17,8 +17,10 @@ export const CONFIG = {
   mobileComboFontScale: 0.5,
   /** Touch HUD: XP bar block scale (⅓ = three times smaller). */
   mobileHudXpScale: 1 / 3,
-  /** Touch HUD: beat lane height, note radius, and hit ring × this. */
-  mobileBeatLaneScale: 0.52,
+  /** Touch HUD: beat lane height, note radius, and hit ring × this (also ×½ vs prior mobile). */
+  mobileBeatLaneScale: 0.347,
+  /** Touch HUD: beat lane width as fraction of viewport (wider than desktop 0.5). */
+  mobileBeatLaneWidthFraction: 0.64,
   /** Touch: in-run tape icon and menu cassette art × this. */
   mobileTapeUiScale: 1.15,
   cameraZoomMinHalfExtent: 8,

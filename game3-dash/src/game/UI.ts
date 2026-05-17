@@ -64,7 +64,11 @@ import {
   isTapeStageUnlocked,
 } from './TapeStageUnlocks.ts';
 import { ensureLvlupAssetsLoaded } from './AssetPreloader.ts';
-import { getMobileBeatLaneScale, isMobileGameViewport } from './MobileViewport.ts';
+import {
+  getMobileBeatLaneScale,
+  getMobileBeatLaneWidthFraction,
+  isMobileGameViewport,
+} from './MobileViewport.ts';
 import { getRunUpgradeArtUrl } from './RunUpgradeArt.ts';
 import {
   findRunUpgradeLibraryEntry,
@@ -563,7 +567,7 @@ export class UI {
 
     const beatStack = document.createElement('div');
     beatStack.className = 'beat-lane-stack';
-    beatStack.style.width = `${CONFIG.beatLaneWidthFraction * 100}%`;
+    beatStack.style.width = `${getMobileBeatLaneWidthFraction() * 100}%`;
     beatStack.appendChild(this.beatLaneHost);
     beatStack.appendChild(this.beatRoundTimerEl);
     this.beatLaneStackEl = beatStack;
@@ -2412,11 +2416,12 @@ export class UI {
     const wCss = Math.max(
       1,
       this.beatLaneHost.clientWidth ||
-        Math.floor(mountW * CONFIG.beatLaneWidthFraction),
+        Math.floor(mountW * getMobileBeatLaneWidthFraction()),
     );
     const laneScale = getMobileBeatLaneScale();
     const hCss = CONFIG.beatLaneHeightPx * laneScale;
     this.beatLaneHost.style.height = `${hCss}px`;
+    this.beatLaneStackEl.style.width = `${getMobileBeatLaneWidthFraction() * 100}%`;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.beatLaneCanvas.width = Math.max(1, Math.floor(wCss * dpr));
     this.beatLaneCanvas.height = Math.max(1, Math.floor(hCss * dpr));
@@ -2458,7 +2463,7 @@ export class UI {
     const wCss = Math.max(
       1,
       this.beatLaneHost.clientWidth ||
-        Math.floor(mountW * CONFIG.beatLaneWidthFraction),
+        Math.floor(mountW * getMobileBeatLaneWidthFraction()),
     );
     const laneScale = getMobileBeatLaneScale();
     const hCss = CONFIG.beatLaneHeightPx * laneScale;
@@ -2493,7 +2498,7 @@ export class UI {
     ctx.beginPath();
     ctx.arc(centerX, cy, targetR, 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(230, 245, 255, 0.85)';
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 2.5 * laneScale;
     ctx.stroke();
 
     if (!beats || beats.length === 0 || v < 1e-3) {
@@ -2507,7 +2512,7 @@ export class UI {
     let i = lowerBeatIndex(beats, tMin);
     const n = beats.length;
 
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1.5 * laneScale;
 
     for (; i < n; i++) {
       const b = beats[i]!;

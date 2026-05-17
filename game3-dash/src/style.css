@@ -3086,12 +3086,51 @@ html.mobile-game .combo-pop__count {
   font-size: calc(var(--combo-count-size) * 0.5) !important;
 }
 
+html.mobile-game .hud {
+  padding: 4px 7px 5px;
+  font-size: 5px;
+  line-height: 1.2;
+  width: max-content;
+  min-width: 0;
+  max-width: calc(100vw - 24px);
+}
+
 html.mobile-game .hud-xp {
-  transform: scale(0.333333);
-  transform-origin: top left;
-  margin-bottom: 0;
-  padding-bottom: 0;
-  border-bottom: none;
+  margin: 0;
+  padding-bottom: 3px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+html.mobile-game .hud-xp-row {
+  min-width: 0;
+  width: max-content;
+  gap: 2px 8px;
+  margin-bottom: 2px;
+}
+
+html.mobile-game .hud-xp-meta__group {
+  gap: 4px;
+}
+
+html.mobile-game .hud-xp-meta__group .label {
+  min-width: 0;
+  font-size: 5px;
+}
+
+html.mobile-game .hud-xp-num,
+html.mobile-game #hud-run-xp-text {
+  font-size: 5px;
+}
+
+html.mobile-game #hud-run-level {
+  font-size: 5.75px;
+}
+
+html.mobile-game .hud-xp-bar {
+  height: 1px;
+  min-width: 0;
+  width: 68px;
+  border-radius: 1px;
 }
 
 html.mobile-game .beat-round-timer {
@@ -3143,7 +3182,7 @@ html.mobile-game.mobile-game-portrait .highscore-menu {
   gap: 20px;
 }
 
-/* 2. Guides — video centered, ~1.2× smaller */
+/* 2. Guides — video centered, +20% vs prior mobile size */
 html.mobile-game.mobile-game-portrait #guides-menu-panel {
   position: fixed;
   top: max(10px, env(safe-area-inset-top, 0px));
@@ -3152,27 +3191,27 @@ html.mobile-game.mobile-game-portrait #guides-menu-panel {
   z-index: 4;
   width: min(92vw, 400px);
   max-width: min(92vw, 400px);
-  max-height: 28vh;
-  overflow-y: auto;
+  max-height: 36vh;
+  overflow: visible;
 }
 
 html.mobile-game.mobile-game-portrait .guides-menu-media {
   left: 50%;
   top: 50%;
   bottom: auto;
-  width: min(68vw, 668px);
-  min-height: clamp(120px, 28vh, 320px);
-  max-height: clamp(120px, 28vh, 320px);
-  transform: translate(-50%, -50%) scale(0.833);
+  width: min(82vw, 802px);
+  min-height: clamp(144px, 33.6vh, 384px);
+  max-height: clamp(144px, 33.6vh, 384px);
+  transform: translate(-50%, -50%);
   transform-origin: center center;
 }
 
 html.mobile-game.mobile-game-portrait .guides-menu-loading {
-  min-height: clamp(120px, 28vh, 320px);
+  min-height: clamp(144px, 33.6vh, 384px);
 }
 
 html.mobile-game.mobile-game-portrait .guides-menu-gif {
-  max-height: clamp(120px, 28vh, 320px);
+  max-height: clamp(144px, 33.6vh, 384px);
   transform: none;
 }
 
@@ -3315,10 +3354,13 @@ html.mobile-game.mobile-game-portrait .tape-menu-hint {
   bottom: auto;
   transform: translateX(-50%);
   width: min(92vw, 400px);
-  max-height: min(22vh, 160px);
+  max-height: min(26vh, 168px);
   overflow-y: auto;
+  overflow-x: visible;
   text-align: center;
   z-index: 4;
+  padding: 0 6px;
+  box-sizing: border-box;
 }
 
 html.mobile-game.mobile-game-portrait .tape-menu-hint p {
@@ -3334,29 +3376,46 @@ html.mobile-game.mobile-game-portrait .tape-cassette-rack:not([hidden]) {
   flex-direction: column;
   flex-wrap: nowrap;
   align-items: center;
-  justify-content: flex-end;
-  gap: clamp(10px, 2vh, 16px);
+  justify-content: flex-start;
+  gap: clamp(12px, 2.4vh, 18px);
   width: max-content;
-  max-width: 92vw;
-  max-height: min(58vh, 420px);
+  max-width: min(94vw, 420px);
+  max-height: calc(
+    100dvh - max(10px, env(safe-area-inset-top, 0px)) - min(26vh, 168px) -
+      max(64px, calc(env(safe-area-inset-bottom, 0px) + 52px)) - 12px
+  );
+  padding: 4px 8px 16px;
+  overflow-x: visible;
   overflow-y: auto;
   transform: translateX(-50%);
   -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
 }
 
 html.mobile-game.mobile-game-portrait .tape-cassette-column {
   flex: 0 0 auto;
+  overflow: visible;
+  max-width: min(94vw, 420px);
+}
+
+html.mobile-game.mobile-game-portrait .tape-cassette {
+  overflow: visible;
 }
 
 html.mobile-game.mobile-game-portrait .tape-cassette__img {
-  width: min(82.8vw, 166px);
-  max-width: min(82.8vw, 166px);
+  display: block;
+  width: min(78vw, 158px);
+  max-width: min(78vw, 158px);
+  max-height: min(30vh, 172px);
   height: auto;
+  object-fit: contain;
 }
 
 html.mobile-game.mobile-game-portrait .tape-cassette-stages {
+  flex-shrink: 0;
   justify-content: center;
   gap: clamp(11px, 2.3vw, 21px);
+  padding-bottom: 2px;
 }
 
 html.mobile-game.mobile-game-portrait .tape-stage-dot {
@@ -3380,4 +3439,72 @@ html.mobile-game.mobile-game-portrait #titles-menu-panel {
 
 html.mobile-game.mobile-game-portrait .game-overlay--menu .game-overlay__btn--menu-sub-back {
   z-index: 5;
+}
+
+/* Main menu hub — primary actions top, side links bottom, no Arena panel chrome */
+html.mobile-game.mobile-game-portrait #main-menu-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  padding: 0;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0;
+  pointer-events: none;
+}
+
+html.mobile-game.mobile-game-portrait #main-menu-panel .game-overlay__title,
+html.mobile-game.mobile-game-portrait #main-menu-panel .track-summary {
+  display: none !important;
+}
+
+html.mobile-game.mobile-game-portrait #main-menu-panel .main-menu-actions {
+  position: fixed;
+  top: max(14px, calc(env(safe-area-inset-top, 0px) + 8px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(12px, 2.8vh, 18px);
+  width: min(92vw, 400px);
+  max-width: min(92vw, 400px);
+  pointer-events: auto;
+}
+
+html.mobile-game.mobile-game-portrait #main-menu-panel .main-menu-actions .game-overlay__btn {
+  min-width: min(88vw, 320px);
+  padding: 12px 20px;
+  font-size: clamp(1.28rem, 5.8vw, 1.85rem);
+  line-height: 1.05;
+  letter-spacing: 0.06em;
+}
+
+html.mobile-game.mobile-game-portrait #main-menu-panel .main-menu-side-links {
+  position: fixed;
+  left: 50%;
+  bottom: max(14px, calc(env(safe-area-inset-bottom, 0px) + 8px));
+  transform: translateX(-50%);
+  z-index: 3;
+  width: min(92vw, 400px);
+  max-width: min(92vw, 400px);
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+html.mobile-game.mobile-game-portrait #main-menu-panel .main-menu-side-btn {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: clamp(1rem, 4.2vw, 1.28rem);
+  text-align: center;
+}
+
+html.mobile-game.mobile-game-portrait #main-menu-panel .main-menu-cheatmode {
+  justify-content: center;
+  width: 100%;
+  padding: 6px 8px;
+  font-size: clamp(0.82rem, 3.6vw, 1rem);
 }
