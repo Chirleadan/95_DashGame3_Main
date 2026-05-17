@@ -2327,7 +2327,7 @@ body.game-booting .game-overlay--menu,
   flex-direction: row;
   align-items: flex-end;
   gap: 12px;
-  max-width: min(96vw, 920px);
+  max-width: min(98vw, 1840px);
   transform: translateX(-20vw);
   pointer-events: none;
 }
@@ -2423,22 +2423,26 @@ body.game-booting .game-overlay--menu,
 .library-menu-detail {
   position: relative;
   flex: 0 1 auto;
-  width: min(54vw, 560px);
-  max-width: min(54vw, 560px);
+  width: min(92vw, 1120px);
+  max-width: min(92vw, 1120px);
   pointer-events: none;
 }
 
 .library-menu-detail .run-upgrade-card--preview.run-upgrade-card--library {
   width: 100%;
   max-width: none;
-  height: clamp(132px, 20vh, 196px);
+  min-height: clamp(120px, 18vh, 168px);
+  height: auto;
   aspect-ratio: unset;
   background: rgba(31, 33, 41, 0.7);
+  overflow: hidden;
+  box-sizing: border-box;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(88px, 18%, 112px);
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 8px 14px;
-  padding: 14px 16px;
+  grid-template-columns: minmax(0, 1fr) clamp(96px, 12%, 128px);
+  grid-template-rows: auto auto;
+  gap: 10px 16px;
+  padding: 14px 18px 16px;
+  align-items: start;
 }
 
 .library-menu-detail .run-upgrade-card--library .run-upgrade-card__title {
@@ -2446,14 +2450,20 @@ body.game-booting .game-overlay--menu,
   min-height: 0;
   padding: 8px 10px;
   font-size: 1rem;
+  line-height: 1.15;
 }
 
 .library-menu-detail .run-upgrade-card--library .run-upgrade-card__desc {
   grid-column: 1;
   grid-row: 2;
+  flex: none;
+  min-width: 0;
   padding: 8px 10px;
   font-size: 0.92rem;
-  line-height: 1.22;
+  line-height: 1.28;
+  overflow-wrap: break-word;
+  word-break: normal;
+  white-space: normal;
 }
 
 .library-menu-detail .run-upgrade-card--library .run-upgrade-card__art {
@@ -2462,7 +2472,8 @@ body.game-booting .game-overlay--menu,
   width: 100%;
   max-width: none;
   margin-top: 0;
-  align-self: end;
+  align-self: start;
+  aspect-ratio: 1;
 }
 
 @media (min-width: 900px) {
@@ -2485,12 +2496,12 @@ body.game-booting .game-overlay--menu,
   }
 
   .library-menu-detail {
-    width: min(52vw, 600px);
-    max-width: min(52vw, 600px);
+    width: min(90vw, 1200px);
+    max-width: min(90vw, 1200px);
   }
 
   .library-menu-detail .run-upgrade-card--preview.run-upgrade-card--library {
-    height: clamp(148px, 21vh, 210px);
+    min-height: clamp(128px, 19vh, 176px);
   }
 }
 
