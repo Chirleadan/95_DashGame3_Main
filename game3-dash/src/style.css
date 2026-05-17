@@ -3077,6 +3077,31 @@ html.mobile-game .beat-lane-tape-mana {
   display: none !important;
 }
 
+html.mobile-game .hud-wallet .label,
+html.mobile-game .hud-wallet .hud-xp-num,
+html.mobile-game .hud-wallet #hud-wallet-gold {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+html.mobile-game .music-marquee {
+  top: auto;
+  right: auto;
+  bottom: max(12px, calc(env(safe-area-inset-bottom, 0px) + 8px));
+  left: 50%;
+  width: min(92vw, 420px);
+  transform: translateX(-50%);
+}
+
+html.mobile-game .music-marquee--menu {
+  top: auto;
+  bottom: max(12px, calc(env(safe-area-inset-bottom, 0px) + 8px));
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+}
+
 /* Run HUD (touch) */
 html.mobile-game .combo-pop__label {
   font-size: calc(var(--combo-label-size) * 0.5) !important;
@@ -3462,7 +3487,7 @@ html.mobile-game.mobile-game-portrait #main-menu-panel .track-summary {
 
 html.mobile-game.mobile-game-portrait #main-menu-panel .main-menu-actions {
   position: fixed;
-  top: max(14px, calc(env(safe-area-inset-top, 0px) + 8px));
+  top: calc(max(14px, calc(env(safe-area-inset-top, 0px) + 8px)) + 10vh);
   left: 50%;
   transform: translateX(-50%);
   z-index: 3;
@@ -3474,18 +3499,46 @@ html.mobile-game.mobile-game-portrait #main-menu-panel .main-menu-actions {
   pointer-events: auto;
 }
 
-html.mobile-game.mobile-game-portrait #main-menu-panel .main-menu-actions .game-overlay__btn {
+html.mobile-game.mobile-game-portrait #main-menu-panel .main-menu-actions .game-overlay__btn,
+html.mobile-game.mobile-game-portrait
+  #main-menu-panel
+  .main-menu-actions
+  .game-overlay__btn--secondary {
   min-width: min(88vw, 320px);
-  padding: 12px 20px;
-  font-size: clamp(1.28rem, 5.8vw, 1.85rem);
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: clamp(1.664rem, 7.54vw, 2.405rem);
   line-height: 1.05;
   letter-spacing: 0.06em;
+  color: #ffffff;
+  text-shadow:
+    0 3px 0 rgba(0, 0, 0, 0.28),
+    0 12px 26px rgba(0, 0, 0, 0.35);
+}
+
+html.mobile-game.mobile-game-portrait #main-menu-panel .main-menu-actions .game-overlay__btn:hover,
+html.mobile-game.mobile-game-portrait #main-menu-panel .main-menu-actions .game-overlay__btn:focus-visible,
+html.mobile-game.mobile-game-portrait
+  #main-menu-panel
+  .main-menu-actions
+  .game-overlay__btn--secondary:hover,
+html.mobile-game.mobile-game-portrait
+  #main-menu-panel
+  .main-menu-actions
+  .game-overlay__btn--secondary:focus-visible {
+  background: transparent;
+  border: 0;
+  color: #fff3fb;
+  transform: translateY(-1px);
 }
 
 html.mobile-game.mobile-game-portrait #main-menu-panel .main-menu-side-links {
   position: fixed;
   left: 50%;
-  bottom: max(14px, calc(env(safe-area-inset-bottom, 0px) + 8px));
+  bottom: max(48px, calc(env(safe-area-inset-bottom, 0px) + 40px));
   transform: translateX(-50%);
   z-index: 3;
   width: min(92vw, 400px);
