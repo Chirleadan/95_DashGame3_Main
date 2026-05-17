@@ -5,26 +5,36 @@ export type StoredPlayer = {
   nickname: string;
 };
 
-let cache: StoredPlayer | null | undefined;
+type PersistedProfile = {
+  nickname?: string;
+  playerId?: string;
+};
 
-export function getStoredPlayer(): StoredPlayer | null {
-  if (cache !== undefined) return cache;
+let cache: PersistedProfile | null | undefined;
+
+function readProfile(): PersistedProfile | null {
+  if (cache !== undefined) {
+    return cache;
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       cache = null;
       return null;
     }
-    const parsed = JSON.parse(raw) as Partial<StoredPlayer>;
-    const playerId =
-      typeof parsed.playerId === 'string' ? parsed.playerId.trim() : '';
+    const parsed = JSON.parse(raw) as PersistedProfile;
     const nickname =
       typeof parsed.nickname === 'string' ? parsed.nickname.trim() : '';
-    if (!playerId || !nickname) {
+    const playerId =
+      typeof parsed.playerId === 'string' ? parsed.playerId.trim() : '';
+    if (!nickname && !playerId) {
       cache = null;
       return null;
     }
-    cache = { playerId, nickname };
+    cache = {
+      ...(nickname ? { nickname } : {}),
+      ...(playerId ? { playerId } : {}),
+    };
     return cache;
   } catch {
     cache = null;
@@ -32,20 +42,52 @@ export function getStoredPlayer(): StoredPlayer | null {
   }
 }
 
-export function saveStoredPlayer(player: StoredPlayer): void {
-  cache = player;
+function writeProfile(profile: PersistedProfile | null): void {
+  cache = profile;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(player));
+    if (!profile || (!profile.nickname && !profile.playerId)) {
+      localStorage.removeItem(STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
   } catch {
     /* ignore quota */
   }
 }
 
-export function clearStoredPlayer(): void {
-  cache = null;
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    /* ignore */
+/** Nickname chosen by the player (saved locally even if the API is offline). */
+export function getRememberedNickname(): string | null {
+  const nickname = readProfile()?.nickname?.trim();
+  return nickname && nickname.length > 0 ? nickname : null;
+}
+
+export function saveRememberedNickname(nickname: string): void {
+  const trimmed = nickname.trim();
+  if (!trimmed) return;
+  const prev = readProfile();
+  writeProfile({
+    nickname: trimmed,
+    playerId: prev?.playerId,
+  });
+}
+
+export function getStoredPlayer(): StoredPlayer | null {
+  const profile = readProfile();
+  const playerId = profile?.playerId?.trim() ?? '';
+  const nickname = profile?.nickname?.trim() ?? '';
+  if (!playerId || !nickname) {
+    return null;
   }
+  return { playerId, nickname };
+}
+
+export function saveStoredPlayer(player: StoredPlayer): void {
+  writeProfile({
+    playerId: player.playerId.trim(),
+    nickname: player.nickname.trim(),
+  });
+}
+
+export function clearStoredPlayer(): void {
+  writeProfile(null);
 }

@@ -38,7 +38,10 @@ import {
   type LeaderboardEntry,
 } from './leaderboard/LeaderboardApi.ts';
 import { ensureOnlinePlayer } from './leaderboard/OnlinePlayerBootstrap.ts';
-import { getStoredPlayer } from './leaderboard/PlayerProfile.ts';
+import {
+  getRememberedNickname,
+  getStoredPlayer,
+} from './leaderboard/PlayerProfile.ts';
 import {
   findTrackStage,
   findTrackForStage,
@@ -1041,7 +1044,7 @@ export class UI {
   }
 
   ensureOnlinePlayerProfile(): void {
-    void ensureOnlinePlayer(() => this.promptNickname());
+    void ensureOnlinePlayer((initial) => this.promptNickname(initial));
   }
 
   /** Dev-only: open BEST SCORE (used by Playwright / `window.__gameDev`). */
@@ -1054,10 +1057,11 @@ export class UI {
     void this.loadGlobalLeaderboard(cheatMode);
   }
 
-  private promptNickname(): Promise<string | null> {
+  private promptNickname(initialNickname = ''): Promise<string | null> {
     return new Promise((resolve) => {
       this.nicknameModalEl.hidden = false;
-      this.nicknameInputEl.value = '';
+      this.nicknameInputEl.value =
+        initialNickname.trim() || getRememberedNickname() || '';
       requestAnimationFrame(() => {
         this.nicknameInputEl.focus({ preventScroll: true });
         this.nicknameInputEl.select();

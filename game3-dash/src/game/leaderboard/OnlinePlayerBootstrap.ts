@@ -4,12 +4,14 @@ import {
 } from './LeaderboardApi.ts';
 import { syncAllLocalHighScoresToLeaderboard } from './LeaderboardSync.ts';
 import {
+  getRememberedNickname,
   getStoredPlayer,
+  saveRememberedNickname,
   saveStoredPlayer,
   type StoredPlayer,
 } from './PlayerProfile.ts';
 
-export type NicknamePrompt = () => Promise<string | null>;
+export type NicknamePrompt = (initialNickname: string) => Promise<string | null>;
 
 const NICKNAME_MIN = 1;
 const NICKNAME_MAX = 24;
@@ -20,6 +22,21 @@ export function sanitizeNicknameInput(raw: string): string | null {
     return null;
   }
   return nickname;
+}
+
+async function registerNicknameOnServer(
+  nickname: string,
+): Promise<StoredPlayer | null> {
+  const created = await createPlayer(nickname);
+  if (!created) return null;
+  saveStoredPlayer(created);
+  console.info(
+    '[Leaderboard] player registered:',
+    created.playerId,
+    `(${created.nickname})`,
+  );
+  void syncAllLocalHighScoresToLeaderboard();
+  return created;
 }
 
 /**
@@ -46,9 +63,21 @@ export async function ensureOnlinePlayer(
     return existing;
   }
 
-  const raw = await promptNickname();
+  const remembered = getRememberedNickname();
+  if (remembered) {
+    const registered = await registerNicknameOnServer(remembered);
+    if (registered) return registered;
+    console.warn(
+      '[Leaderboard] could not register saved nickname — API unavailable or error',
+    );
+    return null;
+  }
+
+  const raw = await promptNickname('');
   if (raw === null) {
-    console.info('[Leaderboard] nickname skipped — online leaderboard disabled for this session');
+    console.info(
+      '[Leaderboard] nickname skipped — online leaderboard disabled for this session',
+    );
     return null;
   }
 
@@ -58,18 +87,6 @@ export async function ensureOnlinePlayer(
     return null;
   }
 
-  const created = await createPlayer(nickname);
-  if (!created) {
-    console.warn('[Leaderboard] could not create player — API unavailable or error');
-    return null;
-  }
-
-  saveStoredPlayer(created);
-  console.info(
-    '[Leaderboard] player created:',
-    created.playerId,
-    `(${created.nickname})`,
-  );
-  void syncAllLocalHighScoresToLeaderboard();
-  return created;
+  saveRememberedNickname(nickname);
+  return registerNicknameOnServer(nickname);
 }
