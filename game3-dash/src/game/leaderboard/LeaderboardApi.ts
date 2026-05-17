@@ -34,14 +34,20 @@ function logApiUnavailableOnce(): void {
   );
 }
 
+export type LeaderboardFetchFailure =
+  | 'not_configured'
+  | 'network'
+  | 'cors'
+  | 'http';
+
 async function apiFetch<T>(
   path: string,
   init?: RequestInit,
-): Promise<T | null> {
+): Promise<{ data: T } | { error: LeaderboardFetchFailure }> {
   const base = apiBaseUrl();
   if (!base) {
     logApiUnavailableOnce();
-    return null;
+    return { error: 'not_configured' };
   }
 
   const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
@@ -60,15 +66,17 @@ async function apiFetch<T>(
         res.status,
         text,
       );
-      return null;
+      return { error: 'http' };
     }
-    return (await res.json()) as T;
+    return { data: (await res.json()) as T };
   } catch (err) {
-    console.warn(
-      `[Leaderboard] ${init?.method ?? 'GET'} ${path} error:`,
-      err instanceof Error ? err.message : err,
-    );
-    return null;
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[Leaderboard] ${init?.method ?? 'GET'} ${path} error:`, msg);
+    const failure: LeaderboardFetchFailure =
+      msg.includes('Failed to fetch') || msg.includes('NetworkError')
+        ? 'cors'
+        : 'network';
+    return { error: failure };
   }
 }
 
@@ -79,13 +87,15 @@ export function isLeaderboardApiConfigured(): boolean {
 export async function createPlayer(
   nickname: string,
 ): Promise<StoredPlayer | null> {
-  const data = await apiFetch<{ playerId: string; nickname: string }>(
+  const result = await apiFetch<{ playerId: string; nickname: string }>(
     '/api/player/create',
     {
       method: 'POST',
       body: JSON.stringify({ nickname }),
     },
   );
+  if ('error' in result) return null;
+  const data = result.data;
   if (!data?.playerId || !data.nickname) return null;
   return { playerId: data.playerId, nickname: data.nickname };
 }
@@ -94,13 +104,15 @@ export async function updatePlayerNickname(
   playerId: string,
   nickname: string,
 ): Promise<StoredPlayer | null> {
-  const data = await apiFetch<{ playerId: string; nickname: string }>(
+  const result = await apiFetch<{ playerId: string; nickname: string }>(
     '/api/player/nickname',
     {
       method: 'PATCH',
       body: JSON.stringify({ playerId, nickname }),
     },
   );
+  if ('error' in result) return null;
+  const data = result.data;
   if (!data?.playerId || !data.nickname) return null;
   return { playerId: data.playerId, nickname: data.nickname };
 }
@@ -109,26 +121,32 @@ export async function updatePlayerNickname(
 export async function submitLeaderboardScore(
   payload: LeaderboardSubmitPayload,
 ): Promise<boolean | null> {
-  const data = await apiFetch<{ improved: boolean }>(
+  const result = await apiFetch<{ improved: boolean }>(
     '/api/leaderboard/submit',
     {
       method: 'POST',
       body: JSON.stringify(payload),
     },
   );
-  if (!data) return null;
-  return Boolean(data.improved);
+  if ('error' in result) return null;
+  return Boolean(result.data.improved);
 }
 
-/** `null` = API error, otherwise entries (may be empty). */
+export type FetchLeaderboardResult =
+  | { ok: true; entries: LeaderboardEntry[] }
+  | { ok: false; reason: LeaderboardFetchFailure };
+
+/** `ok: false` = API error; `ok: true` with empty entries = no scores yet. */
 export async function fetchLeaderboard(
   cheatMode: boolean,
   limit = 50,
-): Promise<LeaderboardEntry[] | null> {
+): Promise<FetchLeaderboardResult> {
   const cheat = cheatMode ? 'true' : 'false';
-  const data = await apiFetch<{ entries: LeaderboardEntry[] }>(
+  const result = await apiFetch<{ entries: LeaderboardEntry[] }>(
     `/api/leaderboard?cheatMode=${cheat}&limit=${limit}`,
   );
-  if (!data) return null;
-  return data.entries ?? [];
+  if ('error' in result) {
+    return { ok: false, reason: result.error };
+  }
+  return { ok: true, entries: result.data.entries ?? [] };
 }

@@ -29,4 +29,4 @@ services:
           name: game3-dash-db
           property: connectionString
       - key: FRONTEND_ORIGIN
-        sync: false
+        value: https://a-037.vercel.app

@@ -13,11 +13,40 @@ const PORT = Number(process.env.PORT) || 3001;
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN ?? 'http://localhost:5173';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
+const DEFAULT_CORS_ORIGINS = [
+  'http://localhost:5173',
+  'https://a-037.vercel.app',
+];
+
+function isAllowedCorsOrigin(origin: string | undefined): boolean {
+  if (!origin) return true;
+  const allowed = new Set(
+    [
+      ...DEFAULT_CORS_ORIGINS,
+      ...FRONTEND_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean),
+    ].map((o) => o.replace(/\/+$/, '')),
+  );
+  const normalized = origin.replace(/\/+$/, '');
+  if (allowed.has(normalized)) return true;
+  // Vercel production + preview deployments (*.vercel.app)
+  if (/^https:\/\/[a-z0-9][a-z0-9-]*\.vercel\.app$/i.test(normalized)) {
+    return true;
+  }
+  return false;
+}
+
 const app = express();
 
 app.use(
   cors({
-    origin: FRONTEND_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean),
+    origin(origin, callback) {
+      if (isAllowedCorsOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+      console.warn('[server] CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    },
     methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
   }),
 );

@@ -663,8 +663,8 @@ body {
   left: 50%;
   top: 50%;
   z-index: 2;
-  width: 34px;
-  height: 34px;
+  width: 85px;
+  height: 85px;
   object-fit: contain;
   transform: translate(-50%, -50%);
   pointer-events: none;
@@ -1223,6 +1223,17 @@ body {
   font-size: clamp(0.82rem, 1.9vw, 1.2rem);
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.menu-sub-line__link {
+  color: #9ee8ff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.menu-sub-line__link:hover {
+  color: #ffffff;
 }
 
 .menu-sub-column > .menu-sub-line--heading:first-child {

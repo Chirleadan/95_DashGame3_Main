@@ -36,6 +36,7 @@ import {
   fetchLeaderboard,
   isLeaderboardApiConfigured,
   type LeaderboardEntry,
+  type LeaderboardFetchFailure,
 } from './leaderboard/LeaderboardApi.ts';
 import { ensureOnlinePlayer } from './leaderboard/OnlinePlayerBootstrap.ts';
 import {
@@ -1128,21 +1129,39 @@ export class UI {
     loading.textContent = 'Loading…';
     this.globalLeaderboardListEl.appendChild(loading);
 
-    const entries = await fetchLeaderboard(cheatMode, 50);
-    if (entries === null) {
+    const result = await fetchLeaderboard(cheatMode, 50);
+    if (!result.ok) {
       this.globalLeaderboardListEl.replaceChildren();
       const err = document.createElement('p');
       err.className = 'menu-sub-line menu-sub-line--dim';
-      err.textContent = 'Could not load leaderboard.';
+      err.textContent = this.globalLeaderboardErrorMessage(result.reason);
       this.globalLeaderboardListEl.appendChild(err);
-      console.warn('[Leaderboard] leaderboard load failed — API unavailable');
+      console.warn(
+        '[Leaderboard] leaderboard load failed:',
+        result.reason,
+      );
       return;
     }
 
     console.info(
-      `[Leaderboard] leaderboard loaded: ${entries.length} entries (${cheatMode ? 'cheat' : 'normal'})`,
+      `[Leaderboard] leaderboard loaded: ${result.entries.length} entries (${cheatMode ? 'cheat' : 'normal'})`,
     );
-    this.renderGlobalLeaderboard(entries, cheatMode);
+    this.renderGlobalLeaderboard(result.entries, cheatMode);
+  }
+
+  private globalLeaderboardErrorMessage(reason: LeaderboardFetchFailure): string {
+    switch (reason) {
+      case 'cors':
+        return 'Could not load leaderboard (server blocked this site). Set FRONTEND_ORIGIN on Render to your Vercel URL, then redeploy the API.';
+      case 'network':
+        return 'Could not load leaderboard (API offline). Try again in a minute.';
+      case 'http':
+        return 'Could not load leaderboard (server error).';
+      case 'not_configured':
+        return 'Online leaderboard is not configured for this build.';
+      default:
+        return 'Could not load leaderboard.';
+    }
   }
 
   private renderGlobalLeaderboard(
@@ -1247,10 +1266,13 @@ export class UI {
     const root = this.titlesMenuPanel.querySelector('.titles-menu');
     if (!root) return;
     root.replaceChildren();
-    const lines: { text: string; heading?: boolean }[] = [
+    type TitlesLine =
+      | { text: string; heading?: boolean }
+      | { name: string; linkHref: string };
+    const lines: TitlesLine[] = [
       { text: 'Soundtrack by:', heading: true },
-      { text: 'Varia.fx' },
-      { text: 'Ohota' },
+      { name: 'Varia.fx', linkHref: 'https://linktr.ee/variafx' },
+      { name: 'Ohota', linkHref: 'https://www.instagram.com/ivan.ohota/' },
       { text: 'VibeCoded by', heading: true },
       { text: 'Larik (Codex, Cursor)' },
       { text: 'Art by', heading: true },
@@ -1258,10 +1280,23 @@ export class UI {
     ];
     for (const line of lines) {
       const p = document.createElement('p');
-      p.className = line.heading
-        ? 'menu-sub-line menu-sub-line--heading'
-        : 'menu-sub-line';
-      p.textContent = line.text;
+      if ('linkHref' in line) {
+        p.className = 'menu-sub-line';
+        p.append(`${line.name} `);
+        const link = document.createElement('a');
+        link.className = 'menu-sub-line__link';
+        link.href = line.linkHref;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = 'link';
+        link.addEventListener('click', (e) => e.stopPropagation());
+        p.append(link);
+      } else {
+        p.className = line.heading
+          ? 'menu-sub-line menu-sub-line--heading'
+          : 'menu-sub-line';
+        p.textContent = line.text;
+      }
       root.appendChild(p);
     }
   }
