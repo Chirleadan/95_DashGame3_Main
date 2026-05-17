@@ -52,7 +52,7 @@ npm run test:e2e
 
 Soundtrack used with permission from:
 
-- **Varia.fx**
+- **variafx**
 - **Ohota**
 
 ### Development & art

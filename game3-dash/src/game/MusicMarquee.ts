@@ -1,10 +1,10 @@
 /** Scrolling “now playing” label for ambient vs tape (stage) audio. */
 
-export const MUSIC_MARQUEE_AMBIENT = 'Varia.fx - Mistlands';
+export const MUSIC_MARQUEE_AMBIENT = 'variafx - Mistlands';
 
 const TAPE_CREDITS: Readonly<Record<string, string>> = {
-  'track-1': 'Varia.fx - uuuoooh1',
-  'track-2': 'Varia.fx - zeroheadbeat',
+  'track-1': 'variafx - uuuoooh1',
+  'track-2': 'variafx - zeroheadbeat',
   'track-3': 'Ohota - Would You Lay on My Trap',
 };
 

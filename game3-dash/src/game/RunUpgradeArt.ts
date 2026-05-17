@@ -17,6 +17,7 @@ export const RUN_UPGRADE_ART_BY_ID: Readonly<Record<string, string>> = {
   artifactSideDashes: lvlupIcon('Claw-Dash.png'),
   artifactOrbitShield: lvlupIcon('Projectile Shields.png'),
   artifactPhaseDash: lvlupIcon('Phase Dash.png'),
+  artifactSpiral: lvlupIcon('spiral.png'),
 };
 
 export function getRunUpgradeArtUrl(choiceId: string): string | undefined {

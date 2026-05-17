@@ -1889,7 +1889,7 @@ export class UI {
       | { name: string; linkHref: string };
     const lines: TitlesLine[] = [
       { text: 'Soundtrack by:', heading: true },
-      { name: 'Varia.fx', linkHref: 'https://linktr.ee/variafx' },
+      { name: 'variafx', linkHref: 'https://linktr.ee/variafx' },
       { name: 'Ohota', linkHref: 'https://www.instagram.com/ivan.ohota/' },
       { text: 'VibeCoded by', heading: true },
       { text: 'Larik (Codex, Cursor)' },
