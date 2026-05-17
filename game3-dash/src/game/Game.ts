@@ -719,7 +719,8 @@ export class Game {
       return;
     }
     const spendMana =
-      this.runPhase === 'playing' || this.runPhase === 'runUpgrade';
+      CONFIG.playTrackManaCostEnabled &&
+      (this.runPhase === 'playing' || this.runPhase === 'runUpgrade');
     if (spendMana && this.runMana < CONFIG.playTrackMinManaToActivate) {
       this.ui.setPlayEnabled(
         false,
@@ -741,7 +742,8 @@ export class Game {
     void this.ensureBackgroundMusicPlaying();
     if (!this.beatmap) return;
     const spendMana =
-      this.runPhase === 'playing' || this.runPhase === 'runUpgrade';
+      CONFIG.playTrackManaCostEnabled &&
+      (this.runPhase === 'playing' || this.runPhase === 'runUpgrade');
     if (spendMana) {
       if (this.runMana < CONFIG.playTrackMinManaToActivate) return;
       this.runMana -= CONFIG.playTrackManaCost;

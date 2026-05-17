@@ -522,7 +522,7 @@ export class UI {
     this.tapeMenuHintEl.className = 'tape-menu-hint';
     this.tapeMenuHintEl.hidden = true;
     this.tapeMenuHintEl.innerHTML = `
-      <p>Tapes are your ultimate abilities. Press <span class="tape-menu-hint__key">E</span> in-game to trigger your tape. Using a tape costs Mana.</p>
+      <p>Tapes are your ultimate abilities. Press <span class="tape-menu-hint__key">E</span> in-game to trigger your tape.${CONFIG.playTrackManaCostEnabled ? ' Using a tape costs Mana.' : ''}</p>
       <p>Choose one tape for each run.</p>
       <p>Each tape has 3 stages, unlocked by collecting tape fragments.</p>
       <p>Fragments can be found by breaking Vaults during the game.</p>

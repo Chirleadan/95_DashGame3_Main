@@ -97,6 +97,8 @@ export const CONFIG = {
   /** Looping music on the main menu (`public/audio/menu.mp3`). */
   menuMusicUrl: '/audio/menu.mp3',
   backgroundMusicVolume: 0.35,
+  /** TEMP: set true to require/spend mana when starting a tape during a run. */
+  playTrackManaCostEnabled: false,
   /**
    * During a run (`playing` / `runUpgrade`): need at least this much mana to start the track (E or button).
    * Starting spends `playTrackManaCost` mana on success; refunded if playback fails to start.
