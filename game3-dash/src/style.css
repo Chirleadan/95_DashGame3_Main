@@ -1453,7 +1453,7 @@ body {
   width: min(131.6vw, 801px);
   min-height: clamp(172px, 40vh, 458px);
   max-height: clamp(172px, 40vh, 458px);
-  transform: translateX(-50%) translateY(10px);
+  transform: translateX(-50%);
   transform-origin: center bottom;
   pointer-events: none;
   user-select: none;
@@ -1494,6 +1494,8 @@ body {
   object-fit: contain;
   object-position: center bottom;
   vertical-align: bottom;
+  transform: translateY(10%);
+  transform-origin: center bottom;
   pointer-events: none;
   user-select: none;
   filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.42));
