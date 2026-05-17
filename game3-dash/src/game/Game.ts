@@ -1395,6 +1395,7 @@ export class Game {
     if (
       touching > 0 &&
       this.player.hp > 0 &&
+      !this.isTapeTrackPlaying() &&
       !this.player.isInvulnerable()
     ) {
       this.damagePlayerAndPulse(CONFIG.contactDamagePerTick * touching);
@@ -1985,6 +1986,7 @@ export class Game {
       }
       if (
         this.player.hp > 0 &&
+        !this.isTapeTrackPlaying() &&
         !this.player.isInvulnerable() &&
         circlesOverlap(
           this.player.x,
@@ -2149,8 +2151,14 @@ export class Game {
     });
   }
 
+  /** Cassette / beatmap track is playing — immune to enemies; beat misses still hurt. */
+  private isTapeTrackPlaying(): boolean {
+    return this.runPhase === 'playing' && this.audio.isPlaying;
+  }
+
   private damagePlayerAndPulse(amount: number): void {
     if (this.player.hp <= 0) return;
+    if (this.isTapeTrackPlaying()) return;
     const hpBefore = this.player.hp;
     this.player.takeDamage(amount);
     if (this.player.hp >= hpBefore) return;
@@ -2165,7 +2173,25 @@ export class Game {
   private damagePlayerForBeatMistake(): void {
     if (this.runPhase !== 'playing' || this.player.hp <= 0) return;
     this.markTrackBeatMissed();
+    if (this.isTapeTrackPlaying()) {
+      this.damagePlayerForBeatMistakeDuringTape(1);
+      return;
+    }
     this.damagePlayerAndPulse(1);
+  }
+
+  /** Beat miss damage while tape plays — bypasses dash/contact invuln. */
+  private damagePlayerForBeatMistakeDuringTape(amount: number): void {
+    if (this.player.hp <= 0) return;
+    const hpBefore = this.player.hp;
+    this.player.takeDamage(amount, true);
+    if (this.player.hp >= hpBefore) return;
+    this.ui.triggerDamageScreenFlash();
+    this.spawnDamagePulseRingAt(this.player.x, this.player.z);
+    this.runEnemiesKilled += this.applyPlayerDamagePulseToEnemiesAt(
+      this.player.x,
+      this.player.z,
+    );
   }
 
   private resetRunSurvivalClock(): void {

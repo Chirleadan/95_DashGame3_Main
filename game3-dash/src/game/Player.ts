@@ -1575,8 +1575,8 @@ export class Player {
     return Math.min(1, this.shieldRegenNoDamageSec / t);
   }
 
-  takeDamage(amount: number): void {
-    if (this.isInvulnerable()) return;
+  takeDamage(amount: number, ignoreInvulnerability = false): void {
+    if (!ignoreInvulnerability && this.isInvulnerable()) return;
     const before = this.hp;
     this.hp = Math.max(0, this.hp - amount);
     if (this.hp < before) {
