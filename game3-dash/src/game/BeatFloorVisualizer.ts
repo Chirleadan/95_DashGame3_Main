@@ -63,8 +63,10 @@ export class BeatFloorVisualizer {
   private static readonly CELL_MESH_SIZE = ARENA_CHECKER_CELL_WORLD * 0.96;
   private static readonly CELL_RENDER_ORDER = 1;
   private static readonly CELL_Y = CONFIG.floorY + 0.011;
-  /** Half-width of travel in cells (right of hero → hero → left). */
-  private static readonly TRAVEL_HALF_CELLS_MULT = 2.35;
+  /** Half-width of travel in cells (spawn far off-screen, fly in). */
+  private static readonly TRAVEL_HALF_CELLS_MULT = 6.75;
+  /** Approach / depart durations × this (1.25 = 25% slower). */
+  private static readonly TRAVEL_DURATION_MULT = 1.25;
 
   private readonly highlightGroup: THREE.Group;
   private readonly travelerMesh: THREE.Mesh;
@@ -144,8 +146,9 @@ export class BeatFloorVisualizer {
         continue;
       }
       const gap = hitTime - prevTime;
-      const approachDur = THREE.MathUtils.clamp(gap * 0.9, 0.32, 1.05);
-      const departDur = THREE.MathUtils.clamp(gap * 0.45, 0.2, 0.55);
+      const durM = BeatFloorVisualizer.TRAVEL_DURATION_MULT;
+      const approachDur = THREE.MathUtils.clamp(gap * 0.9 * durM, 0.4 * durM, 1.35 * durM);
+      const departDur = THREE.MathUtils.clamp(gap * 0.45 * durM, 0.25 * durM, 0.7 * durM);
       this.travelers.push({
         hitTime,
         approachStart: hitTime - approachDur,
@@ -166,12 +169,9 @@ export class BeatFloorVisualizer {
     const cell = ARENA_CHECKER_CELL_WORLD;
     const playerCellX = Math.floor(playerX / cell);
     const rowCellZ = Math.floor(playerZ / cell);
-    const halfCells = Math.max(
-      8,
-      Math.ceil(
-        (CONFIG.cameraViewHalfExtent * BeatFloorVisualizer.TRAVEL_HALF_CELLS_MULT) /
-          cell,
-      ),
+    const halfCells = Math.ceil(
+      (CONFIG.cameraViewHalfExtent * BeatFloorVisualizer.TRAVEL_HALF_CELLS_MULT) /
+        cell,
     );
     const startCellX = playerCellX + halfCells;
     const endCellX = playerCellX - halfCells;
