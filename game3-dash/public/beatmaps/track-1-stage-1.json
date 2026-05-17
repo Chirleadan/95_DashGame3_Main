@@ -1,32 +1,32 @@
 {
-  "track": "/audio/beat.mp3",
+  "track": "/audio/test.mp3",
   "beats": [
     {
-      "time": 5.626,
+      "time": 3.123,
       "type": "beat"
     },
     {
-      "time": 6.237,
+      "time": 5.867,
       "type": "beat"
     },
     {
-      "time": 6.93,
+      "time": 6.811,
       "type": "beat"
     },
     {
-      "time": 7.588,
+      "time": 7.631,
       "type": "beat"
     },
     {
-      "time": 8.3,
+      "time": 8.332,
       "type": "beat"
     },
     {
-      "time": 9,
+      "time": 9.005,
       "type": "beat"
     },
     {
-      "time": 9.674,
+      "time": 9.682,
       "type": "beat"
     },
     {
@@ -34,55 +34,47 @@
       "type": "beat"
     },
     {
-      "time": 11.079,
+      "time": 11.048,
       "type": "beat"
     },
     {
-      "time": 11.772,
+      "time": 11.753,
       "type": "beat"
     },
     {
-      "time": 12.437,
+      "time": 12.43,
       "type": "beat"
     },
     {
-      "time": 13.103,
+      "time": 13.084,
       "type": "beat"
     },
     {
-      "time": 13.822,
+      "time": 13.831,
       "type": "beat"
     },
     {
-      "time": 14.507,
+      "time": 14.524,
       "type": "beat"
     },
     {
-      "time": 15.219,
+      "time": 15.216,
       "type": "beat"
     },
     {
-      "time": 15.893,
+      "time": 15.912,
       "type": "beat"
     },
     {
-      "time": 16.253,
+      "time": 16.583,
       "type": "beat"
     },
     {
-      "time": 16.594,
+      "time": 17.817,
       "type": "beat"
     },
     {
-      "time": 17.263,
-      "type": "beat"
-    },
-    {
-      "time": 17.673,
-      "type": "beat"
-    },
-    {
-      "time": 18.053,
+      "time": 18.104,
       "type": "beat"
     },
     {
@@ -90,239 +82,187 @@
       "type": "beat"
     },
     {
-      "time": 18.726,
+      "time": 18.699,
       "type": "beat"
     },
     {
-      "time": 19.078,
+      "time": 19.021,
       "type": "beat"
     },
     {
-      "time": 19.438,
+      "time": 19.373,
       "type": "beat"
     },
     {
-      "time": 19.763,
+      "time": 19.706,
       "type": "beat"
     },
     {
-      "time": 20.104,
+      "time": 20.03,
       "type": "beat"
     },
     {
-      "time": 20.448,
+      "time": 20.371,
       "type": "beat"
     },
     {
-      "time": 20.789,
+      "time": 20.723,
       "type": "beat"
     },
     {
-      "time": 21.121,
+      "time": 21.075,
       "type": "beat"
     },
     {
-      "time": 21.462,
+      "time": 21.395,
       "type": "beat"
     },
     {
-      "time": 21.806,
+      "time": 21.749,
       "type": "beat"
     },
     {
-      "time": 22.155,
+      "time": 22.102,
       "type": "beat"
     },
     {
-      "time": 22.499,
+      "time": 22.423,
       "type": "beat"
     },
     {
-      "time": 22.832,
+      "time": 22.763,
       "type": "beat"
     },
     {
-      "time": 23.173,
+      "time": 23.226,
       "type": "beat"
     },
     {
-      "time": 23.533,
+      "time": 23.539,
       "type": "beat"
     },
     {
-      "time": 23.904,
+      "time": 23.88,
       "type": "beat"
     },
     {
-      "time": 24.225,
+      "time": 24.239,
       "type": "beat"
     },
     {
-      "time": 24.55,
+      "time": 24.584,
       "type": "beat"
     },
     {
-      "time": 24.891,
+      "time": 24.906,
       "type": "beat"
     },
     {
-      "time": 25.243,
+      "time": 25.26,
       "type": "beat"
     },
     {
-      "time": 25.576,
+      "time": 25.582,
       "type": "beat"
     },
     {
-      "time": 25.916,
+      "time": 25.942,
       "type": "beat"
     },
     {
-      "time": 26.276,
+      "time": 26.283,
       "type": "beat"
     },
     {
-      "time": 26.628,
+      "time": 26.624,
       "type": "beat"
     },
     {
-      "time": 26.988,
+      "time": 26.941,
       "type": "beat"
     },
     {
-      "time": 27.34,
+      "time": 27.29,
       "type": "beat"
     },
     {
-      "time": 27.681,
+      "time": 27.641,
       "type": "beat"
     },
     {
-      "time": 28.021,
+      "time": 27.999,
       "type": "beat"
     },
     {
-      "time": 28.381,
+      "time": 28.357,
       "type": "beat"
     },
     {
-      "time": 28.742,
+      "time": 28.695,
       "type": "beat"
     },
     {
-      "time": 29.094,
+      "time": 29.054,
       "type": "beat"
     },
     {
-      "time": 29.445,
+      "time": 29.718,
       "type": "beat"
     },
     {
-      "time": 29.759,
+      "time": 30.439,
       "type": "beat"
     },
     {
-      "time": 30.103,
+      "time": 31.061,
       "type": "beat"
     },
     {
-      "time": 30.436,
+      "time": 31.77,
       "type": "beat"
     },
     {
-      "time": 30.777,
+      "time": 32.489,
       "type": "beat"
     },
     {
-      "time": 31.117,
+      "time": 33.158,
       "type": "beat"
     },
     {
-      "time": 31.47,
+      "time": 33.832,
       "type": "beat"
     },
     {
-      "time": 31.81,
+      "time": 34.526,
       "type": "beat"
     },
     {
-      "time": 32.151,
+      "time": 35.237,
       "type": "beat"
     },
     {
-      "time": 32.495,
+      "time": 35.884,
       "type": "beat"
     },
     {
-      "time": 32.829,
+      "time": 36.576,
       "type": "beat"
     },
     {
-      "time": 33.161,
+      "time": 37.28,
       "type": "beat"
     },
     {
-      "time": 33.494,
+      "time": 37.989,
       "type": "beat"
     },
     {
-      "time": 33.854,
+      "time": 38.676,
       "type": "beat"
     },
     {
-      "time": 34.206,
-      "type": "beat"
-    },
-    {
-      "time": 34.539,
-      "type": "beat"
-    },
-    {
-      "time": 34.852,
-      "type": "beat"
-    },
-    {
-      "time": 35.204,
-      "type": "beat"
-    },
-    {
-      "time": 35.537,
-      "type": "beat"
-    },
-    {
-      "time": 35.905,
-      "type": "beat"
-    },
-    {
-      "time": 36.257,
-      "type": "beat"
-    },
-    {
-      "time": 36.605,
-      "type": "beat"
-    },
-    {
-      "time": 36.957,
-      "type": "beat"
-    },
-    {
-      "time": 37.325,
-      "type": "beat"
-    },
-    {
-      "time": 37.686,
-      "type": "beat"
-    },
-    {
-      "time": 38.029,
-      "type": "beat"
-    },
-    {
-      "time": 38.37,
-      "type": "beat"
-    },
-    {
-      "time": 38.757,
+      "time": 39.32,
       "type": "beat"
     }
   ]

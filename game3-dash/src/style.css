@@ -2180,6 +2180,11 @@ body.game-booting .game-overlay--menu,
 
 .game-overlay__panel--death {
   max-width: min(360px, calc(100vw - 32px));
+  padding: 24px 20px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .game-overlay__panel--run-upgrade {
@@ -2541,9 +2546,11 @@ body.game-booting .game-overlay--menu,
 
 .game-overlay__death-title {
   margin: 0 0 12px;
+  font-family: 'FA-1 Game', monospace;
   font-size: 1.35rem;
   font-weight: 700;
   color: #ff8890;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
 }
 
 @media (max-width: 640px) {
@@ -2559,26 +2566,31 @@ body.game-booting .game-overlay--menu,
 
 .game-overlay__death-hint {
   margin: 0 0 18px;
+  font-family: 'FA-1 Game', monospace;
   font-size: 0.95rem;
   color: #8b93a8;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
 }
 
 .game-overlay__death-stats {
   width: 100%;
   max-width: 320px;
   margin: 0 0 16px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  text-align: left;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: center;
 }
 
 .game-overlay__death-stats p {
   margin: 0 0 8px;
+  font-family: 'FA-1 Game', monospace;
   font-size: 0.98rem;
   line-height: 1.45;
   color: rgba(220, 228, 245, 0.95);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
 }
 
 .game-overlay__death-stats p:last-child {
@@ -2586,8 +2598,7 @@ body.game-booting .game-overlay--menu,
 }
 
 .game-overlay__death-stat-label {
-  display: inline-block;
-  min-width: 9.5em;
+  display: inline;
   color: #8b93a8;
   font-weight: 500;
 }
@@ -2600,6 +2611,23 @@ body.game-booting .game-overlay--menu,
 
 .game-overlay__btn--death {
   margin-top: 4px;
+  min-width: 0;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-family: 'FA-1 Game', monospace;
+  font-weight: 600;
+  color: #e8ecf5;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.game-overlay__btn--death:hover {
+  border: 0;
+  background: transparent;
+  color: #fff3fb;
+  transform: translateY(-1px);
 }
 
 .music-marquee {
