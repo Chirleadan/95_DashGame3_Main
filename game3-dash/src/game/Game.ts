@@ -338,10 +338,10 @@ export class Game {
     this.canvasDitherCtx = this.canvasDitherOverlay.getContext('2d');
     mount.appendChild(this.canvasDitherOverlay);
     this.comboEl = document.createElement('div');
-    this.comboEl.className = 'combo-pop combo-pop--hidden';
+    this.comboEl.className = 'combo-pop combo-pop--hidden game-run-ui';
     mount.appendChild(this.comboEl);
     this.lightningMeterEl = document.createElement('div');
-    this.lightningMeterEl.className = 'lightning-meter lightning-meter--hidden';
+    this.lightningMeterEl.className = 'lightning-meter lightning-meter--hidden game-run-ui';
     mount.appendChild(this.lightningMeterEl);
 
     this.composer = new EffectComposer(this.renderer);
@@ -2327,10 +2327,11 @@ export class Game {
     this.ui.showMainMenu();
   }
 
-  private startGameFromMenu(): void {
+  private async startGameFromMenu(): Promise<void> {
     if (this.runPhase === 'playing') {
       return;
     }
+    await ensureLvlupAssetsLoaded();
     clearRunBalanceBonuses();
     this.runCheatModeActive = this.ui.isCheatModeEnabled();
     this.resetRunSurvivalClock();

@@ -125,6 +125,7 @@ export function getCoreGameAssetManifest(selectedStage: TrackStage): PreloadAsse
   }
 
   entries.push(...getTrackStageAssets(selectedStage, true));
+  entries.push(...getLvlupAssetManifest().map((asset) => ({ ...asset, essential: true })));
 
   return mergeManifestAssets(entries);
 }

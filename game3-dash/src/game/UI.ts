@@ -312,9 +312,11 @@ export class UI {
   private readonly guidesNavEl: HTMLElement;
   private readonly guidesBackBtn: HTMLButtonElement;
   private selectedGuideId: GuideTopicId = GUIDE_TOPICS[0]!.id;
+  private readonly libraryClusterEl: HTMLElement;
   private readonly libraryGridEl: HTMLElement;
   private readonly libraryDetailEl: HTMLElement;
   private readonly libraryBackBtn: HTMLButtonElement;
+  private runHudLayoutMode: 'menu' | 'run' = 'menu';
   private selectedLibrarySpellId: string = RUN_UPGRADE_LIBRARY[0]!.id;
   private readonly highScoreMenuPanel: HTMLElement;
   private readonly highScoreBackBtn: HTMLButtonElement;
@@ -627,8 +629,10 @@ export class UI {
           <p class="guides-menu__body"></p>
         </div>
       </div>
-      <div id="library-menu-grid" class="library-menu-grid" hidden></div>
-      <div id="library-menu-detail" class="library-menu-detail" hidden></div>
+      <div id="library-menu-cluster" class="library-menu-cluster" hidden>
+        <div id="library-menu-grid" class="library-menu-grid"></div>
+        <div id="library-menu-detail" class="library-menu-detail"></div>
+      </div>
       <nav id="guides-nav" class="guides-nav" hidden aria-label="Guides"></nav>
       <button id="library-back" type="button" class="game-overlay__btn game-overlay__btn--menu-sub-back" hidden>Back</button>
       <button id="guides-back" type="button" class="game-overlay__btn game-overlay__btn--menu-sub-back" hidden>Back</button>
@@ -752,6 +756,7 @@ export class UI {
     );
     mainMenuUiScale.appendChild(this.guidesMediaHost);
     this.buildGuidesMenu();
+    this.libraryClusterEl = this.mainMenuEl.querySelector('#library-menu-cluster')!;
     this.libraryGridEl = this.mainMenuEl.querySelector('#library-menu-grid')!;
     this.libraryDetailEl = this.mainMenuEl.querySelector('#library-menu-detail')!;
     this.libraryBackBtn = this.mainMenuEl.querySelector('#library-back')!;
@@ -894,6 +899,19 @@ export class UI {
     this.damageFlashEl.className = 'damage-screen-flash';
     this.damageFlashEl.setAttribute('aria-hidden', 'true');
     document.body.appendChild(this.damageFlashEl);
+
+    for (const el of [
+      this.hudEl,
+      this.hpBarsBottom,
+      this.beatUiEl,
+      this.beatLaneStackEl,
+      this.fpsMeterEl,
+      this.vaultBearingHost,
+      this.artifactsPanelEl,
+    ]) {
+      el.classList.add('game-run-ui');
+    }
+    this.syncRunHudLayout('menu', false);
 
     this.buttonSfx.mount();
   }
@@ -1337,8 +1355,7 @@ export class UI {
     this.guidesBackBtn.hidden = true;
     this.highScoreMenuPanel.hidden = true;
     this.highScoreBackBtn.hidden = true;
-    this.libraryGridEl.hidden = true;
-    this.libraryDetailEl.hidden = true;
+    this.libraryClusterEl.hidden = true;
     this.libraryBackBtn.hidden = true;
   }
 
@@ -1581,8 +1598,7 @@ export class UI {
     this.hideAllMenuSubpanels();
     this.setMainMenuHomePanelVisible(false);
     this.selectLibrarySpell(this.selectedLibrarySpellId);
-    this.libraryGridEl.hidden = false;
-    this.libraryDetailEl.hidden = false;
+    this.libraryClusterEl.hidden = false;
     this.libraryBackBtn.hidden = false;
   }
 
@@ -2190,6 +2206,7 @@ export class UI {
   syncRunHudLayout(layout: 'menu' | 'run', cheatMode: boolean): void {
     const inMenu = layout === 'menu';
     const showDev = !inMenu && cheatMode;
+    this.runHudLayoutMode = layout;
     this.walletEl.hidden = false;
     this.walletEl.classList.toggle('hud-wallet--over-menu', inMenu);
     this.hudEl.hidden = inMenu;
@@ -2197,6 +2214,7 @@ export class UI {
     if (inMenu) {
       this.beatUiEl.hidden = true;
       this.beatLaneStackEl.hidden = true;
+      this.playTrackPromptEl.hidden = true;
       this.artifactsPanelEl.hidden = true;
       this.fpsMeterEl.hidden = true;
       return;
@@ -2479,7 +2497,9 @@ export class UI {
   setPlayEnabled(enabled: boolean, disabledTitle = ''): void {
     this.playBtn.disabled = !enabled;
     this.playBtn.title = disabledTitle;
-    this.playTrackPromptEl.hidden = !enabled;
+    const showPrompt =
+      enabled && this.runHudLayoutMode === 'run' && !this.beatLaneStackEl.hidden;
+    this.playTrackPromptEl.hidden = !showPrompt;
   }
 
   setBeatmapState(text: string): void {

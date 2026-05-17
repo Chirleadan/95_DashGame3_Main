@@ -49,7 +49,15 @@ body {
 }
 
 #app.app--booting {
-  visibility: hidden;
+  visibility: visible;
+}
+
+/* Hide run HUD in #app until the first menu frame is ready (avoids flash on refresh). */
+body.game-booting #app > .hud-wallet,
+body.game-booting #app > .game-run-ui,
+#app.app--booting > .hud-wallet,
+#app.app--booting > .game-run-ui {
+  display: none !important;
 }
 
 .boot-splash {
@@ -2309,33 +2317,47 @@ body {
   transform: none;
 }
 
-.library-menu-grid {
+.library-menu-cluster {
   position: fixed;
   right: 28px;
-  left: auto;
-  top: calc(50% + clamp(32px, 5vw, 72px));
   bottom: calc(24px + 3.4rem);
   z-index: 3;
-  display: grid;
-  grid-template-columns: repeat(6, minmax(68px, 76px));
-  grid-auto-rows: minmax(68px, 76px);
-  gap: 10px 12px;
-  width: min(46vw, 504px);
-  max-width: min(46vw, 504px);
-  align-content: end;
-  justify-items: stretch;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 12px;
+  max-width: min(96vw, 920px);
+  transform: translateX(-20vw);
+  pointer-events: none;
 }
 
-.library-menu-grid[hidden] {
+.library-menu-cluster[hidden] {
   display: none !important;
+}
+
+.library-menu-cluster > * {
+  pointer-events: auto;
+}
+
+.library-menu-grid {
+  position: relative;
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(85px, 95px));
+  grid-auto-rows: minmax(85px, 95px);
+  gap: 10px 12px;
+  width: auto;
+  max-width: none;
+  align-content: end;
+  justify-items: stretch;
 }
 
 .library-spell-btn {
   --run-upgrade-accent: #f7fbff;
   position: relative;
   width: 100%;
-  min-width: 68px;
-  min-height: 68px;
+  min-width: 85px;
+  min-height: 85px;
   aspect-ratio: 1;
   padding: 7px;
   border: 0;
@@ -2381,47 +2403,45 @@ body {
 }
 
 .library-menu-detail {
-  position: fixed;
-  left: 28px;
-  top: calc(50% + clamp(54px, 7.2vw, 132px));
-  z-index: 3;
-  width: min(calc(50vw - 56px), 340px);
-  max-width: min(calc(50vw - 56px), 340px);
+  position: relative;
+  flex: 0 1 auto;
+  width: min(38vw, 320px);
+  max-width: min(38vw, 320px);
   pointer-events: none;
-}
-
-.library-menu-detail[hidden] {
-  display: none !important;
 }
 
 .library-menu-detail .run-upgrade-card--preview {
   width: 100%;
-  max-width: 340px;
+  max-width: 320px;
   aspect-ratio: 1;
 }
 
 @media (min-width: 900px) {
-  .library-menu-grid {
+  .library-menu-cluster {
     right: 28px;
-    top: calc(50% + clamp(40px, 6vw, 96px));
     bottom: calc(24px + 3.6rem);
-    grid-template-columns: repeat(6, minmax(76px, 84px));
-    grid-auto-rows: minmax(76px, 84px);
+    transform: translateX(-20vw);
+  }
+
+  .library-menu-grid {
+    grid-template-columns: repeat(6, minmax(95px, 105px));
+    grid-auto-rows: minmax(95px, 105px);
     gap: 12px 14px;
-    width: min(44vw, 548px);
-    max-width: min(44vw, 548px);
   }
 
   .library-spell-btn {
-    min-width: 76px;
-    min-height: 76px;
+    min-width: 95px;
+    min-height: 95px;
     padding: 8px;
   }
 
   .library-menu-detail {
-    left: 28px;
-    top: calc(50% + clamp(54px, 7.2vw, 132px));
-    width: min(calc(50vw - 56px), 340px);
+    width: min(36vw, 340px);
+    max-width: min(36vw, 340px);
+  }
+
+  .library-menu-detail .run-upgrade-card--preview {
+    max-width: 340px;
   }
 }
 
@@ -2489,11 +2509,12 @@ body {
 }
 
 .music-marquee {
-  position: absolute;
-  top: 10px;
-  left: 9%;
-  right: 9%;
-  z-index: 24;
+  position: fixed;
+  top: var(--menu-wallet-top, clamp(14px, 2vh, 22px));
+  right: clamp(16px, 2.2vw, 28px);
+  left: auto;
+  width: min(42vw, 420px);
+  z-index: 100002;
   pointer-events: none;
   user-select: none;
 }
