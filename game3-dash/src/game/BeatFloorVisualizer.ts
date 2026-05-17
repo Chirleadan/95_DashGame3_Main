@@ -8,15 +8,31 @@ export const ARENA_CHECKER_CELL_WORLD = 4;
 /** Main-menu backdrop (`style.css`). */
 const MENU_BACKGROUND_COLOR = 0xff25b6;
 
+type SpawnDir = 'right' | 'left' | 'top' | 'bottom';
+
+const SPAWN_DIRS: readonly SpawnDir[] = ['right', 'left', 'top', 'bottom'];
+
 type BeatTraveler = {
   hitTime: number;
   approachStart: number;
   departEnd: number;
-  /** Only the first beat after track start flies in from far away. */
   spawnFar: boolean;
-  /** Beat column (X): tracks hero until launch, then frozen. Row (Z) always follows hero. */
+  spawnDirection: SpawnDir;
+  /** Beat aim on travel axis, locked at launch. */
   hitCellX?: number;
+  hitCellZ?: number;
+  /** Row (horizontal fly) or column (vertical fly) frozen after passing the hero. */
+  frozenLaneX?: number;
+  frozenLaneZ?: number;
 };
+
+function isHorizontalFlight(dir: SpawnDir): boolean {
+  return dir === 'right' || dir === 'left';
+}
+
+function pickRandomSpawnDir(): SpawnDir {
+  return SPAWN_DIRS[Math.floor(Math.random() * SPAWN_DIRS.length)]!;
+}
 
 export function createArenaCheckerCanvasTexture(): THREE.CanvasTexture {
   const cellSize = 32;
@@ -60,8 +76,8 @@ export function createArenaCheckerCanvasTexture(): THREE.CanvasTexture {
 }
 
 /**
- * Menu-pink tiles per beat on the hero's row (R→L). First beat spawns far; others close.
- * Multiple travelers may be visible if beats overlap.
+ * Menu-pink tile per beat: flies in from a random screen edge, crosses the hero on the beat,
+ * then exits. Lane (row or column) follows the hero until the beat, then stays fixed.
  */
 export class BeatFloorVisualizer {
   private static readonly CELL_MESH_SIZE = ARENA_CHECKER_CELL_WORLD * 0.96;
@@ -69,7 +85,6 @@ export class BeatFloorVisualizer {
   private static readonly CELL_Y = CONFIG.floorY + 0.011;
   private static readonly TRAVEL_HALF_CELLS_MULT_FAR = 6.75;
   private static readonly TRAVEL_HALF_CELLS_MULT_CLOSE = 2.35;
-  /** 2× slower travel than base timing. */
   private static readonly TRAVEL_DURATION_MULT = 2;
 
   private readonly highlightGroup: THREE.Group;
@@ -137,6 +152,7 @@ export class BeatFloorVisualizer {
         approachStart: hitTime - approachDur,
         departEnd: hitTime + departDur,
         spawnFar: firstScheduled,
+        spawnDirection: pickRandomSpawnDir(),
       });
       firstScheduled = false;
       prevTime = hitTime;
@@ -150,47 +166,109 @@ export class BeatFloorVisualizer {
   ): { cellX: number; cellZ: number }[] {
     const out: { cellX: number; cellZ: number }[] = [];
     const cell = ARENA_CHECKER_CELL_WORLD;
-
     const playerCellX = Math.floor(playerX / cell);
     const playerCellZ = Math.floor(playerZ / cell);
 
     for (const traveler of this.travelers) {
-      if (audioTime > traveler.departEnd) {
-        continue;
-      }
+      if (audioTime > traveler.departEnd) continue;
+
+      const horizontal = isHorizontalFlight(traveler.spawnDirection);
 
       if (audioTime < traveler.approachStart) {
-        traveler.hitCellX = playerCellX;
+        if (horizontal) traveler.hitCellX = playerCellX;
+        else traveler.hitCellZ = playerCellZ;
         continue;
       }
 
-      if (traveler.hitCellX === undefined) {
-        traveler.hitCellX = playerCellX;
+      if (horizontal) {
+        if (traveler.hitCellX === undefined) traveler.hitCellX = playerCellX;
+      } else if (traveler.hitCellZ === undefined) {
+        traveler.hitCellZ = playerCellZ;
       }
-      const hitCellX = traveler.hitCellX;
 
       const mult = traveler.spawnFar
         ? BeatFloorVisualizer.TRAVEL_HALF_CELLS_MULT_FAR
         : BeatFloorVisualizer.TRAVEL_HALF_CELLS_MULT_CLOSE;
       const halfCells = Math.ceil((CONFIG.cameraViewHalfExtent * mult) / cell);
-      const startCellX = hitCellX + halfCells;
-      const endCellX = hitCellX - halfCells;
 
       let cellX: number;
-      if (audioTime <= traveler.hitTime) {
-        const span = Math.max(1e-4, traveler.hitTime - traveler.approachStart);
-        const u = THREE.MathUtils.clamp((audioTime - traveler.approachStart) / span, 0, 1);
-        const eased = u ** 2.2;
-        cellX = startCellX + (hitCellX - startCellX) * eased;
+      let cellZ: number;
+
+      if (horizontal) {
+        const hitCellX = traveler.hitCellX!;
+        cellX = this.travelCoordAlongAxis(
+          audioTime,
+          traveler,
+          hitCellX,
+          halfCells,
+          traveler.spawnDirection === 'right',
+        );
+        cellZ = this.laneCoordUntilHitThenFreeze(
+          audioTime,
+          traveler,
+          playerCellZ,
+          'z',
+        );
       } else {
-        const span = Math.max(1e-4, traveler.departEnd - traveler.hitTime);
-        const u = THREE.MathUtils.clamp((audioTime - traveler.hitTime) / span, 0, 1);
-        const eased = u ** 2;
-        cellX = hitCellX + (endCellX - hitCellX) * eased;
+        const hitCellZ = traveler.hitCellZ!;
+        cellZ = this.travelCoordAlongAxis(
+          audioTime,
+          traveler,
+          hitCellZ,
+          halfCells,
+          traveler.spawnDirection === 'top',
+        );
+        cellX = this.laneCoordUntilHitThenFreeze(
+          audioTime,
+          traveler,
+          playerCellX,
+          'x',
+        );
       }
-      out.push({ cellX: Math.round(cellX), cellZ: playerCellZ });
+
+      out.push({ cellX: Math.round(cellX), cellZ: Math.round(cellZ) });
     }
     return out;
+  }
+
+  /** Position along travel axis (approach → hit → depart). */
+  private travelCoordAlongAxis(
+    audioTime: number,
+    traveler: BeatTraveler,
+    hitCoord: number,
+    halfCells: number,
+    fromPositiveSide: boolean,
+  ): number {
+    const start = fromPositiveSide ? hitCoord + halfCells : hitCoord - halfCells;
+    const end = fromPositiveSide ? hitCoord - halfCells : hitCoord + halfCells;
+
+    if (audioTime <= traveler.hitTime) {
+      const span = Math.max(1e-4, traveler.hitTime - traveler.approachStart);
+      const u = THREE.MathUtils.clamp((audioTime - traveler.approachStart) / span, 0, 1);
+      const eased = u ** 2.2;
+      return start + (hitCoord - start) * eased;
+    }
+
+    const span = Math.max(1e-4, traveler.departEnd - traveler.hitTime);
+    const u = THREE.MathUtils.clamp((audioTime - traveler.hitTime) / span, 0, 1);
+    const eased = u ** 2;
+    return hitCoord + (end - hitCoord) * eased;
+  }
+
+  /** Perpendicular lane: follows hero until the beat, then frozen. */
+  private laneCoordUntilHitThenFreeze(
+    audioTime: number,
+    traveler: BeatTraveler,
+    playerLane: number,
+    axis: 'x' | 'z',
+  ): number {
+    if (audioTime <= traveler.hitTime) {
+      if (axis === 'x') traveler.frozenLaneX = playerLane;
+      else traveler.frozenLaneZ = playerLane;
+      return playerLane;
+    }
+    if (axis === 'x') return traveler.frozenLaneX ?? playerLane;
+    return traveler.frozenLaneZ ?? playerLane;
   }
 
   private syncMeshes(positions: { cellX: number; cellZ: number }[]): void {
