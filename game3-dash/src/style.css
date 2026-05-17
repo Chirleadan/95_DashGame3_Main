@@ -851,10 +851,52 @@ body {
   --menu-noise-top: calc(var(--menu-wallet-top) + var(--menu-wallet-block-height) + 12px);
   overflow: hidden;
   background-color: #ff25b6;
+}
+
+.main-menu-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.main-menu-sweep {
+  position: absolute;
+  left: 0;
+  top: var(--menu-sweep-y, 50%);
+  z-index: 1;
+  width: min(58vw, 680px);
+  aspect-ratio: 5 / 1;
+  background: #ffffff;
+  opacity: 0.92;
+  transform: translateX(-120%) translateY(-50%);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.main-menu-sweep.is-flying {
+  animation: main-menu-sweep-fly 0.42s linear forwards;
+}
+
+@keyframes main-menu-sweep-fly {
+  from {
+    transform: translateX(-120%) translateY(-50%);
+  }
+  to {
+    transform: translateX(120vw) translateY(-50%);
+  }
+}
+
+.main-menu-bg-art {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   background-image: url('/assets/back 1.png');
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;
+  pointer-events: none;
 }
 
 .main-menu-noise {
@@ -884,7 +926,7 @@ body {
   content: 'A-037';
   position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -904,7 +946,7 @@ body {
 .main-menu-ui-scale {
   position: fixed;
   inset: 0;
-  z-index: 1;
+  z-index: 4;
   transform: scale(var(--menu-ui-scale));
   transform-origin: center center;
   pointer-events: none;
@@ -1384,6 +1426,7 @@ body {
 }
 
 .game-overlay--menu #titles-back.game-overlay__btn--menu-sub-back,
+.game-overlay--menu #library-back.game-overlay__btn--menu-sub-back,
 .game-overlay--menu #guides-back.game-overlay__btn--menu-sub-back,
 .game-overlay--menu #highscore-back.game-overlay__btn--menu-sub-back,
 .game-overlay--menu #tape-back.game-overlay__btn--menu-sub-back,
@@ -2025,6 +2068,7 @@ body {
   }
 
   #titles-back.game-overlay__btn--menu-sub-back,
+  #library-back.game-overlay__btn--menu-sub-back,
   #guides-back.game-overlay__btn--menu-sub-back,
   #highscore-back.game-overlay__btn--menu-sub-back,
   #tape-back.game-overlay__btn--menu-sub-back,
@@ -2254,6 +2298,112 @@ body {
     linear-gradient(var(--run-upgrade-accent) 0 0) left bottom / 2px 18px no-repeat,
     linear-gradient(var(--run-upgrade-accent) 0 0) right bottom / 18px 2px no-repeat,
     linear-gradient(var(--run-upgrade-accent) 0 0) right bottom / 2px 18px no-repeat;
+}
+
+.run-upgrade-card--preview {
+  cursor: default;
+  pointer-events: none;
+}
+
+.run-upgrade-card--preview:hover {
+  transform: none;
+}
+
+.library-menu-grid {
+  position: fixed;
+  left: 28px;
+  top: calc(50% - clamp(36px, 5vw, 72px));
+  z-index: 3;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(48px, 56px));
+  gap: 8px 10px;
+  width: min(calc(50vw - 56px), 380px);
+  max-width: min(calc(50vw - 56px), 380px);
+}
+
+.library-menu-grid[hidden] {
+  display: none !important;
+}
+
+.library-spell-btn {
+  --run-upgrade-accent: #f7fbff;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 5px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.library-spell-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--run-upgrade-accent) 0 0) left top / 14px 2px no-repeat,
+    linear-gradient(var(--run-upgrade-accent) 0 0) left top / 2px 14px no-repeat,
+    linear-gradient(var(--run-upgrade-accent) 0 0) right top / 14px 2px no-repeat,
+    linear-gradient(var(--run-upgrade-accent) 0 0) right top / 2px 14px no-repeat,
+    linear-gradient(var(--run-upgrade-accent) 0 0) left bottom / 14px 2px no-repeat,
+    linear-gradient(var(--run-upgrade-accent) 0 0) left bottom / 2px 14px no-repeat,
+    linear-gradient(var(--run-upgrade-accent) 0 0) right bottom / 14px 2px no-repeat,
+    linear-gradient(var(--run-upgrade-accent) 0 0) right bottom / 2px 14px no-repeat;
+  opacity: 0.72;
+}
+
+.library-spell-btn__art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background:
+    var(--run-upgrade-art-url, none) center / 88% 88% no-repeat,
+    linear-gradient(color-mix(in srgb, var(--run-upgrade-accent), transparent 92%) 0 0) center / 100% 100% no-repeat;
+}
+
+.library-spell-btn:hover::before,
+.library-spell-btn--active::before {
+  opacity: 1;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--run-upgrade-accent), transparent 50%));
+}
+
+.library-spell-btn--active {
+  transform: translateY(-1px);
+}
+
+.library-menu-detail {
+  position: fixed;
+  left: 28px;
+  top: calc(50% + clamp(54px, 7.2vw, 132px));
+  z-index: 3;
+  width: min(calc(50vw - 56px), 340px);
+  max-width: min(calc(50vw - 56px), 340px);
+  pointer-events: none;
+}
+
+.library-menu-detail[hidden] {
+  display: none !important;
+}
+
+.library-menu-detail .run-upgrade-card--preview {
+  width: 100%;
+  max-width: 340px;
+  aspect-ratio: 1;
+}
+
+@media (min-width: 900px) {
+  .library-menu-grid {
+    left: 28px;
+    top: calc(50% - clamp(44px, 6vw, 88px));
+  }
+
+  .library-menu-detail {
+    left: 28px;
+    top: calc(50% + clamp(54px, 7.2vw, 132px));
+    width: min(calc(50vw - 56px), 340px);
+  }
 }
 
 .game-overlay__death-title {

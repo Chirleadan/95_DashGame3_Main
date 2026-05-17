@@ -64,6 +64,12 @@ import {
   isTapeStageUnlocked,
 } from './TapeStageUnlocks.ts';
 import { getRunUpgradeArtUrl } from './RunUpgradeArt.ts';
+import {
+  findRunUpgradeLibraryEntry,
+  RUN_UPGRADE_COLOR_DEFAULT,
+  RUN_UPGRADE_LIBRARY,
+  type RunUpgradeLibraryEntry,
+} from './RunUpgradeLibrary.ts';
 
 type UpgradeCellVisualState = 'selected' | 'open' | 'buyable' | 'locked';
 
@@ -163,6 +169,38 @@ export type RunUpgradeChoiceView = {
   secondary?: boolean;
 };
 
+function applyRunUpgradeAccent(el: HTMLElement, accentColor?: string): void {
+  const accent = accentColor ?? RUN_UPGRADE_COLOR_DEFAULT;
+  el.style.setProperty('--run-upgrade-accent', accent);
+}
+
+function buildRunUpgradePreviewCard(
+  choice: Pick<RunUpgradeChoiceView, 'id' | 'label' | 'description' | 'accentColor'>,
+): HTMLElement {
+  const card = document.createElement('article');
+  card.className = 'run-upgrade-card run-upgrade-card--preview';
+  applyRunUpgradeAccent(card, choice.accentColor);
+
+  const title = document.createElement('span');
+  title.className = 'run-upgrade-card__title';
+  title.textContent = choice.label;
+
+  const desc = document.createElement('span');
+  desc.className = 'run-upgrade-card__desc';
+  desc.textContent = choice.description ?? '';
+
+  const artSlot = document.createElement('span');
+  artSlot.className = 'run-upgrade-card__art';
+  artSlot.setAttribute('aria-hidden', 'true');
+  const artUrl = getRunUpgradeArtUrl(choice.id);
+  if (artUrl) {
+    artSlot.style.setProperty('--run-upgrade-art-url', `url("${artUrl}")`);
+  }
+
+  card.append(title, desc, artSlot);
+  return card;
+}
+
 /** Current / required mana shown above the beat-lane tape icon when too low to play. */
 export type BeatLaneTapeManaDisplay = {
   current: number;
@@ -248,6 +286,8 @@ export class UI {
   private readonly mainMenuEl: HTMLElement;
   private readonly mainMenuNoiseEl: HTMLImageElement;
   private mainMenuNoiseTimer: number | null = null;
+  private readonly mainMenuSweepEl: HTMLElement;
+  private mainMenuSweepTimer: number | null = null;
   private mainMenuNoiseCurrentSrc: string | null = null;
   private readonly mainMenuPanel: HTMLElement;
   private readonly upgradeMenuPanel: HTMLElement;
@@ -272,6 +312,10 @@ export class UI {
   private readonly guidesNavEl: HTMLElement;
   private readonly guidesBackBtn: HTMLButtonElement;
   private selectedGuideId: GuideTopicId = GUIDE_TOPICS[0]!.id;
+  private readonly libraryGridEl: HTMLElement;
+  private readonly libraryDetailEl: HTMLElement;
+  private readonly libraryBackBtn: HTMLButtonElement;
+  private selectedLibrarySpellId: string = RUN_UPGRADE_LIBRARY[0]!.id;
   private readonly highScoreMenuPanel: HTMLElement;
   private readonly highScoreBackBtn: HTMLButtonElement;
   private readonly highScoreMenuList: HTMLElement;
@@ -547,6 +591,10 @@ export class UI {
     this.mainMenuEl.setAttribute('role', 'dialog');
     this.mainMenuEl.setAttribute('aria-modal', 'true');
     this.mainMenuEl.innerHTML = `
+      <div class="main-menu-backdrop" aria-hidden="true">
+        <div class="main-menu-sweep"></div>
+        <div class="main-menu-bg-art"></div>
+      </div>
       <p class="flashing-lights-warning">FLASHING LIGHTS WARNING</p>
       <div class="main-menu-ui-scale">
       <div id="main-menu-panel" class="game-overlay__panel">
@@ -561,6 +609,7 @@ export class UI {
           <button id="main-menu-tracks" type="button" class="game-overlay__btn game-overlay__btn--secondary">TAPES</button>
         </div>
         <div class="main-menu-side-links">
+          <button id="main-menu-library" type="button" class="main-menu-side-btn">LIBRARY</button>
           <button id="main-menu-guides" type="button" class="main-menu-side-btn">GUIDES</button>
           <button id="main-menu-highscore" type="button" class="main-menu-side-btn">BEST SCORE</button>
           <button id="main-menu-titles" type="button" class="main-menu-side-btn">TITLES</button>
@@ -578,7 +627,10 @@ export class UI {
           <p class="guides-menu__body"></p>
         </div>
       </div>
+      <div id="library-menu-grid" class="library-menu-grid" hidden></div>
+      <div id="library-menu-detail" class="library-menu-detail" hidden></div>
       <nav id="guides-nav" class="guides-nav" hidden aria-label="Guides"></nav>
+      <button id="library-back" type="button" class="game-overlay__btn game-overlay__btn--menu-sub-back" hidden>Back</button>
       <button id="guides-back" type="button" class="game-overlay__btn game-overlay__btn--menu-sub-back" hidden>Back</button>
       <div id="highscore-menu-panel" class="game-overlay__panel game-overlay__panel--highscores" hidden>
         <div id="highscore-menu-list" class="highscore-menu"></div>
@@ -619,6 +671,11 @@ export class UI {
     window
       .matchMedia('(hover: hover) and (pointer: fine)')
       .addEventListener('change', () => this.refreshMainMenuNoise());
+
+    this.mainMenuSweepEl = this.mainMenuEl.querySelector('.main-menu-sweep')!;
+    this.mainMenuSweepEl.addEventListener('animationend', () => {
+      this.mainMenuSweepEl.classList.remove('is-flying');
+    });
 
     const mainMenuUiScale = this.mainMenuEl.querySelector(
       '.main-menu-ui-scale',
@@ -695,6 +752,10 @@ export class UI {
     );
     mainMenuUiScale.appendChild(this.guidesMediaHost);
     this.buildGuidesMenu();
+    this.libraryGridEl = this.mainMenuEl.querySelector('#library-menu-grid')!;
+    this.libraryDetailEl = this.mainMenuEl.querySelector('#library-menu-detail')!;
+    this.libraryBackBtn = this.mainMenuEl.querySelector('#library-back')!;
+    this.buildLibraryMenu();
     this.highScoreMenuPanel = this.mainMenuEl.querySelector('#highscore-menu-panel')!;
     this.highScoreBackBtn = this.mainMenuEl.querySelector('#highscore-back')!;
     this.highScoreMenuList = this.mainMenuEl.querySelector('#highscore-menu-list')!;
@@ -855,6 +916,7 @@ export class UI {
   }
 
   disposeMenuOverlays(): void {
+    this.stopMainMenuSweepLoop();
     this.buttonSfx.unmount();
     this.musicMarquee.remove();
     this.mainMenuEl.remove();
@@ -896,20 +958,11 @@ export class UI {
           button.textContent = choice.label;
         } else {
           button.className = 'run-upgrade-card';
-          const title = document.createElement('span');
-          title.className = 'run-upgrade-card__title';
-          title.textContent = choice.label;
-          const desc = document.createElement('span');
-          desc.className = 'run-upgrade-card__desc';
-          desc.textContent = choice.description ?? '';
-          const artSlot = document.createElement('span');
-          artSlot.className = 'run-upgrade-card__art';
-          artSlot.setAttribute('aria-hidden', 'true');
-          const artUrl = getRunUpgradeArtUrl(choice.id);
-          if (artUrl) {
-            artSlot.style.setProperty('--run-upgrade-art-url', `url("${artUrl}")`);
+          const preview = buildRunUpgradePreviewCard(choice);
+          button.replaceChildren(...preview.childNodes);
+          if (choice.accentColor) {
+            applyRunUpgradeAccent(button, choice.accentColor);
           }
-          button.append(title, desc, artSlot);
         }
         return button;
       }),
@@ -1223,6 +1276,36 @@ export class UI {
     this.scheduleMainMenuNoiseStep();
   }
 
+  private startMainMenuSweepLoop(): void {
+    this.stopMainMenuSweepLoop();
+    const scheduleNext = () => {
+      this.mainMenuSweepTimer = window.setTimeout(() => {
+        this.mainMenuSweepTimer = null;
+        if (this.mainMenuEl.hidden) return;
+        this.fireMainMenuSweep();
+        scheduleNext();
+      }, 5000);
+    };
+    this.fireMainMenuSweep();
+    scheduleNext();
+  }
+
+  private stopMainMenuSweepLoop(): void {
+    if (this.mainMenuSweepTimer != null) {
+      window.clearTimeout(this.mainMenuSweepTimer);
+      this.mainMenuSweepTimer = null;
+    }
+    this.mainMenuSweepEl.classList.remove('is-flying');
+  }
+
+  private fireMainMenuSweep(): void {
+    const yPct = 10 + Math.random() * 80;
+    this.mainMenuSweepEl.style.setProperty('--menu-sweep-y', `${yPct}%`);
+    this.mainMenuSweepEl.classList.remove('is-flying');
+    void this.mainMenuSweepEl.offsetWidth;
+    this.mainMenuSweepEl.classList.add('is-flying');
+  }
+
   private refreshMainMenuNoise(): void {
     this.clearMainMenuNoiseTimer();
     if (!this.isMainMenuNoiseActive()) {
@@ -1254,6 +1337,9 @@ export class UI {
     this.guidesBackBtn.hidden = true;
     this.highScoreMenuPanel.hidden = true;
     this.highScoreBackBtn.hidden = true;
+    this.libraryGridEl.hidden = true;
+    this.libraryDetailEl.hidden = true;
+    this.libraryBackBtn.hidden = true;
   }
 
   private openUpgradeMenu(): void {
@@ -1443,6 +1529,64 @@ export class UI {
 
   private closeGuidesMenu(): void {
     this.pauseGuideMedia();
+    this.hideAllMenuSubpanels();
+    this.setMainMenuHomePanelVisible(true);
+  }
+
+  private buildLibraryMenu(): void {
+    this.libraryGridEl.replaceChildren(
+      ...RUN_UPGRADE_LIBRARY.map((entry) => this.createLibrarySpellButton(entry)),
+    );
+    this.selectLibrarySpell(this.selectedLibrarySpellId);
+  }
+
+  private createLibrarySpellButton(entry: RunUpgradeLibraryEntry): HTMLButtonElement {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'library-spell-btn';
+    btn.dataset.spellId = entry.id;
+    btn.setAttribute('aria-label', entry.label);
+    applyRunUpgradeAccent(btn, entry.accentColor);
+
+    const art = document.createElement('span');
+    art.className = 'library-spell-btn__art';
+    art.setAttribute('aria-hidden', 'true');
+    const artUrl = getRunUpgradeArtUrl(entry.id);
+    if (artUrl) {
+      art.style.setProperty('--run-upgrade-art-url', `url("${artUrl}")`);
+    }
+
+    btn.append(art);
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.selectLibrarySpell(entry.id);
+    });
+    return btn;
+  }
+
+  private selectLibrarySpell(id: string): void {
+    const entry = findRunUpgradeLibraryEntry(id) ?? RUN_UPGRADE_LIBRARY[0]!;
+    this.selectedLibrarySpellId = entry.id;
+    this.libraryDetailEl.replaceChildren(buildRunUpgradePreviewCard(entry));
+
+    const buttons = this.libraryGridEl.querySelectorAll<HTMLButtonElement>('.library-spell-btn');
+    for (const btn of buttons) {
+      const active = btn.dataset.spellId === entry.id;
+      btn.classList.toggle('library-spell-btn--active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+  }
+
+  private openLibraryMenu(): void {
+    this.hideAllMenuSubpanels();
+    this.setMainMenuHomePanelVisible(false);
+    this.selectLibrarySpell(this.selectedLibrarySpellId);
+    this.libraryGridEl.hidden = false;
+    this.libraryDetailEl.hidden = false;
+    this.libraryBackBtn.hidden = false;
+  }
+
+  private closeLibraryMenu(): void {
     this.hideAllMenuSubpanels();
     this.setMainMenuHomePanelVisible(true);
   }
@@ -1843,6 +1987,14 @@ export class UI {
     this.tapeBackBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.closeTrackMenu();
+    });
+    this.mainMenuEl.querySelector('#main-menu-library')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.openLibraryMenu();
+    });
+    this.libraryBackBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closeLibraryMenu();
     });
     this.mainMenuEl.querySelector('#main-menu-guides')!.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -2306,10 +2458,12 @@ export class UI {
     this.closeUpgradeMenu();
     this.setWalletGold(getPlayerGold());
     this.syncRunHudLayout('menu', false);
+    this.startMainMenuSweepLoop();
   }
 
   hideMainMenu(): void {
     this.mainMenuEl.hidden = true;
+    this.stopMainMenuSweepLoop();
     this.refreshMainMenuNoise();
     this.syncRunHudLayout('run', this.isCheatModeEnabled());
   }
