@@ -92,10 +92,10 @@ export const CONFIG = {
 
   /** When beatmap audio is playing, add this to the UI lens distortion (clamped with slider sum to 0.5). */
   lensDistortionWhileTrackPlaysBoost: 0.2,
-  /** Looping ambient during a run (`public/audio/Background.mp3`). */
-  backgroundMusicUrl: '/audio/Background.mp3',
-  /** Looping music on the main menu (`public/audio/menu.mp3`). */
-  menuMusicUrl: '/audio/menu.mp3',
+  /** Looping ambient during a run (`public/audio/Background.ogg`, from Background.wav). */
+  backgroundMusicUrl: '/audio/Background.ogg',
+  /** Looping music on the main menu (`public/audio/menu.ogg`, from menu.mp3). */
+  menuMusicUrl: '/audio/menu.ogg',
   backgroundMusicVolume: 0.35,
   playTrackManaCostEnabled: true,
   /**

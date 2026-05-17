@@ -685,7 +685,7 @@ export class UI {
 
     this.guidesLoadingEl = document.createElement('div');
     this.guidesLoadingEl.className = 'guides-menu-loading';
-    this.guidesLoadingEl.textContent = 'лоудинг превью';
+    this.guidesLoadingEl.textContent = 'Loading preview…';
     this.guidesLoadingEl.hidden = true;
 
     this.guidesMediaHost.append(

@@ -1450,10 +1450,10 @@ body {
   bottom: clamp(12px, 3.5vh, 40px);
   z-index: 2;
   display: grid;
-  width: min(119.6vw, 728px);
-  min-height: clamp(156px, 36.4vh, 416px);
-  max-height: clamp(156px, 36.4vh, 416px);
-  transform: translateX(-50%);
+  width: min(131.6vw, 801px);
+  min-height: clamp(172px, 40vh, 458px);
+  max-height: clamp(172px, 40vh, 458px);
+  transform: translateX(-50%) translateY(10px);
   transform-origin: center bottom;
   pointer-events: none;
   user-select: none;
@@ -1474,7 +1474,7 @@ body {
   align-items: center;
   justify-content: center;
   width: 100%;
-  min-height: clamp(156px, 36.4vh, 416px);
+  min-height: clamp(172px, 40vh, 458px);
   font-family: 'FA-1 Game', monospace;
   font-size: 18px;
   letter-spacing: 0.04em;
@@ -1490,7 +1490,7 @@ body {
 .guides-menu-gif {
   display: block;
   width: 100%;
-  max-height: clamp(156px, 36.4vh, 416px);
+  max-height: clamp(172px, 40vh, 458px);
   object-fit: contain;
   object-position: center bottom;
   vertical-align: bottom;

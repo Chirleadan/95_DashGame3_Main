@@ -182,7 +182,7 @@ export const TRACK_CATALOG: readonly TrackEntry[] = [
     label: 'Track 3',
     stages: [
       makeStage(3, 1, {
-        audioUrl: '/audio/track-3-stage-1.mp3.OPUS',
+        audioUrl: '/audio/track-3-stage1.mp3',
         enabled: true,
         boost: TRACK_3_STAGE_BOOSTS[1]!,
       }),
@@ -191,7 +191,11 @@ export const TRACK_CATALOG: readonly TrackEntry[] = [
         enabled: true,
         boost: TRACK_3_STAGE_BOOSTS[2]!,
       }),
-      makeStage(3, 3, { enabled: true, boost: TRACK_3_STAGE_BOOSTS[3]! }),
+      makeStage(3, 3, {
+        audioUrl: '/audio/track-3-stage-3.mp3',
+        enabled: true,
+        boost: TRACK_3_STAGE_BOOSTS[3]!,
+      }),
     ],
   },
 ];
