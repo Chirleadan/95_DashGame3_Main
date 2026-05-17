@@ -62,6 +62,9 @@ const BLOOD_PALETTE_DEFAULT: BloodPalette = [0x45d684, 0xe8f799, 0xba1470];
 const BLOOD_PALETTE_GOLD_SACK: BloodPalette = [0xffd154, 0xe0e897, 0xbf934b];
 const BLOOD_PALETTE_MANA_SACK: BloodPalette = [0x322f8f, 0xe4c3e8, 0x34389e];
 const BLOOD_PALETTE_VAULT: BloodPalette = [0xd8d8e3, 0xd8d8e3, 0xc3e8d1];
+/** Matches resource sack mesh colors in `Enemy.ts`. */
+const LOOT_FLOAT_COLOR_GOLD = '#c9a227';
+const LOOT_FLOAT_COLOR_MANA = '#4a6bdc';
 const BLOOD_SPLASH_DELAY_SEC = 0.15;
 const TRACK_3_PHANTOM_BEAT_DASH_STEP_SEC = 0.05;
 const PHANTOM_SPLASH_TRAIL_LIFE_SEC = 0.18;
@@ -2118,7 +2121,7 @@ export class Game {
     }
 
     if (!died) return;
-    this.grantResourceLootFromSack(e);
+    this.handleResourceSackLoot(e);
     this.awardEnemyKillXp(e);
     this.removeEnemyFromGameplayAt(bestIndex, dir);
     this.runEnemiesKilled += 1;
@@ -2906,13 +2909,50 @@ export class Game {
     return Math.max(1, p.xpForNextLevel - p.xpInLevel);
   }
 
-  private grantResourceLootFromSack(enemy: Enemy): void {
+  private grantResourceLootFromSack(
+    enemy: Enemy,
+  ): { amount: number; color: string } | null {
     if (enemy.isGoldSack()) {
-      this.runGold += rollResourceSackDropAmount();
-    } else if (enemy.isManaSack()) {
-      if (this.audio.isPlaying) return;
-      this.runMana += 10;
+      const amount = rollResourceSackDropAmount();
+      this.runGold += amount;
+      return { amount, color: LOOT_FLOAT_COLOR_GOLD };
     }
+    if (enemy.isManaSack()) {
+      if (this.audio.isPlaying) return null;
+      const amount = 10;
+      this.runMana += amount;
+      return { amount, color: LOOT_FLOAT_COLOR_MANA };
+    }
+    return null;
+  }
+
+  private worldToCanvasOverlay(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+  ): { x: number; y: number } | null {
+    this.comboScreenPos.set(worldX, worldY, worldZ);
+    this.comboScreenPos.project(this.camera);
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    return {
+      x: (this.comboScreenPos.x * 0.5 + 0.5) * rect.width,
+      y: (-this.comboScreenPos.y * 0.5 + 0.5) * rect.height,
+    };
+  }
+
+  private handleResourceSackLoot(enemy: Enemy): void {
+    const loot = this.grantResourceLootFromSack(enemy);
+    if (!loot) return;
+    const pos = this.worldToCanvasOverlay(
+      enemy.mesh.position.x,
+      CONFIG.floorY + 0.9,
+      enemy.mesh.position.z,
+    );
+    if (pos) {
+      this.ui.spawnLootGainFloat(pos.x, pos.y, `+${loot.amount}`, loot.color);
+    }
+    this.syncRunLootUi();
   }
 
   private tryVaultTapeFragmentDrop(): void {
@@ -3342,7 +3382,7 @@ export class Game {
           }
           const died = e.takeDashHit();
           if (died) {
-            this.grantResourceLootFromSack(e);
+            this.handleResourceSackLoot(e);
             this.awardEnemyKillXp(e);
             this.removeEnemyFromGameplayAt(
               i,
@@ -3420,7 +3460,7 @@ export class Game {
       }
       const died = e.takeDashHit(e.isAngel());
       if (!died) continue;
-      this.grantResourceLootFromSack(e);
+      this.handleResourceSackLoot(e);
       this.awardEnemyKillXp(e);
       this.removeEnemyFromGameplayAt(
         i,
@@ -3725,7 +3765,7 @@ export class Game {
       const dz = e.mesh.position.z - pz;
       if (dx * dx + dz * dz > r2) continue;
       if (e.applyDamage(pulseDmg)) {
-        this.grantResourceLootFromSack(e);
+        this.handleResourceSackLoot(e);
         this.awardEnemyKillXp(e);
         this.removeEnemyFromGameplayAt(i);
         kills += 1;

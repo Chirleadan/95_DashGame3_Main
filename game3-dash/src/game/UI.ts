@@ -948,6 +948,18 @@ export class UI {
     this.musicMarquee.setLayout(mode);
   }
 
+  /** Floating "+N" when a gold / mana sack is broken (canvas-local coordinates). */
+  spawnLootGainFloat(x: number, y: number, text: string, color: string): void {
+    const el = document.createElement('div');
+    el.className = 'loot-gain-float';
+    el.textContent = text;
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.color = color;
+    this.mount.appendChild(el);
+    el.addEventListener('animationend', () => el.remove(), { once: true });
+  }
+
   disposeMenuOverlays(): void {
     this.stopMainMenuSweepLoop();
     this.buttonSfx.unmount();
