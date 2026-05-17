@@ -25,6 +25,10 @@ import {
 import { SfxPool } from './SfxPool.ts';
 import { AudioManager } from './AudioManager.ts';
 import { BeatEffects } from './BeatEffects.ts';
+import {
+  BeatFloorVisualizer,
+  createArenaCheckerCanvasTexture,
+} from './BeatFloorVisualizer.ts';
 import { addPlayerGold, getPlayerGold } from './PlayerGold.ts';
 import { submitHighScore } from './HighScores.ts';
 import { installLeaderboardDevTools } from './leaderboard/LeaderboardDevTools.ts';
@@ -150,6 +154,10 @@ export class Game {
   /** Which ambient loop is loaded on `backgroundAudio` (menu vs in-run). */
   private ambientMusicMode: 'menu' | 'game' = 'menu';
   private readonly beatEffects: BeatEffects;
+  private beatFloor!: BeatFloorVisualizer;
+  private arenaFloorMat!: THREE.MeshStandardMaterial;
+  private arenaFloorBaseMap!: THREE.CanvasTexture;
+  private arenaFloorTrackMap!: THREE.CanvasTexture;
   private beatmap: Beatmap | null = null;
   private nextBeatIndex = 0;
   /** Beat indices the player dashed on-time (lane draws them green). */
@@ -606,19 +614,24 @@ export class Game {
 
   private addArena(): void {
     const size = CONFIG.arenaFloorVisualHalfExtent * 2 + 2;
-    const checkerTexture = this.createArenaCheckerTexture();
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(size, size),
-      new THREE.MeshStandardMaterial({
-        map: checkerTexture,
-        color: 0xffffff,
-        metalness: 0.05,
-        roughness: 0.92,
-      }),
-    );
+    this.arenaFloorBaseMap = createArenaCheckerCanvasTexture(false);
+    this.arenaFloorTrackMap = createArenaCheckerCanvasTexture(true);
+    this.arenaFloorMat = new THREE.MeshStandardMaterial({
+      map: this.arenaFloorBaseMap,
+      color: 0xffffff,
+      metalness: 0.05,
+      roughness: 0.92,
+    });
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(size, size), this.arenaFloorMat);
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     this.scene.add(floor);
+    this.beatFloor = new BeatFloorVisualizer(
+      this.scene,
+      this.arenaFloorMat,
+      this.arenaFloorBaseMap,
+      this.arenaFloorTrackMap,
+    );
 
     const edge = new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.PlaneGeometry(size, size)),
@@ -636,47 +649,6 @@ export class Game {
     );
     grid.position.y = 0.01;
     this.scene.add(grid);
-  }
-
-  private createArenaCheckerTexture(): THREE.CanvasTexture {
-    const cellSize = 32;
-    const cellsPerSide = 16;
-    const colors = ['#1f3a40', '#285c78'] as const;
-    const canvas = document.createElement('canvas');
-    canvas.width = cellSize * cellsPerSide;
-    canvas.height = cellSize * cellsPerSide;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      throw new Error('Could not create arena checker texture canvas');
-    }
-
-    for (let y = 0; y < cellsPerSide; y++) {
-      for (let x = 0; x < cellsPerSide; x++) {
-        ctx.fillStyle = colors[(x + y) % 2]!;
-        ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
-      }
-    }
-
-    for (let y = 0; y < cellsPerSide - 1; y += 2) {
-      for (let x = 0; x < cellsPerSide - 1; x += 2) {
-        if (Math.random() > 0.18) continue;
-        ctx.fillStyle = colors[Math.floor(Math.random() * colors.length)]!;
-        ctx.fillRect(x * cellSize, y * cellSize, cellSize * 2, cellSize * 2);
-      }
-    }
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(
-      CONFIG.arenaFloorVisualHalfExtent / 32,
-      CONFIG.arenaFloorVisualHalfExtent / 32,
-    );
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.NearestFilter;
-    texture.needsUpdate = true;
-    return texture;
   }
 
   private async initBeatmap(): Promise<void> {
@@ -711,6 +683,7 @@ export class Game {
     this.selectedTrackStage = stage;
     saveSelectedTrackStageId(stage.id);
     this.ui.setSelectedTrackStage(stage);
+    this.beatFloor.onTrackEnded();
     this.audio.pause();
     this.audio.reset();
     this.beatmap = null;
@@ -788,6 +761,9 @@ export class Game {
       }
       await this.audio.play();
       this.ui.showGetReadyOverlay();
+      if (this.beatmap) {
+        this.beatFloor.onTrackStarted(this.beatmap, this.audio.currentTime);
+      }
       this.scheduleBackgroundPauseForTrack();
       this.ui.setBeatmapState('Playing');
       return true;
@@ -1299,6 +1275,13 @@ export class Game {
     const maxSlots = this.getMaxEnemySlots();
 
     this.updateBeatPlayback(dt);
+    this.beatFloor.update(
+      dt,
+      this.audio.currentTime,
+      this.player.x,
+      this.player.z,
+      this.audio.isPlaying,
+    );
 
     this.player.update(
       dt,
@@ -1496,6 +1479,7 @@ export class Game {
       }
       this.depositRunGold();
       this.ui.showDeathScreen();
+      this.beatFloor.onTrackEnded();
       this.audio.pause();
       void this.ensureBackgroundMusicPlaying();
     }
@@ -2326,6 +2310,7 @@ export class Game {
     this.spawner.reset();
     this.resetBeatHitTracking();
     this.nextBeatIndex = 0;
+    this.beatFloor.onTrackEnded();
     this.audio.pause();
     this.audio.reset();
     void this.ensureBackgroundMusicPlaying();
@@ -2379,6 +2364,7 @@ export class Game {
     );
     this.resetBeatHitTracking();
     this.nextBeatIndex = 0;
+    this.beatFloor.onTrackEnded();
     this.audio.reset();
     this.cameraShake = 0;
     this.runPhase = 'playing';
@@ -3268,6 +3254,7 @@ export class Game {
     const trackPlayingNow = this.audio.isPlaying;
     // Detect track end edge and immediately flush queued upgrade modals.
     if (this.wasTrackPlayingLastFrame && !trackPlayingNow) {
+      this.beatFloor.onTrackEnded();
       void this.ensureBackgroundMusicPlaying();
       this.finalizeTrackPlaybackEnd();
       this.maybeEnterRunUpgrade();
@@ -3816,6 +3803,7 @@ export class Game {
 
   dispose(): void {
     cancelAnimationFrame(this.raf);
+    this.beatFloor.onTrackEnded();
     this.audio.pause();
     this.backgroundAudio.pause();
     this.clearBackgroundPauseTimer();
