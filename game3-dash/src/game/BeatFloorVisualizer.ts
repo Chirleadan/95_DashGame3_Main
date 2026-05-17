@@ -14,6 +14,9 @@ type BeatTraveler = {
   departEnd: number;
   /** Only the first beat after track start flies in from far away. */
   spawnFar: boolean;
+  /** Locked when the traveler spawns — does not chase the hero mid-flight. */
+  hitCellX?: number;
+  hitCellZ?: number;
 };
 
 export function createArenaCheckerCanvasTexture(): THREE.CanvasTexture {
@@ -148,33 +151,39 @@ export class BeatFloorVisualizer {
   ): { cellX: number; cellZ: number }[] {
     const out: { cellX: number; cellZ: number }[] = [];
     const cell = ARENA_CHECKER_CELL_WORLD;
-    const playerCellX = Math.floor(playerX / cell);
-    const rowCellZ = Math.floor(playerZ / cell);
 
     for (const traveler of this.travelers) {
       if (audioTime < traveler.approachStart || audioTime > traveler.departEnd) {
         continue;
       }
+
+      if (traveler.hitCellX === undefined || traveler.hitCellZ === undefined) {
+        traveler.hitCellX = Math.floor(playerX / cell);
+        traveler.hitCellZ = Math.floor(playerZ / cell);
+      }
+      const hitCellX = traveler.hitCellX;
+      const hitCellZ = traveler.hitCellZ;
+
       const mult = traveler.spawnFar
         ? BeatFloorVisualizer.TRAVEL_HALF_CELLS_MULT_FAR
         : BeatFloorVisualizer.TRAVEL_HALF_CELLS_MULT_CLOSE;
       const halfCells = Math.ceil((CONFIG.cameraViewHalfExtent * mult) / cell);
-      const startCellX = playerCellX + halfCells;
-      const endCellX = playerCellX - halfCells;
+      const startCellX = hitCellX + halfCells;
+      const endCellX = hitCellX - halfCells;
 
       let cellX: number;
       if (audioTime <= traveler.hitTime) {
         const span = Math.max(1e-4, traveler.hitTime - traveler.approachStart);
         const u = THREE.MathUtils.clamp((audioTime - traveler.approachStart) / span, 0, 1);
-        const eased = 1 - (1 - u) ** 2.1;
-        cellX = Math.round(startCellX + (playerCellX - startCellX) * eased);
+        const eased = u ** 2.2;
+        cellX = startCellX + (hitCellX - startCellX) * eased;
       } else {
         const span = Math.max(1e-4, traveler.departEnd - traveler.hitTime);
         const u = THREE.MathUtils.clamp((audioTime - traveler.hitTime) / span, 0, 1);
-        const eased = 1 - (1 - u) ** 2;
-        cellX = Math.round(playerCellX + (endCellX - playerCellX) * eased);
+        const eased = u ** 2;
+        cellX = hitCellX + (endCellX - hitCellX) * eased;
       }
-      out.push({ cellX, cellZ: rowCellZ });
+      out.push({ cellX: Math.round(cellX), cellZ: hitCellZ });
     }
     return out;
   }
