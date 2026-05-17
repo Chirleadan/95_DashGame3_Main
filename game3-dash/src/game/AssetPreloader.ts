@@ -3,6 +3,7 @@ import {
   type PreloadAsset,
   type PreloadAssetKind,
 } from './assetManifest.ts';
+import { getGameTexture } from './TextureCache.ts';
 
 export type PreloadProgress = {
   loaded: number;
@@ -35,6 +36,7 @@ async function preloadImage(url: string): Promise<void> {
     img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
     img.src = url;
   });
+  getGameTexture(url);
 }
 
 async function preloadAudio(url: string): Promise<void> {

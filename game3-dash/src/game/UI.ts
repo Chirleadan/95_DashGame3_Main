@@ -218,9 +218,6 @@ export class UI {
     loadBalanceSettings();
     loadPlayerGold();
     loadArtifacts();
-    if (isArtifactEnabled('vaultBearing') && getVaultMaxUnlockedLevel() < 1) {
-      unlockVaultMaxLevel();
-    }
     this.mount = container;
     this.musicMarquee = new MusicMarquee(container);
 

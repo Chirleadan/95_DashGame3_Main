@@ -1,5 +1,3 @@
-import { CONFIG } from './config.ts';
-
 const STORAGE_KEY = 'game3-dash-upgrades-v1';
 const UNLOCK_STORAGE_KEY = 'game3-dash-upgrade-unlocks-v1';
 const FIXED_DASH_DURATION_SEC = 0.115;
@@ -44,18 +42,35 @@ const LIMITS = {
 function defaults(): BalanceSettingsState {
   return {
     dashDurationSec: FIXED_DASH_DURATION_SEC,
-    dashCooldownSec: snapToDiscreteLevel(CONFIG.dashCooldown, DISCRETE_LEVELS.dashCooldownSec),
-    dashNominalLengthWorld: snapToDiscreteLevel(
-      CONFIG.dashSpeed * FIXED_DASH_DURATION_SEC,
-      DISCRETE_LEVELS.dashNominalLengthWorld,
-    ),
-    dashKillRadiusScale: snapToDiscreteLevel(
-      CONFIG.dashKillPlayerRadiusScale,
-      DISCRETE_LEVELS.dashKillRadiusScale,
-    ),
-    playerSpeed: snapToDiscreteLevel(CONFIG.playerSpeed, DISCRETE_LEVELS.playerSpeed),
-    playerMaxHp: snapToDiscreteLevel(CONFIG.playerMaxHp, DISCRETE_LEVELS.playerMaxHp),
+    dashCooldownSec: DISCRETE_LEVELS.dashCooldownSec[0]!,
+    dashNominalLengthWorld: DISCRETE_LEVELS.dashNominalLengthWorld[0]!,
+    dashKillRadiusScale: DISCRETE_LEVELS.dashKillRadiusScale[0]!,
+    playerSpeed: DISCRETE_LEVELS.playerSpeed[0]!,
+    playerMaxHp: DISCRETE_LEVELS.playerMaxHp[0]!,
   };
+}
+
+function resetUpgradeUnlocksToMinimum(): void {
+  for (const key of Object.keys(BALANCE_DISCRETE_LEVELS) as BalanceDiscreteStatKey[]) {
+    maxUnlockedLevelIndex[key] = 0;
+  }
+  vaultMaxUnlockedLevel = 0;
+}
+
+/** Active tier cannot exceed the highest purchased tier. */
+function clampActiveBalanceToUnlocks(): void {
+  let changed = false;
+  for (const key of Object.keys(BALANCE_DISCRETE_LEVELS) as BalanceDiscreteStatKey[]) {
+    const maxIdx = maxUnlockedLevelIndex[key];
+    const activeIdx = getDiscreteLevelIndex(key, current[key]);
+    if (activeIdx > maxIdx) {
+      current[key] = getDiscreteLevelValue(key, maxIdx);
+      changed = true;
+    }
+  }
+  if (changed) {
+    saveBalanceSettings();
+  }
 }
 
 let current: BalanceSettingsState = defaults();
@@ -132,17 +147,11 @@ function sanitize(p: BalanceSettingsState): BalanceSettingsState {
   };
 }
 
-function syncMaxUnlockedFromBalance(): void {
-  for (const key of Object.keys(BALANCE_DISCRETE_LEVELS) as BalanceDiscreteStatKey[]) {
-    maxUnlockedLevelIndex[key] = getDiscreteLevelIndex(key, current[key]);
-  }
-}
-
 function loadUpgradeUnlocks(): void {
   try {
     const raw = localStorage.getItem(UNLOCK_STORAGE_KEY);
     if (!raw) {
-      syncMaxUnlockedFromBalance();
+      resetUpgradeUnlocksToMinimum();
       return;
     }
     const o = JSON.parse(raw) as {
@@ -154,12 +163,12 @@ function loadUpgradeUnlocks(): void {
       const n = Math.floor(Number(o.maxLevelIndex?.[key]));
       maxUnlockedLevelIndex[key] = Number.isFinite(n)
         ? Math.max(0, Math.min(levels.length - 1, n))
-        : getDiscreteLevelIndex(key, current[key]);
+        : 0;
     }
     const vaultN = Math.floor(Number(o.vaultMaxLevel));
     vaultMaxUnlockedLevel = vaultN >= 1 ? 1 : 0;
   } catch {
-    syncMaxUnlockedFromBalance();
+    resetUpgradeUnlocksToMinimum();
   }
 }
 
@@ -183,28 +192,15 @@ export function loadBalanceSettings(): void {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       current = defaults();
-      loadUpgradeUnlocks();
-      return;
+    } else {
+      const o = JSON.parse(raw) as Partial<BalanceSettingsState>;
+      current = sanitize({ ...defaults(), ...o });
     }
-    const o = JSON.parse(raw) as Partial<BalanceSettingsState>;
-    const merged: BalanceSettingsState = { ...defaults(), ...o };
-    if (
-      typeof o.dashCooldownSec !== 'number' ||
-      !Number.isFinite(o.dashCooldownSec)
-    ) {
-      merged.dashCooldownSec = CONFIG.dashCooldown;
-    }
-    if (
-      typeof o.dashNominalLengthWorld !== 'number' ||
-      !Number.isFinite(o.dashNominalLengthWorld)
-    ) {
-      merged.dashNominalLengthWorld = CONFIG.dashSpeed * FIXED_DASH_DURATION_SEC;
-    }
-    current = sanitize(merged);
   } catch {
     current = defaults();
   }
   loadUpgradeUnlocks();
+  clampActiveBalanceToUnlocks();
 }
 
 export function saveBalanceSettings(): void {

@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.ts';
+import {
+  detachCachedTextureFromMaterial,
+  getGameTexture,
+} from './TextureCache.ts';
 import { clampToArena, segmentHitsThickSegment } from './Collision.ts';
 import {
   computeEnemyMoveDirectionAvoidingStorages,
@@ -19,7 +23,6 @@ export type EnemyKind =
 /** Same fill for normal / tank body. */
 const ENEMY_BODY_COLOR = 0xff3344;
 const SHOOTER_BODY_COLOR = 0x58d7ff;
-const ENEMY_TEXTURE_LOADER = new THREE.TextureLoader();
 const ENEMY_SPRITE_URLS: Partial<Record<EnemyKind, string>> = {
   normal: '/assets/enemies/normal/idle.png',
   shooter: '/assets/enemies/shooter/idle.png',
@@ -40,8 +43,15 @@ function disposeObject3DTree(root: THREE.Object3D): void {
     if (mesh.geometry) mesh.geometry.dispose();
     const mat = mesh.material;
     if (!mat) return;
-    if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-    else mat.dispose();
+    if (Array.isArray(mat)) {
+      mat.forEach((m) => {
+        detachCachedTextureFromMaterial(m);
+        m.dispose();
+      });
+    } else {
+      detachCachedTextureFromMaterial(mat);
+      mat.dispose();
+    }
   });
 }
 
@@ -115,8 +125,7 @@ function addEnemySprite(
 ): { pivot: THREE.Group; mat: THREE.MeshBasicMaterial } | null {
   const url = ENEMY_SPRITE_URLS[kind];
   if (!url) return null;
-  const tex = ENEMY_TEXTURE_LOADER.load(url);
-  tex.colorSpace = THREE.SRGBColorSpace;
+  const tex = getGameTexture(url);
   const mat = new THREE.MeshBasicMaterial({
     map: tex,
     transparent: true,
@@ -757,12 +766,8 @@ export class Enemy {
     if (!this.spriteMat) return;
     const url = ENEMY_DEATH_SPRITE_URLS[this.kind];
     if (!url) return;
-    const oldMap = this.spriteMat.map;
-    const tex = ENEMY_TEXTURE_LOADER.load(url);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    this.spriteMat.map = tex;
+    this.spriteMat.map = getGameTexture(url);
     this.spriteMat.needsUpdate = true;
-    oldMap?.dispose();
   }
 
   tickShooterShotCooldown(dt: number): boolean {

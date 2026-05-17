@@ -12,6 +12,7 @@ import type { Input } from './Input.ts';
 import { clampToArena, circlesOverlap, rayExitFromCircleXZ } from './Collision.ts';
 import { Dash } from './Dash.ts';
 import type { Enemy } from './Enemy.ts';
+import { getGameTexture } from './TextureCache.ts';
 
 export type DashSweepSegment = { ax: number; az: number; bx: number; bz: number };
 
@@ -19,31 +20,12 @@ export type SpiralDashInput =
   | { mode: 'path'; points: readonly { x: number; z: number }[]; drawDurationSec: number }
   | { mode: 'click'; x: number; z: number };
 
-const PLAYER_TEXTURE_LOADER = new THREE.TextureLoader();
-const PLAYER_IDLE_TEXTURE = PLAYER_TEXTURE_LOADER.load('/assets/player/player_idle_1.png');
-const PLAYER_DASH_TEXTURE = PLAYER_TEXTURE_LOADER.load('/assets/player/player_dash_1.png');
-const PLAYER_STEP_1_TEXTURE = PLAYER_TEXTURE_LOADER.load('/assets/player/player_step_1.png');
-const PLAYER_STEP_2_TEXTURE = PLAYER_TEXTURE_LOADER.load('/assets/player/player_step_2.png');
-const PLAYER_STEP_3_TEXTURE = PLAYER_TEXTURE_LOADER.load('/assets/player/player_step_3.png');
-const PLAYER_STEP_4_TEXTURE = PLAYER_TEXTURE_LOADER.load('/assets/player/player_step_4.png');
-
-function configurePlayerTexture(texture: THREE.Texture): void {
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.magFilter = THREE.NearestFilter;
-  texture.minFilter = THREE.NearestFilter;
-  texture.generateMipmaps = false;
-}
-
-for (const texture of [
-  PLAYER_IDLE_TEXTURE,
-  PLAYER_DASH_TEXTURE,
-  PLAYER_STEP_1_TEXTURE,
-  PLAYER_STEP_2_TEXTURE,
-  PLAYER_STEP_3_TEXTURE,
-  PLAYER_STEP_4_TEXTURE,
-]) {
-  configurePlayerTexture(texture);
-}
+const PLAYER_IDLE_TEXTURE = getGameTexture('/assets/player/player_idle_1.png');
+const PLAYER_DASH_TEXTURE = getGameTexture('/assets/player/player_dash_1.png');
+const PLAYER_STEP_1_TEXTURE = getGameTexture('/assets/player/player_step_1.png');
+const PLAYER_STEP_2_TEXTURE = getGameTexture('/assets/player/player_step_2.png');
+const PLAYER_STEP_3_TEXTURE = getGameTexture('/assets/player/player_step_3.png');
+const PLAYER_STEP_4_TEXTURE = getGameTexture('/assets/player/player_step_4.png');
 
 export class Player {
   readonly mesh: THREE.Group;

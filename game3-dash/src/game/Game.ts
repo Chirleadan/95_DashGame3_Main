@@ -17,6 +17,7 @@ import {
   getTapeTrackCredit,
   MUSIC_MARQUEE_AMBIENT,
 } from './MusicMarquee.ts';
+import { SfxPool } from './SfxPool.ts';
 import { AudioManager } from './AudioManager.ts';
 import { BeatEffects } from './BeatEffects.ts';
 import { addPlayerGold, getPlayerGold } from './PlayerGold.ts';
@@ -130,7 +131,10 @@ export class Game {
   private readonly backgroundAudio = new AudioManager();
   private readonly dashSfx = new Audio(Game.DASH_SFX_URL);
   private readonly deathSfx = new Audio(Game.DEATH_SFX_URL);
-  private readonly hitSfxPool = Game.HIT_SFX_URLS.map((url) => new Audio(url));
+  private readonly hitSfxSources = Game.HIT_SFX_URLS.map((url) => new Audio(url));
+  private readonly dashSfxPool: SfxPool;
+  private readonly deathSfxPool: SfxPool;
+  private readonly hitSfxPools: SfxPool[];
   private backgroundPauseTimer: number | null = null;
   /** Which ambient loop is loaded on `backgroundAudio` (menu vs in-run). */
   private ambientMusicMode: 'menu' | 'game' = 'menu';
@@ -385,10 +389,18 @@ export class Game {
     this.deathSfx.preload = 'auto';
     this.deathSfx.volume = 0.78 * Game.SFX_VOLUME_MULT;
     this.deathSfx.load();
-    for (const hitSfx of this.hitSfxPool) {
+    for (const hitSfx of this.hitSfxSources) {
       hitSfx.preload = 'auto';
       hitSfx.volume = 0.78 * Game.SFX_VOLUME_MULT;
       hitSfx.load();
+    }
+    this.dashSfxPool = new SfxPool(this.dashSfx, 6);
+    this.deathSfxPool = new SfxPool(this.deathSfx, 2);
+    this.hitSfxPools = this.hitSfxSources.map((src) => new SfxPool(src, 3));
+    this.dashSfxPool.warm();
+    this.deathSfxPool.warm();
+    for (const pool of this.hitSfxPools) {
+      pool.warm();
     }
     void this.backgroundAudio.setTrack(CONFIG.menuMusicUrl).catch((e) => {
       console.error('[MenuAudio] init failed:', e instanceof Error ? e.message : e, e);
@@ -2673,31 +2685,30 @@ export class Game {
     return false;
   }
 
-  private playSfx(source: HTMLAudioElement, rateVariance: number): void {
-    const sfx = source.cloneNode(true) as HTMLAudioElement;
-    sfx.playbackRate = rateVariance > 0
-      ? 1 + (Math.random() * 2 - 1) * rateVariance
-      : 1;
-    sfx.volume = source.volume;
-    void sfx.play().catch(() => {
-      // The first user gesture may still be required by the browser.
-    });
+  private playSfxPool(pool: SfxPool, source: HTMLAudioElement, rateVariance: number): void {
+    const rate =
+      rateVariance > 0
+        ? 1 + (Math.random() * 2 - 1) * rateVariance
+        : 1;
+    pool.play(source.volume, rate);
   }
 
   private playDashSfx(): void {
-    this.playSfx(this.dashSfx, Game.DASH_SFX_RATE_VARIANCE);
+    this.playSfxPool(this.dashSfxPool, this.dashSfx, Game.DASH_SFX_RATE_VARIANCE);
   }
 
   private playHitSfx(): void {
-    const index = Math.floor(Math.random() * this.hitSfxPool.length);
-    this.playSfx(this.hitSfxPool[index] ?? this.hitSfxPool[0]!, Game.HIT_SFX_RATE_VARIANCE);
+    const index = Math.floor(Math.random() * this.hitSfxPools.length);
+    const pool = this.hitSfxPools[index] ?? this.hitSfxPools[0]!;
+    const source = this.hitSfxSources[index] ?? this.hitSfxSources[0]!;
+    this.playSfxPool(pool, source, Game.HIT_SFX_RATE_VARIANCE);
   }
 
   private playDeathSfx(): void {
     const now = performance.now();
     if (now - this.lastDeathSfxAtMs < Game.DEATH_SFX_COOLDOWN_MS) return;
     this.lastDeathSfxAtMs = now;
-    this.playSfx(this.deathSfx, 0);
+    this.playSfxPool(this.deathSfxPool, this.deathSfx, 0);
   }
 
   private markDashImpactSfx(): void {
