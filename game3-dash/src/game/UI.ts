@@ -1113,9 +1113,7 @@ export class UI {
     this.selectedGuideId = topic.id;
     this.guidesTitleEl.textContent = topic.label;
     this.guidesBodyEl.textContent = topic.body;
-    if (this.guidesGifEl.getAttribute('src') !== topic.gifUrl) {
-      this.guidesGifEl.src = topic.gifUrl;
-    }
+    this.setGuideGif(topic);
     this.guidesGifEl.alt = topic.label;
     const buttons = this.guidesNavEl.querySelectorAll<HTMLButtonElement>('.guides-nav__btn');
     for (const btn of buttons) {
@@ -1123,6 +1121,14 @@ export class UI {
       btn.classList.toggle('guides-nav__btn--active', active);
       btn.setAttribute('aria-pressed', active ? 'true' : 'false');
     }
+  }
+
+  /** Same img element otherwise keeps showing the first loaded GIF animation. */
+  private setGuideGif(topic: GuideTopic): void {
+    if (this.guidesGifEl.dataset.guideId === topic.id) return;
+    this.guidesGifEl.dataset.guideId = topic.id;
+    this.guidesGifEl.src = '';
+    this.guidesGifEl.src = `${encodeURI(topic.gifUrl)}?guide=${topic.id}`;
   }
 
   private openGuidesMenu(): void {
