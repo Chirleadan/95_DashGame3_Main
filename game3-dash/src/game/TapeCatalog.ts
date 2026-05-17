@@ -22,3 +22,7 @@ export const TAPE_CASSETTES: readonly TapeCassetteEntry[] = [
     trackId: 'track-3',
   },
 ];
+
+export function getTapeCassetteImageUrl(trackId: string): string | null {
+  return TAPE_CASSETTES.find((tape) => tape.trackId === trackId)?.imageUrl ?? null;
+}

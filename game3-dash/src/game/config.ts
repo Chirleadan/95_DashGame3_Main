@@ -97,15 +97,16 @@ export const CONFIG = {
   /** Looping music on the main menu (`public/audio/menu.mp3`). */
   menuMusicUrl: '/audio/menu.mp3',
   backgroundMusicVolume: 0.35,
-  /** TEMP: set true to require/spend mana when starting a tape during a run. */
-  playTrackManaCostEnabled: false,
+  playTrackManaCostEnabled: true,
   /**
    * During a run (`playing` / `runUpgrade`): need at least this much mana to start the track (E or button).
    * Starting spends `playTrackManaCost` mana on success; refunded if playback fails to start.
    */
-  playTrackMinManaToActivate: 25,
+  playTrackMinManaToActivate: 15,
   /** Mana removed when the beatmap track starts during a run. */
-  playTrackManaCost: 25,
+  playTrackManaCost: 15,
+  /** Chance [0–1] to drop +1 gold or +1 mana when any enemy is killed. */
+  enemyKillBonusLootChance: 0.05,
   /** Delay before background music pauses after Play track starts (milliseconds). */
   backgroundMusicPauseAfterTrackStartMs: 1200,
 
@@ -130,7 +131,7 @@ export const CONFIG = {
   /** After death, show death screen this long (seconds) then return to main menu. */
   deathScreenToMenuDelaySec: 2.5,
 
-  /** Base XP for the first in-run level-up; each next level-up requires +10 more XP. */
+  /** Base XP for the first in-run level-up; each next level-up requires +5 more XP than the previous. */
   runXpPerLevel: 10,
   /** Gold spent per stat change in the main-menu upgrade screen. */
   upgradeGoldCost: 5,

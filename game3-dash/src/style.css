@@ -658,6 +658,24 @@ body {
   vertical-align: top;
 }
 
+.beat-lane-tape-icon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0.9;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.65));
+}
+
+.beat-lane-tape-icon[hidden] {
+  display: none;
+}
+
 .beat-round-timer {
   font-family: 'FA-1 Game', monospace;
   font-size: 24px;

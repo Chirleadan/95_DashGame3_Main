@@ -40,11 +40,13 @@ import { isArtifactEnabled } from './Artifacts.ts';
 import { rollResourceSackDropAmount } from './Loot.ts';
 import {
   findTrackForStage,
-  getDefaultTrackStage,
   type TrackStage,
 } from './TrackCatalog.ts';
 import {
-  getDefaultPlayableTrackStage,
+  resolveStoredOrDefaultTrackStage,
+  saveSelectedTrackStageId,
+} from './SelectedTape.ts';
+import {
   isTapeStagePlayable,
   tryUnlockRandomTapeFragment,
 } from './TapeStageUnlocks.ts';
@@ -80,8 +82,8 @@ const SPIRAL_PATH_SMOOTH_SAMPLES_PER_SPAN = 6;
 export class Game {
   /** Outer radius of `RingGeometry` used for damage pulse (local units). */
   private static readonly DAMAGE_PULSE_RING_OUTER_LOCAL = 0.36;
-  /** Every next level requires `+10` XP more than the previous one. */
-  private static readonly RUN_XP_STEP_PER_LEVEL = 10;
+  /** Every next level requires `+5` XP more than the previous one. */
+  private static readonly RUN_XP_STEP_PER_LEVEL = 5;
   private static readonly DASH_SFX_URL = '/audio/dash_1.mp3';
   private static readonly DEATH_SFX_URL = '/audio/death_1.mp3';
   private static readonly HIT_SFX_URLS = [
@@ -209,8 +211,7 @@ export class Game {
   private lastDeathSfxAtMs = -Infinity;
   /** Current ortho camera half-height (world units), changed by wheel zoom. */
   private cameraViewHalfExtentCurrent: number = CONFIG.cameraViewHalfExtent;
-  private selectedTrackStage: TrackStage =
-    getDefaultPlayableTrackStage() ?? getDefaultTrackStage();
+  private selectedTrackStage: TrackStage = resolveStoredOrDefaultTrackStage();
   private beatmapLoadSerial = 0;
 
   private readonly damagePulseRings: {
@@ -411,6 +412,7 @@ export class Game {
     this.ui.onTrackStageSelected((stage) => {
       void this.selectTrackStage(stage);
     });
+    saveSelectedTrackStageId(this.selectedTrackStage.id);
     this.ui.setSelectedTrackStage(this.selectedTrackStage);
     this.ui.setPlayEnabled(false, '');
     this.ui.setBeatmapState('Loading...');
@@ -693,6 +695,7 @@ export class Game {
   private async selectTrackStage(stage: TrackStage): Promise<void> {
     if (!isTapeStagePlayable(stage)) return;
     this.selectedTrackStage = stage;
+    saveSelectedTrackStageId(stage.id);
     this.ui.setSelectedTrackStage(stage);
     this.audio.pause();
     this.audio.reset();
@@ -2780,8 +2783,9 @@ export class Game {
 
   /** Beat lane canvas: after movement so the center hit ring matches `player.isDashing`. */
   private syncBeatLaneUi(): void {
+    const tapePlaying = this.audio.isPlaying;
     if (!this.beatmap) {
-      this.ui.updateBeatLane(0, null, this.beatHitIndices, this.player.isDashing);
+      this.ui.updateBeatLane(0, null, this.beatHitIndices, this.player.isDashing, tapePlaying);
       return;
     }
     this.ui.updateBeatLane(
@@ -2789,6 +2793,7 @@ export class Game {
       this.beatmap.beats,
       this.beatHitIndices,
       this.player.isDashing,
+      tapePlaying,
     );
   }
 
@@ -2866,16 +2871,21 @@ export class Game {
     const unlock = tryUnlockRandomTapeFragment();
     if (!unlock) return;
     this.ui.showTapeFragmentUnlocked(unlock.trackLabel, unlock.stageLabel);
-    if (isTapeStagePlayable(this.selectedTrackStage)) {
-      return;
+    this.ui.setSelectedTrackStage(this.selectedTrackStage);
+  }
+
+  private tryGrantEnemyKillBonusLoot(): void {
+    if (Math.random() >= CONFIG.enemyKillBonusLootChance) return;
+    if (Math.random() < 0.5) {
+      this.runGold += 1;
+    } else {
+      this.runMana += 1;
     }
-    const playable = getDefaultPlayableTrackStage();
-    if (playable) {
-      void this.selectTrackStage(playable);
-    }
+    this.syncRunLootUi();
   }
 
   private awardEnemyKillXp(enemy: Enemy): void {
+    this.tryGrantEnemyKillBonusLoot();
     if (enemy.isResourceSack()) return;
     let xp: number;
     if (enemy.isVault()) {

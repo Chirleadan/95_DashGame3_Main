@@ -46,7 +46,7 @@ import {
   type TrackStage,
 } from './TrackCatalog.ts';
 import { MusicMarquee } from './MusicMarquee.ts';
-import { TAPE_CASSETTES } from './TapeCatalog.ts';
+import { getTapeCassetteImageUrl, TAPE_CASSETTES } from './TapeCatalog.ts';
 import {
   getHighestUnlockedTrackStage,
   isTapeStagePlayable,
@@ -144,6 +144,7 @@ export class UI {
   private readonly beatmapStateEl: HTMLElement;
   private readonly beatHitCountEl: HTMLElement;
   private readonly beatLaneHost: HTMLElement;
+  private readonly beatLaneTapeIconEl: HTMLImageElement;
   private readonly beatRoundTimerEl: HTMLElement;
   private readonly beatLaneCanvas: HTMLCanvasElement;
   private beatLaneCtx: CanvasRenderingContext2D | null;
@@ -195,6 +196,7 @@ export class UI {
   private readonly nicknameInputEl: HTMLInputElement;
   private readonly tapeCassetteRack: HTMLElement;
   private readonly currentTrackEl: HTMLElement;
+  private selectedTrackStageForUi: TrackStage | null = null;
   private readonly upgradeMenuRows: HTMLElement;
   private readonly upgradeVaultRow: HTMLElement;
   private readonly deathScreenEl: HTMLElement;
@@ -383,7 +385,13 @@ export class UI {
     this.beatLaneHost.style.height = `${CONFIG.beatLaneHeightPx}px`;
     this.beatLaneCanvas = document.createElement('canvas');
     this.beatLaneCtx = this.beatLaneCanvas.getContext('2d');
+    this.beatLaneTapeIconEl = document.createElement('img');
+    this.beatLaneTapeIconEl.className = 'beat-lane-tape-icon';
+    this.beatLaneTapeIconEl.alt = '';
+    this.beatLaneTapeIconEl.draggable = false;
+    this.beatLaneTapeIconEl.hidden = true;
     this.beatLaneHost.appendChild(this.beatLaneCanvas);
+    this.beatLaneHost.appendChild(this.beatLaneTapeIconEl);
     this.beatLaneHost.appendChild(this.playTrackPromptEl);
 
     this.beatRoundTimerEl = document.createElement('div');
@@ -1311,6 +1319,9 @@ export class UI {
     this.hideAllMenuSubpanels();
     this.mainMenuPanel.hidden = true;
     this.buildTapeCassetteRack();
+    if (this.selectedTrackStageForUi) {
+      this.setSelectedTrackStage(this.selectedTrackStageForUi);
+    }
     this.tapeMenuPanel.hidden = false;
     this.tapeMenuRecorderEl.hidden = false;
     this.tapeMenuHintEl.hidden = false;
@@ -1323,6 +1334,7 @@ export class UI {
   }
 
   setSelectedTrackStage(stage: TrackStage): void {
+    this.selectedTrackStageForUi = stage;
     const track = findTrackForStage(stage.id);
     this.currentTrackEl.textContent = `${track?.label ?? 'Track'} / ${stage.label}`;
     const columns = this.tapeCassetteRack.querySelectorAll<HTMLElement>('.tape-cassette-column');
@@ -1335,9 +1347,23 @@ export class UI {
       const trackId = dot.dataset.trackId ?? '';
       const stageNo = findTrackStage(trackId, dot.dataset.stageId ?? '')?.stage ?? 0;
       const unlocked = stageNo > 0 && isTapeStageUnlocked(trackId, stageNo);
-      dot.classList.toggle('tape-stage-dot--selected', selected && unlocked);
+      dot.classList.toggle('tape-stage-dot--selected', selected);
       dot.classList.toggle('tape-stage-dot--locked', !unlocked);
-      dot.setAttribute('aria-pressed', selected && unlocked ? 'true' : 'false');
+      dot.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    }
+    this.syncBeatLaneTapeIcon(stage);
+  }
+
+  private syncBeatLaneTapeIcon(stage: TrackStage): void {
+    const track = findTrackForStage(stage.id);
+    const url = track ? getTapeCassetteImageUrl(track.id) : null;
+    if (!url) {
+      this.beatLaneTapeIconEl.hidden = true;
+      this.beatLaneTapeIconEl.removeAttribute('src');
+      return;
+    }
+    if (this.beatLaneTapeIconEl.getAttribute('src') !== url) {
+      this.beatLaneTapeIconEl.src = url;
     }
   }
 
@@ -1636,7 +1662,10 @@ export class UI {
     beats: readonly BeatEvent[] | null,
     hitBeatIndices: ReadonlySet<number>,
     heroDashing: boolean,
+    tapePlaying = false,
   ): void {
+    this.beatLaneTapeIconEl.hidden =
+      tapePlaying || !this.beatLaneTapeIconEl.getAttribute('src');
     const ctx = this.beatLaneCtx;
     if (!ctx) return;
 
