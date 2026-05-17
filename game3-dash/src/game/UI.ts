@@ -1955,7 +1955,8 @@ export class UI {
     root.replaceChildren();
     type TitlesLine =
       | { text: string; heading?: boolean }
-      | { name: string; linkHref: string };
+      | { name: string; linkHref: string }
+      | { before: string; linkLabel: string; linkHref: string };
     const lines: TitlesLine[] = [
       { text: 'Soundtrack by:', heading: true },
       { name: 'variafx', linkHref: 'https://linktr.ee/variafx' },
@@ -1964,10 +1965,26 @@ export class UI {
       { text: 'Larik (Codex, Cursor)' },
       { text: 'Art by', heading: true },
       { text: 'Larik / Nastya Trems' },
+      {
+        before: 'Made for ',
+        linkLabel: 'OSSvibejam',
+        linkHref: 'https://x.com/hashtag/OSSvibejam?src=hashtag_click',
+      },
     ];
     for (const line of lines) {
       const p = document.createElement('p');
-      if ('linkHref' in line) {
+      if ('linkLabel' in line) {
+        p.className = 'menu-sub-line';
+        p.append(line.before);
+        const link = document.createElement('a');
+        link.className = 'menu-sub-line__link';
+        link.href = line.linkHref;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = line.linkLabel;
+        link.addEventListener('click', (e) => e.stopPropagation());
+        p.append(link);
+      } else if ('linkHref' in line) {
         p.className = 'menu-sub-line';
         p.append(`${line.name} `);
         const link = document.createElement('a');
