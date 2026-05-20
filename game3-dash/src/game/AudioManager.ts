@@ -62,6 +62,11 @@ export class AudioManager {
     this.audio.currentTime = 0;
   }
 
+  seek(seconds: number): void {
+    const t = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+    this.audio.currentTime = t;
+  }
+
   get currentTime(): number {
     return this.audio.currentTime;
   }

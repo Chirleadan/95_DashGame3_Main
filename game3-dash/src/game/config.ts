@@ -108,6 +108,8 @@ export const CONFIG = {
   backgroundMusicUrl: '/audio/Background.ogg',
   /** Looping music on the main menu (`public/audio/menu.ogg`, from menu.mp3). */
   menuMusicUrl: '/audio/menu.ogg',
+  /** TAPES submenu preview starts at this offset (seconds) on the selected stage audio. */
+  tapeMenuPreviewStartSec: 5,
   backgroundMusicVolume: 0.35,
   playTrackManaCostEnabled: true,
   /**

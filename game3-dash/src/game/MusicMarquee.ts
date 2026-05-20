@@ -8,8 +8,24 @@ const TAPE_CREDITS: Readonly<Record<string, string>> = {
   'track-3': 'Ohota - Would You Lay on My Trap',
 };
 
+export type TapeTrackCreditParts = {
+  artist: string;
+  title: string;
+};
+
 export function getTapeTrackCredit(trackId: string): string | null {
   return TAPE_CREDITS[trackId] ?? null;
+}
+
+export function getTapeTrackCreditParts(trackId: string): TapeTrackCreditParts | null {
+  const raw = getTapeTrackCredit(trackId);
+  if (!raw) return null;
+  const sep = raw.indexOf(' - ');
+  if (sep < 0) return { artist: raw, title: '' };
+  return {
+    artist: raw.slice(0, sep).trim(),
+    title: raw.slice(sep + 3).trim(),
+  };
 }
 
 export class MusicMarquee {

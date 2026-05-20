@@ -160,6 +160,7 @@ export class Game {
   private backgroundPauseTimer: number | null = null;
   /** Which ambient loop is loaded on `backgroundAudio` (menu vs in-run). */
   private ambientMusicMode: 'menu' | 'game' = 'menu';
+  private tapeMenuPreviewUrl: string | null = null;
   private readonly beatEffects: BeatEffects;
   private beatFloor!: BeatFloorVisualizer;
   private arenaFloorMat!: THREE.MeshStandardMaterial;
@@ -445,6 +446,14 @@ export class Game {
     this.ui.onTrackStageSelected((stage) => {
       void this.selectTrackStage(stage);
     });
+    this.ui.onTapeMenuOpenChange((open) => {
+      if (open) {
+        void this.syncTapeMenuPreviewMusic();
+        return;
+      }
+      this.tapeMenuPreviewUrl = null;
+      void this.ensureBackgroundMusicPlaying();
+    });
     saveSelectedTrackStageId(this.selectedTrackStage.id);
     this.ui.setSelectedTrackStage(this.selectedTrackStage);
     this.ui.setPlayEnabled(false, '');
@@ -697,6 +706,9 @@ export class Game {
     this.syncBeatPlayButton();
     await ensureStageTrackAssetsLoaded(stage);
     await this.initBeatmap();
+    if (this.ui.isTapeMenuOpen() && this.runPhase === 'menu') {
+      void this.syncTapeMenuPreviewMusic();
+    }
   }
 
   private syncBeatPlayButton(): void {
@@ -795,6 +807,19 @@ export class Game {
       this.ui.setMusicMarquee(credit);
       return;
     }
+    if (
+      this.ui.isTapeMenuOpen() &&
+      this.runPhase === 'menu' &&
+      this.tapeMenuPreviewUrl &&
+      this.backgroundAudio.isPlaying
+    ) {
+      const trackEntry = findTrackForStage(this.selectedTrackStage.id);
+      const credit = trackEntry
+        ? getTapeTrackCredit(trackEntry.id)
+        : null;
+      this.ui.setMusicMarquee(credit);
+      return;
+    }
     if (this.backgroundAudio.isPlaying) {
       this.ui.setMusicMarquee(MUSIC_MARQUEE_AMBIENT);
       return;
@@ -802,17 +827,51 @@ export class Game {
     this.ui.setMusicMarquee(null);
   }
 
+  private async syncTapeMenuPreviewMusic(): Promise<void> {
+    if (!this.ui.isTapeMenuOpen() || this.runPhase !== 'menu') return;
+    if (this.audio.isPlaying) return;
+
+    const url = this.selectedTrackStage.audioUrl;
+    const needsLoad = this.tapeMenuPreviewUrl !== url;
+    try {
+      this.backgroundAudio.setLoop(true);
+      if (needsLoad) {
+        await this.backgroundAudio.setTrack(url);
+        this.tapeMenuPreviewUrl = url;
+      }
+      this.backgroundAudio.seek(CONFIG.tapeMenuPreviewStartSec);
+      if (!this.backgroundAudio.isPlaying) {
+        await this.backgroundAudio.play();
+      }
+      this.syncMusicMarquee();
+    } catch (e) {
+      console.error(
+        '[TapeMenuPreview] playback failed:',
+        e instanceof Error ? e.message : e,
+        e,
+      );
+    }
+  }
+
   private async ensureBackgroundMusicPlaying(): Promise<void> {
     this.clearBackgroundPauseTimer();
     if (this.audio.isPlaying) return;
 
+    if (this.ui.isTapeMenuOpen() && this.runPhase === 'menu') {
+      void this.syncTapeMenuPreviewMusic();
+      return;
+    }
+
     const mode = this.ambientMusicModeForPhase();
     const url = this.ambientMusicUrlForPhase();
-    const needsSwitch = this.ambientMusicMode !== mode;
+    const leavingTapePreview = this.tapeMenuPreviewUrl !== null;
+    this.tapeMenuPreviewUrl = null;
+    const needsSwitch = this.ambientMusicMode !== mode || leavingTapePreview;
     if (!needsSwitch && this.backgroundAudio.isPlaying) return;
 
     try {
       if (needsSwitch) {
+        this.backgroundAudio.setLoop(true);
         await this.backgroundAudio.setTrack(url);
         this.backgroundAudio.reset();
         this.ambientMusicMode = mode;
@@ -820,6 +879,7 @@ export class Game {
       if (!this.backgroundAudio.isPlaying) {
         await this.backgroundAudio.play();
       }
+      this.syncMusicMarquee();
     } catch {
       // Browser autoplay can block this until the next explicit user gesture.
     }

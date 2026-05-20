@@ -50,7 +50,7 @@ import {
   TRACK_CATALOG,
   type TrackStage,
 } from './TrackCatalog.ts';
-import { MusicMarquee } from './MusicMarquee.ts';
+import { getTapeTrackCreditParts, MusicMarquee } from './MusicMarquee.ts';
 import { UiButtonSfx } from './UiButtonSfx.ts';
 import {
   isDesktopMenuNoiseViewport,
@@ -304,7 +304,11 @@ export class UI {
   private readonly tapeMenuPanel: HTMLElement;
   private readonly tapeMenuHintEl: HTMLElement;
   private readonly tapeMenuCaptionEl: HTMLParagraphElement;
+  private readonly tapeMenuTrackCreditEl: HTMLElement;
+  private readonly tapeMenuTrackArtistEl: HTMLElement;
+  private readonly tapeMenuTrackTitleEl: HTMLElement;
   private readonly tapeBackBtn: HTMLButtonElement;
+  private tapeMenuOpen = false;
   private tapeFragmentToastHideTimer: number | null = null;
   private readonly tapeFragmentToastEl: HTMLElement;
   private readonly titlesMenuPanel: HTMLElement;
@@ -366,6 +370,7 @@ export class UI {
   private artifactsChangeHandler: (() => void) | null = null;
   private tapePlayTapHandler: (() => void) | null = null;
   private trackStageSelectHandler: ((stage: TrackStage) => void) | null = null;
+  private tapeMenuOpenChangeHandler: ((open: boolean) => void) | null = null;
   private readonly buttonSfx = new UiButtonSfx();
 
   constructor(container: HTMLElement) {
@@ -733,6 +738,20 @@ export class UI {
     this.tapeMenuCaptionEl.className = 'tape-menu-caption';
     this.tapeMenuCaptionEl.hidden = true;
     mainMenuUiScale.appendChild(this.tapeMenuCaptionEl);
+
+    this.tapeMenuTrackCreditEl = document.createElement('div');
+    this.tapeMenuTrackCreditEl.id = 'tape-menu-track-credit';
+    this.tapeMenuTrackCreditEl.className = 'tape-menu-track-credit';
+    this.tapeMenuTrackCreditEl.hidden = true;
+    this.tapeMenuTrackArtistEl = document.createElement('div');
+    this.tapeMenuTrackArtistEl.className = 'tape-menu-track-credit__artist';
+    this.tapeMenuTrackTitleEl = document.createElement('div');
+    this.tapeMenuTrackTitleEl.className = 'tape-menu-track-credit__title';
+    this.tapeMenuTrackCreditEl.append(
+      this.tapeMenuTrackArtistEl,
+      this.tapeMenuTrackTitleEl,
+    );
+    mainMenuUiScale.appendChild(this.tapeMenuTrackCreditEl);
 
     this.tapeFragmentToastEl = document.createElement('div');
     this.tapeFragmentToastEl.className = 'tape-fragment-toast tape-fragment-toast--hidden';
@@ -1437,9 +1456,11 @@ export class UI {
   }
 
   private hideAllMenuSubpanels(): void {
+    this.setTapeMenuOpen(false);
     this.tapeMenuPanel.hidden = true;
     this.tapeMenuHintEl.hidden = true;
     this.tapeMenuCaptionEl.hidden = true;
+    this.tapeMenuTrackCreditEl.hidden = true;
     this.tapeBackBtn.hidden = true;
     this.upgradeMenuPanel.hidden = true;
     this.upgradeBackBtn.hidden = true;
@@ -2084,11 +2105,19 @@ export class UI {
       'mobile-game-portrait',
     );
     this.tapeBackBtn.hidden = false;
+    this.setTapeMenuOpen(true);
   }
 
   private closeTrackMenu(): void {
     this.hideAllMenuSubpanels();
     this.setMainMenuHomePanelVisible(true);
+  }
+
+  private setTapeMenuOpen(open: boolean): void {
+    if (this.tapeMenuOpen === open) return;
+    this.tapeMenuOpen = open;
+    this.tapeMenuTrackCreditEl.hidden = !open;
+    this.tapeMenuOpenChangeHandler?.(open);
   }
 
   setSelectedTrackStage(stage: TrackStage): void {
@@ -2111,6 +2140,22 @@ export class UI {
     }
     this.syncBeatLaneTapeIcon(stage);
     this.tapeMenuCaptionEl.textContent = getTapeStageMenuDescription(stage);
+    this.syncTapeMenuTrackCredit(track?.id ?? '');
+  }
+
+  private syncTapeMenuTrackCredit(trackId: string): void {
+    const parts = trackId ? getTapeTrackCreditParts(trackId) : null;
+    if (!parts) {
+      this.tapeMenuTrackArtistEl.textContent = '';
+      this.tapeMenuTrackTitleEl.textContent = '';
+      this.tapeMenuTrackCreditEl.hidden = true;
+      return;
+    }
+    this.tapeMenuTrackArtistEl.textContent = parts.artist;
+    this.tapeMenuTrackTitleEl.textContent = parts.title;
+    if (this.tapeMenuOpen) {
+      this.tapeMenuTrackCreditEl.hidden = false;
+    }
   }
 
   private syncBeatLaneTapeIcon(stage: TrackStage): void {
