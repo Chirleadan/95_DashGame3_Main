@@ -1,4 +1,6 @@
 /** Menu cassette art under `public/assets/tapes/`. */
+export const TAPE_CASSETTE_LOCKED_IMAGE_URL = '/assets/tapes/locked.webp';
+
 export type TapeCassetteEntry = {
   id: string;
   imageUrl: string;
