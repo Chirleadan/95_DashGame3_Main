@@ -2120,6 +2120,14 @@ export class UI {
     this.tapeMenuOpenChangeHandler?.(open);
   }
 
+  isTapeMenuOpen(): boolean {
+    return this.tapeMenuOpen;
+  }
+
+  onTapeMenuOpenChange(handler: (open: boolean) => void): void {
+    this.tapeMenuOpenChangeHandler = handler;
+  }
+
   setSelectedTrackStage(stage: TrackStage): void {
     this.selectedTrackStageForUi = stage;
     const track = findTrackForStage(stage.id);
