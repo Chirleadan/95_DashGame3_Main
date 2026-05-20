@@ -451,8 +451,7 @@ export class Game {
         void this.syncTapeMenuPreviewMusic();
         return;
       }
-      this.tapeMenuPreviewUrl = null;
-      void this.ensureBackgroundMusicPlaying();
+      void this.stopTapeMenuPreviewMusic();
     });
     saveSelectedTrackStageId(this.selectedTrackStage.id);
     this.ui.setSelectedTrackStage(this.selectedTrackStage);
@@ -853,12 +852,32 @@ export class Game {
     }
   }
 
+  /** Leave TAPES submenu: restore main-menu ambient loop (not cassette preview). */
+  private async stopTapeMenuPreviewMusic(): Promise<void> {
+    if (this.runPhase !== 'menu') return;
+    this.tapeMenuPreviewUrl = null;
+    this.clearBackgroundPauseTimer();
+    if (this.audio.isPlaying) return;
+    try {
+      this.backgroundAudio.setLoop(true);
+      await this.backgroundAudio.setTrack(CONFIG.menuMusicUrl);
+      this.backgroundAudio.reset();
+      this.ambientMusicMode = 'menu';
+      if (!this.backgroundAudio.isPlaying) {
+        await this.backgroundAudio.play();
+      }
+      this.syncMusicMarquee();
+    } catch {
+      // Browser autoplay can block this until the next explicit user gesture.
+    }
+  }
+
   private async ensureBackgroundMusicPlaying(): Promise<void> {
     this.clearBackgroundPauseTimer();
     if (this.audio.isPlaying) return;
 
+    // Cassette preview is started only from TAPES open / stage pick — never from the menu loop.
     if (this.ui.isTapeMenuOpen() && this.runPhase === 'menu') {
-      void this.syncTapeMenuPreviewMusic();
       return;
     }
 
