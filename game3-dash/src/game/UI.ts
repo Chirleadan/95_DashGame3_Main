@@ -57,7 +57,11 @@ import {
   MENU_NOISE_WEBP_URLS,
   pickRandomMenuNoiseWebpUrl,
 } from './MenuNoiseCatalog.ts';
-import { getTapeCassetteImageUrl, TAPE_CASSETTES } from './TapeCatalog.ts';
+import {
+  getTapeCassetteImageUrl,
+  TAPE_CASSETTE_LOCKED_IMAGE_URL,
+  TAPE_CASSETTES,
+} from './TapeCatalog.ts';
 import {
   getHighestUnlockedTrackStage,
   isTapeStagePlayable,
@@ -2050,18 +2054,23 @@ export class UI {
       col.className = 'tape-cassette-column';
       col.dataset.trackId = tape.trackId;
 
+      const anyStageUnlocked = getHighestUnlockedTrackStage(tape.trackId) !== null;
       const cassette = document.createElement('button');
       cassette.type = 'button';
       cassette.className = 'tape-cassette';
       cassette.dataset.trackId = tape.trackId;
+      cassette.disabled = !anyStageUnlocked;
+      cassette.classList.toggle('tape-cassette--locked', !anyStageUnlocked);
       cassette.setAttribute(
         'aria-label',
-        `${track?.label ?? tape.id}, highest stage`,
+        anyStageUnlocked
+          ? `${track?.label ?? tape.id}, highest stage`
+          : `${track?.label ?? tape.id}, locked`,
       );
       const img = document.createElement('img');
       img.className = 'tape-cassette__img';
-      img.src = tape.imageUrl;
-      img.alt = track?.label ?? '';
+      img.src = anyStageUnlocked ? tape.imageUrl : TAPE_CASSETTE_LOCKED_IMAGE_URL;
+      img.alt = anyStageUnlocked ? (track?.label ?? '') : 'Locked tape';
       img.draggable = false;
       cassette.appendChild(img);
       col.appendChild(cassette);
@@ -2139,6 +2148,7 @@ export class UI {
     for (const col of columns) {
       col.classList.toggle('tape-cassette-column--active', col.dataset.trackId === track?.id);
     }
+    this.syncTapeCassetteImages();
     const dots = this.tapeCassetteRack.querySelectorAll<HTMLButtonElement>('.tape-stage-dot');
     for (const dot of dots) {
       const selected = dot.dataset.stageId === stage.id;
@@ -2152,6 +2162,32 @@ export class UI {
     this.syncBeatLaneTapeIcon(stage);
     this.tapeMenuCaptionEl.textContent = getTapeStageMenuDescription(stage);
     this.syncTapeMenuTrackCredit(track?.id ?? '');
+  }
+
+  private syncTapeCassetteImages(): void {
+    for (const tape of TAPE_CASSETTES) {
+      const track = TRACK_CATALOG.find((entry) => entry.id === tape.trackId);
+      const anyStageUnlocked = getHighestUnlockedTrackStage(tape.trackId) !== null;
+      const col = this.tapeCassetteRack.querySelector<HTMLElement>(
+        `.tape-cassette-column[data-track-id="${tape.trackId}"]`,
+      );
+      const cassette = col?.querySelector<HTMLButtonElement>('.tape-cassette');
+      const img = col?.querySelector<HTMLImageElement>('.tape-cassette__img');
+      if (!cassette || !img) continue;
+      const nextSrc = anyStageUnlocked ? tape.imageUrl : TAPE_CASSETTE_LOCKED_IMAGE_URL;
+      if (img.getAttribute('src') !== nextSrc) {
+        img.src = nextSrc;
+      }
+      cassette.disabled = !anyStageUnlocked;
+      cassette.classList.toggle('tape-cassette--locked', !anyStageUnlocked);
+      cassette.setAttribute(
+        'aria-label',
+        anyStageUnlocked
+          ? `${track?.label ?? tape.id}, highest stage`
+          : `${track?.label ?? tape.id}, locked`,
+      );
+      img.alt = anyStageUnlocked ? (track?.label ?? '') : 'Locked tape';
+    }
   }
 
   private syncTapeMenuTrackCredit(trackId: string): void {
@@ -2183,6 +2219,9 @@ export class UI {
   }
 
   showTapeFragmentUnlocked(trackLabel: string, stageLabel: string): void {
+    if (this.tapeMenuOpen) {
+      this.syncTapeCassetteImages();
+    }
     this.tapeFragmentToastEl.textContent = `Tape fragment — ${trackLabel} · ${stageLabel}`;
     this.tapeFragmentToastEl.classList.remove('tape-fragment-toast--hidden');
     if (this.tapeFragmentToastHideTimer !== null) {

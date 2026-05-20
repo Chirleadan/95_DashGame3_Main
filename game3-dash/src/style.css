@@ -1940,6 +1940,10 @@ html.mobile-game.mobile-game-portrait .main-menu-bg-art {
   transition: border-color 0.12s ease;
 }
 
+.tape-cassette--locked:disabled {
+  cursor: default;
+}
+
 .tape-cassette:focus-visible {
   outline: 1px solid rgba(255, 255, 255, 0.55);
   outline-offset: 3px;

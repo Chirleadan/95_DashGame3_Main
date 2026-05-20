@@ -1,7 +1,7 @@
 import { BUTTON_SFX_ALL_URLS } from './ButtonSfxCatalog.ts';
 import { CONFIG } from './config.ts';
 import { RUN_UPGRADE_ART_BY_ID } from './RunUpgradeArt.ts';
-import { TAPE_CASSETTES } from './TapeCatalog.ts';
+import { TAPE_CASSETTE_LOCKED_IMAGE_URL, TAPE_CASSETTES } from './TapeCatalog.ts';
 import { TRACK_CATALOG, type TrackStage } from './TrackCatalog.ts';
 
 export type PreloadAssetKind = 'image' | 'audio' | 'json' | 'font';
@@ -120,6 +120,7 @@ export function getCoreGameAssetManifest(selectedStage: TrackStage): PreloadAsse
   add(CONFIG.menuMusicUrl, 'audio');
   add(CONFIG.backgroundMusicUrl, 'audio');
 
+  add(TAPE_CASSETTE_LOCKED_IMAGE_URL, 'image');
   for (const tape of TAPE_CASSETTES) {
     add(tape.imageUrl, 'image');
   }
