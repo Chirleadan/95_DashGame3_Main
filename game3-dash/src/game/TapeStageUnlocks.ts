@@ -124,6 +124,22 @@ export function getHighestUnlockedTrackStage(trackId: string): TrackStage | null
   return best;
 }
 
+/** TAPES menu: highest unlocked stage, or lowest enabled stage for locked-tape preview. */
+export function getTapeMenuPreviewStage(trackId: string): TrackStage | null {
+  const unlocked = getHighestUnlockedTrackStage(trackId);
+  if (unlocked) return unlocked;
+  const track = TRACK_CATALOG.find((entry) => entry.id === trackId);
+  if (!track) return null;
+  let first: TrackStage | null = null;
+  for (const stage of track.stages) {
+    if (!stage.enabled) continue;
+    if (!first || stage.stage < first.stage) {
+      first = stage;
+    }
+  }
+  return first;
+}
+
 /** First unlocked stage in catalog order (for initial selection). */
 export function getDefaultPlayableTrackStage(): TrackStage | null {
   for (const track of TRACK_CATALOG) {

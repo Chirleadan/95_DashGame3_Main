@@ -1940,8 +1940,8 @@ html.mobile-game.mobile-game-portrait .main-menu-bg-art {
   transition: border-color 0.12s ease;
 }
 
-.tape-cassette--locked:disabled {
-  cursor: default;
+.tape-cassette--locked {
+  cursor: pointer;
 }
 
 .tape-cassette:focus-visible {

@@ -64,6 +64,7 @@ import {
 } from './TapeCatalog.ts';
 import {
   getHighestUnlockedTrackStage,
+  getTapeMenuPreviewStage,
   isTapeStagePlayable,
   isTapeStageUnlocked,
 } from './TapeStageUnlocks.ts';
@@ -2059,13 +2060,12 @@ export class UI {
       cassette.type = 'button';
       cassette.className = 'tape-cassette';
       cassette.dataset.trackId = tape.trackId;
-      cassette.disabled = !anyStageUnlocked;
       cassette.classList.toggle('tape-cassette--locked', !anyStageUnlocked);
       cassette.setAttribute(
         'aria-label',
         anyStageUnlocked
           ? `${track?.label ?? tape.id}, highest stage`
-          : `${track?.label ?? tape.id}, locked`,
+          : `${track?.label ?? tape.id}, locked — tap to preview`,
       );
       const img = document.createElement('img');
       img.className = 'tape-cassette__img';
@@ -2178,13 +2178,12 @@ export class UI {
       if (img.getAttribute('src') !== nextSrc) {
         img.src = nextSrc;
       }
-      cassette.disabled = !anyStageUnlocked;
       cassette.classList.toggle('tape-cassette--locked', !anyStageUnlocked);
       cassette.setAttribute(
         'aria-label',
         anyStageUnlocked
           ? `${track?.label ?? tape.id}, highest stage`
-          : `${track?.label ?? tape.id}, locked`,
+          : `${track?.label ?? tape.id}, locked — tap to preview`,
       );
       img.alt = anyStageUnlocked ? (track?.label ?? '') : 'Locked tape';
     }
@@ -2299,7 +2298,7 @@ export class UI {
       if (!cassette) return;
       const trackId = cassette.dataset.trackId;
       if (!trackId) return;
-      const stage = getHighestUnlockedTrackStage(trackId);
+      const stage = getTapeMenuPreviewStage(trackId);
       if (!stage) return;
       this.trackStageSelectHandler?.(stage);
     });
