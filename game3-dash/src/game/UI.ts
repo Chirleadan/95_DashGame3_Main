@@ -743,14 +743,17 @@ export class UI {
     this.tapeMenuTrackCreditEl.id = 'tape-menu-track-credit';
     this.tapeMenuTrackCreditEl.className = 'tape-menu-track-credit';
     this.tapeMenuTrackCreditEl.hidden = true;
+    const tapeMenuTrackCreditBlockEl = document.createElement('div');
+    tapeMenuTrackCreditBlockEl.className = 'tape-menu-track-credit__block';
     this.tapeMenuTrackArtistEl = document.createElement('div');
     this.tapeMenuTrackArtistEl.className = 'tape-menu-track-credit__artist';
     this.tapeMenuTrackTitleEl = document.createElement('div');
     this.tapeMenuTrackTitleEl.className = 'tape-menu-track-credit__title';
-    this.tapeMenuTrackCreditEl.append(
+    tapeMenuTrackCreditBlockEl.append(
       this.tapeMenuTrackArtistEl,
       this.tapeMenuTrackTitleEl,
     );
+    this.tapeMenuTrackCreditEl.append(tapeMenuTrackCreditBlockEl);
     mainMenuUiScale.appendChild(this.tapeMenuTrackCreditEl);
 
     this.tapeFragmentToastEl = document.createElement('div');

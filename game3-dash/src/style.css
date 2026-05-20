@@ -1846,12 +1846,20 @@ html.mobile-game.mobile-game-portrait .main-menu-bg-art {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: clamp(4px, 0.8vh, 10px);
   padding: clamp(12px, 2.2vh, 28px) clamp(16px, 2.5vw, 32px);
   box-sizing: border-box;
   text-align: center;
   pointer-events: none;
   user-select: none;
+}
+
+.tape-menu-track-credit__block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(4px, 0.8vh, 10px);
+  max-width: 100%;
+  transform: translateY(70%);
 }
 
 .tape-menu-track-credit[hidden] {
